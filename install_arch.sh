@@ -158,17 +158,17 @@ MIRROR
     pacman \$PFLAG xterm xorg-bdftopcf xorg-docs xorg-fonts-100dpi xorg-fonts-75dpi xorg-fonts-encodings xorg-font-util xorg-luit xorg-mkfontdir xorg-mkfontscale xorg-server xorg-server-common xorg-setxkbmap xorg-xauth xorg-xbacklight xorg-xev xorg-xhost xorg-xinit xorg-xinput xorg-xkbcomp xorg-xkbevd xorg-xkbutils xorg-xlsclients xorg-xmodmap xorg-xprop xorg-xrandr xorg-xrdb
 
     #networks
-    pacman \$PFLAG network-manager-applet networkmanager nethogs ntp openssh tcpdump transmission-cli transmission-qt 
+    pacman \$PFLAG network-manager-applet networkmanager nethogs ntp openssh tcpdump transmission-cli transmission-qt wireshark-gtk
     #audio and video 
 
     pacman \$PFLAG pulseaudio pulseaudio-alsa pulseaudio-bluetooth alsa-utils ffmpeg gstreamer smplayer netease-cloud-music 
 
     #bluetooth
-    pacman \$PFLAG bluez bluez-firmware bluez-utils
+    pacman \$PFLAG bluez bluez-firmware bluez-utils blueberry
 
 
     #little tool
-    pacman \$PFLAG xfce4-terminal tmux zathura zathura-pdf-poppler you-get xdiskusage wget unzip unrar udevil tsocks tree strace sdcv rsync fsarchiver redis hiredis progress powertop pcmanfm parted oprofile ntfs-3g nmap lynx lsof lftp kexec-tools iotop htop gpicview gparted gptfdisk dos2unix dosfstools  foremost dmidecode wps-office smartmontools scrot 
+    pacman \$PFLAG xfce4-terminal tmux zathura zathura-pdf-poppler you-get xdiskusage wget unzip unrar udevil tsocks tree strace sdcv rsync fsarchiver redis hiredis progress powertop pcmanfm parted oprofile ntfs-3g nmap lynx lsof lftp kexec-tools iotop htop gpicview gparted gptfdisk dos2unix dosfstools  foremost dmidecode wps-office smartmontools scrot leanote
 
     #program tool
     pacman \$PFLAG gcc gdb ctags cscope clang emacs git go google-chrome jdk8-openjdk python python2 python2-pip python-pip  qemu ruby scala sublime-text valgrind zsh docker android-udev
@@ -181,9 +181,9 @@ MIRROR
 
 
     #wm
-    pacman \$PFLAG i3-wm lxdm dmenu i3lock i3status unclutter compton 
+    pacman \$PFLAG i3-wm lxdm dmenu i3lock i3status unclutter compton plymouth-git
 
-    pip install i3pystatus colour netifaces shadowsocks
+    pip install i3pystatus colour netifaces shadowsocks psutil netifaces basiciw PySocks you-get
 
 
     pacman \$PFLAG abs
