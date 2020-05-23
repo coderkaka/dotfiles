@@ -1,0 +1,329 @@
+#!/bin/env python
+
+import os
+import sys
+import json
+import time
+import commands
+import re
+import string
+
+mresult = {"collection_flag": 0, "error_info": '', "MSG": None}
+cfg_diff_dict = {}#dict for configured vip,key is vip port
+res_l = []#contain dicts for diff result, dict has vip port as key, diff value as value (1, diff, 0, same)
+dict = {}
+dict['result'] = 'OK'
+dict['failcount'] = 0
+debug = 0
+origin_conf_in_tengine = "/home/admin/origin_conf_in_tengine.conf" # 0.cfg
+formatted_conf_in_tengine = "/home/admin/formatted_conf_in_tengine.conf" # 1.cfg
+formatted_conf_in_agent = "/home/admin/formatted_conf_in_agent.conf" # 2.cfg
+formatted_conf_diff = "/home/admin/formatted_conf.diff" # 3.cfg
+
+def exec_local_cmd(cmd):
+    ret = commands.getstatusoutput(cmd)
+    return ret[0], ret[1]
+
+#step 1: get vip list
+def build_cfg_diff_dict():
+    global cfg_diff_dict
+
+    #hotconf enable?
+    cmd ='grep "tengine_hotconfig: enable" /home/slb/control-proxy/conf/proxy.yaml'
+    ret, output = exec_local_cmd(cmd)
+    if len(output) == 0:
+        mresult['collection_flag'] = 0
+        mresult['error_info'] = 'hotconf is not enabled'
+        mresult['MSG'] = []
+        print json.dumps(mresult, sort_keys=True, indent=2)
+        sys.exit(0)
+
+    #with any vip?
+    cmd = 'service slb-control-proxy status'
+    ret, out = exec_local_cmd(cmd)
+    #if ret:
+    #    mresult['collection_flag'] = 0
+    #    mresult['error_info'] = 'proxy is not enabled'
+    #    mresult['MSG'] = []
+    #    print json.dumps(mresult, sort_keys=True, indent=2)
+    #    sys.exit(0)
+    if string.find(out,'enabled') == -1:
+        mresult['collection_flag'] = 0
+        mresult['error_info'] = 'proxy is not enabled'
+        mresult['MSG'] = []
+        print json.dumps(mresult, sort_keys=True, indent=2)
+        sys.exit(0)
+
+    cmd = 'sudo grep slb_info /etc/proxy/conf/vip -R'
+    ret, out = exec_local_cmd(cmd)
+    if ret:
+        mresult['collection_flag'] = 0
+        mresult['error_info'] = 'not vip is configured'
+        mresult['MSG'] = []
+        print json.dumps(mresult, sort_keys=True, indent=2)
+        sys.exit(0)
+
+    ou = out.strip()
+    lines = re.split('\n',ou)
+    for i in range(len(lines)):
+        #/etc/proxy/conf/vip/59563: set $slb_info ...
+        l = lines[i]
+        ll = re.split(':', l)
+        if len(ll[0]) != 25 :#25 is len("/etc/proxy/conf/vip/50988"), skip .swp
+            continue
+        key = ll[0][-5:]
+        cfg_diff_dict[key] = {}
+
+# step 2: build cfg file from shm and vip dir and do compare
+# do diff between cfg from shm and cfg file
+# file /home/admin/1.cfg is sorted result from 0.cfg
+# file /home/admin/2.cfg is sorted result from config file in vip dir
+
+def cfg_file_diff(src, dst):
+    skiplist = ['proxy_pass','vip_addr','slb_info','X-Forwarded-For',
+			'ssl_certificate','ssl_ciphers','ssl_prefer_server_ciphers',
+			'ssl_keyless','ssl_session_cache shared','ssl_protocols',
+			'proxy_http_version','req_status','slb_keepalive_timeout',
+			'slb_proxy_read_timeout','ssl_client_certificate',
+			'cust_headers','ssl_verify_depth','aliwaf', 'tmd',
+			'slb_rule_id', 'slb_pool_id']
+    #slb_upstream_keepalive in skiplist used to adapt the diffs of 1804/1712
+
+    cmd = 'sudo cat ' + src + '|grep -v http2 | grep -v keepalive_timeout| grep -v proxy_read_timeout | grep -v tmd | grep -v slb_redirect_https  | grep -v X-Forwarded-For | grep -v cust_headers'
+    ret, out = exec_local_cmd(cmd)
+    o = out.strip()
+    a = o.split('\n', -1)
+    b = []
+    for l in a:
+        tmp = l.strip()
+        if tmp:
+            b.append(tmp)
+
+    cmd = 'sudo cat ' + dst + '|grep -v http2 | grep -v keepalive_timeout| grep -v proxy_read_timeout | grep -v request_uri  | grep -v slb_redirect_https'
+    ret, out = exec_local_cmd(cmd)
+    o = out.strip()
+    a = o.split('\n', -1)
+    c = []
+    upsopen = 0
+    for l in a:
+        next = 0
+        tmp = l.strip()
+        #skip unrelated feilds
+        for item in skiplist:
+            if item in tmp:
+                next = 1
+                break
+        if next:
+            continue
+        #skip upstream part
+        if 'upstream ' in tmp:
+            upsopen = 1
+        if upsopen:
+            if '}' in tmp:
+                upsopen = 0
+            continue
+        if tmp:
+            c.append(tmp)
+    b.sort()
+    c.sort()
+    bb = [x+'\n' for x in b]
+    cc = [x+'\n' for x in c]
+    with open(formatted_conf_in_tengine, 'w') as fp:
+        fp.writelines(bb)
+    with open(formatted_conf_in_agent, 'w') as fp:
+        fp.writelines(cc)
+    cmd = 'diff -b -u %s %s' % (formatted_conf_in_tengine, formatted_conf_in_agent)
+    ret, out = exec_local_cmd(cmd)
+    if not out:
+        return True
+    else:
+        return False
+
+# file /home/admin/0.cfg' is the cfg restore from shm
+def do_compare():
+    global cfg_diff_dict
+    global res_l
+    # enable type
+    take1 = ['gzip', 'gzip_json', 'gzip_etag', 'ssl', 'http2', 'ssl_verify_client']
+    # restore vip cfg from shm
+    res = ''
+    for key in cfg_diff_dict:
+        res = ''
+        cmd = "curl -s 127.0.0.1:8089/config?vip=" + key
+        ret, result = exec_local_cmd(cmd)
+        jdict = json.loads(s=result)
+        if jdict['status'] == 404:
+            dict = {}
+            dict[key] = 1
+            res_l.append(dict)
+            if debug:
+                print key + 'Fail'
+            continue
+        #write the cfg file
+        for k1 in jdict['result']:#1,2,3,...
+            lvl1_dict = jdict['result'][k1] #server_name,locations, modulesi
+            if k1 == 'listen' or k1 == 'update_time':
+                continue
+            res += 'server { \n'
+            if lvl1_dict.has_key('server_name') and lvl1_dict['server_name'] != '':
+                res += 'server_name  ' + lvl1_dict['server_name'] + ';\n'
+                #print lvl1_dict['server_name']
+            #print '----------modules--------------'
+            #print lvl1_dict['modules']
+            mod_list = lvl1_dict['modules']
+            for k2 in mod_list:
+                mod_dict = k2 #{"name":"gzip","conf":{"enable":"on"}}
+                for k3 in mod_dict:#k3 is name
+                    if mod_dict[k3] in take1:#gizp
+                        res += mod_dict[k3] + ' ' + mod_dict['conf']['enable']  + ';\n'
+                    if mod_dict[k3] == 'slb_limit_req_rate':
+                        res += 'slb_limit_req zone=slb_req5k rate=' + mod_dict['conf']['rate_limit']  + 'r/s nobucket;\n'
+                    if mod_dict[k3] == 'slb_proxy_read_timeout':
+                        res += 'proxy_read_timeout '  +  str(mod_dict['conf']['proxy_read_timeout']) + ';\n'
+                    if mod_dict[k3] == 'slb_keepalive_timeout':
+                        res += 'keepalive_timeout ' +  str(mod_dict['conf']['keepalive_timeout']) + ';\n'
+                    if mod_dict[k3] == 'slb_redirect_https':
+                        res += 'slb_redirect_https ' +  str(mod_dict['conf']['port']) + ';\n'
+                    if mod_dict[k3] == 'proxy':
+                        hdr_dict = mod_dict['conf']['proxy_headers']
+                        for k4 in hdr_dict:
+                            res += 'proxy_set_header ' + k4 + ' ' + hdr_dict[k4] + ';\n'
+            #print '----------locs--------------'
+            #print lvl1_dict['locations']['static']
+            #print lvl1_dict['locations']['reg']
+            if 'prio' in lvl1_dict['locations']:
+                loc_list = lvl1_dict['locations']['prio']
+            else:
+                loc_list = {}
+            for k2 in loc_list:
+                loc_dict = k2
+                res += 'prio_location ' + loc_dict['priority'] + ' {\n'
+                for k3 in loc_dict['match_variables']:
+                    res += 'match_variables ' + str(loc_dict['match_variables'][k3]['case_sensitive']) + ' "' + k3 + '" "' + loc_dict['match_variables'][k3]['value'] + '";\n'
+                for k3 in loc_dict['modules']:# a list of dict
+                    for k in k3:
+                       if k3[k] == 'ups':
+                          res += 'set $slbups ' + k3['conf']['upstream']  + ';\n'
+                       if k3[k] == 'slb_hide_cookie':
+                          res += 'session_sticky_hide_cookie ' + k3['conf']['slb_hide_cookie']  + ';\n'
+                       if k3[k] == 'slb_secure_cookie':
+                          res += 'slb_secure_cookie ' + k3['conf']['enable']  + ';\n'
+                       if k3[k] == 'slb_httponly_cookie':
+                          res += 'slb_httponly_cookie  ' + k3['conf']['enable']  + ';\n'
+                       if k3[k] == 'slb_upstream_keepalive':
+                          res += 'slb_upstream_keepalive ' + k3['conf']['val']  + ';\n'
+                res += '}\n'#end loc
+            loc_list = lvl1_dict['locations']['static']
+            for k2 in loc_list:
+                loc_dict = k2
+                res += 'location ' + loc_dict['name'] + ' {\n'
+                for k3 in loc_dict['modules']:# a list of dict
+                    for k in k3:
+                       if k3[k] == 'ups':
+                          res += 'set $slbups ' + k3['conf']['upstream']  + ';\n'
+                       if k3[k] == 'slb_hide_cookie':
+                          res += 'session_sticky_hide_cookie ' + k3['conf']['slb_hide_cookie']  + ';\n'
+                       if k3[k] == 'slb_secure_cookie':
+                          res += 'slb_secure_cookie ' + k3['conf']['enable']  + ';\n'
+                       if k3[k] == 'slb_httponly_cookie':
+                          res += 'slb_httponly_cookie  ' + k3['conf']['enable']  + ';\n'
+                       if k3[k] == 'slb_upstream_keepalive':
+                          res += 'slb_upstream_keepalive ' + k3['conf']['val']  + ';\n'
+                res += '}\n'#end loc
+            loc_list = lvl1_dict['locations']['reg']
+            for k2 in loc_list:
+                loc_dict = k2
+                res += 'location ' + '~' + loc_dict['name'] + ' {\n'
+                for k3 in loc_dict['modules']:# a list of dict
+                    for k in k3:
+                       if k3[k] == 'ups':
+                          res += 'set $slbups ' + k3['conf']['upstream']  + ';\n'
+                       if k3[k] == 'slb_hide_cookie':
+                          res += 'session_sticky_hide_cookie ' + k3['conf']['slb_hide_cookie']  + ';\n'
+                       if k3[k] == 'slb_secure_cookie':
+                          res += 'slb_secure_cookie ' + k3['conf']['enable']  + ';\n'
+                       if k3[k] == 'slb_httponly_cookie':
+                          res += 'slb_httponly_cookie  ' + k3['conf']['enable']  + ';\n'
+                       if k3[k] == 'slb_upstream_keepalive':
+                          res += 'slb_upstream_keepalive ' + k3['conf']['val']  + ';\n'
+                res += '}\n'#end loc
+
+            res += '}\n' #end server
+            #print res
+        #write file
+        with open(origin_conf_in_tengine, 'w') as vipFile:
+            vipFile.write(res)
+        #do diff
+        s = origin_conf_in_tengine
+        d = '/etc/proxy/conf/vip/'+ key
+        ret = cfg_file_diff(s,d)
+        if ret == False:
+            dict = {}
+            dict[key] = 1
+            res_l.append(dict)
+            if debug:
+                print key + 'Fail'
+        else:
+            if debug:
+                print key + 'Ok'
+
+#step 3: merge result of diff
+#file /home/admin/3.cfg store the diff result per vip
+def merge_result():
+    global res_l
+    cmd = 'cat %s' % formatted_conf_diff #items :50001  1
+    ret, out = exec_local_cmd(cmd)
+    o = out.strip()
+    a = o.split('\n', -1)
+    for l in a:
+       tmp = l.strip()
+       ll = tmp.split(' ')
+       for item in res_l:
+           if item.has_key(ll[0]):
+               item[ll[0]] += int(ll[1])
+
+#step 4: write result of diff to file, eveytime we have latest list
+#return value is the number of vip has failed for 3 times
+def write_to_file():
+    global res_l
+    ret = 0
+    with open(formatted_conf_diff, 'w') as fp:
+        res = ''
+        for item in res_l:
+            for k in item:
+                res += k + ' ' +  str(item[k])  + '\n'
+                if item[k] >=3:
+                    ret += 1
+        fp.write(res)
+    return ret
+
+if __name__ == '__main__':
+    if len(sys.argv) == 2:
+        caller = sys.argv[1]
+        suffix = "." + caller
+        formatted_conf_in_tengine = formatted_conf_in_tengine + suffix
+        origin_conf_in_tengine = origin_conf_in_tengine + suffix
+        formatted_conf_in_agent = formatted_conf_in_agent + suffix
+        formatted_conf_diff = formatted_conf_diff + suffix
+
+    build_cfg_diff_dict()
+    if debug:
+        print '--------cfg_diff_dict---------'
+        print cfg_diff_dict
+
+    do_compare()
+    if debug:
+        print res_l
+
+    merge_result()
+    if debug:
+        print res_l
+
+    ret = write_to_file()
+    if debug:
+        print ret
+
+    #alarm if there is something wrong
+    dict['failcount'] = ret
+    mresult['MSG'] = dict
+    print json.dumps(mresult, sort_keys=True, indent=2)

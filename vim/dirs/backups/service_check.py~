@@ -1,0 +1,166 @@
+#!/home/tops/bin/python
+# -*- coding: utf-8 -*-
+import os
+import re
+import sys
+import yaml
+import json
+from common import *
+
+def get_os_version():
+    cmd = 'uname -r'
+    ret, out = exec_local_cmd(cmd)
+    if out.strip() == '3.10.0-327.ali2008.alios7.x86_64':
+        os_version = '7u'
+    elif out.strip() == '2.6.32-220.23.2.ali878.el6.x86_64':
+        os_version = '6u'
+    elif out.strip() == '4.19.48-4.alios7.aarch64':
+        os_version = '7u'
+    else:
+        os_version = ''
+
+    return os_version
+
+
+def service_enabled_check(service_name):
+    '''0: fail; 1: succeed'''
+
+    os_version = get_os_version()
+    if os_version == '7u':
+        cmd = 'systemctl is-enabled %s.service | grep -q enabled' % service_name
+    elif os_version == '6u':
+        cmd = 'chkconfig --list %s | grep on' % service_name
+
+    ret, out = exec_local_cmd(cmd)
+    if ret == 0:
+        return 1
+
+    return 0
+
+def all_service_enabled_check():
+    # on: 开启自启动
+    # off: 关闭开机自启动
+    # ospfd和bgpd需要适配网络，另行处理
+    service_list = {
+        #'snmpd': 'off',
+        'rpcbind': 'off',
+        'slb-irqbind': 'off',
+        'irqbalance': 'off',
+        'kdump': 'on',
+        'network': 'on',
+        'sshd': 'on',
+        #'ntpdate': 'on',
+        #'ntpd': 'on',
+        'syslog-ng': 'on',
+        'ilogtaild': 'on',
+        'slb-drop-logcache': 'on',
+        'slb-dstat-monitor': 'on',
+        'slb-cert-central-agent': 'on',
+    }
+
+    os_version = get_os_version()
+    if os_version == '7u':
+        service_list['ntpd'] = "off"
+        service_list['chronyd'] = "on"
+    else:
+        service_list['ntpd'] = "on"
+        service_list['chronyd'] = "off"
+
+    data = []
+
+    for (service, status) in service_list.items():
+        ret = service_enabled_check(service)
+        if status == 'on' and ret == 0:
+            dict = {}
+            dict['name'] = service
+            dict['benchmark'] = 'on'
+            dict['current'] = 'off'
+            data.append(dict)
+            continue
+
+        if status == 'off' and ret == 1:
+            dict = {}
+            dict['name'] = service
+            dict['benchmark'] = 'off'
+            dict['current'] = 'on'
+            data.append(dict)
+            continue
+
+    return data
+
+def service_status_check(service_name):
+    '''0: fail; 1: succeed'''
+
+    os_version = get_os_version()
+    if os_version == '7u':
+        cmd = 'systemctl status %s.service | grep -q active' % service_name
+    elif os_version == '6u':
+        cmd = 'sudo service %s status | grep -q running' % service_name
+
+    ret, out = exec_local_cmd(cmd)
+    if ret == 0:
+        return 1
+
+    return 0
+
+def all_service_status_check():
+
+    service_list = [
+        #'kdump',
+        #'network',
+        'sshd',
+        #'ntpdate',
+        #'ntpd',
+        'syslog-ng',
+        'ilogtaild',
+        'slb-drop-logcache',
+        'slb-dstat-monitor',
+        'slb-cert-central-agent',
+    ]
+
+    data = []
+
+    for service in service_list:
+        ret = service_status_check(service)
+        if ret != 1:
+            data.append(service)
+
+    #时间同步服务
+    os_version = get_os_version()
+    if os_version == '7u':
+        ret = service_status_check('chronyd')
+        if ret != 1:
+            data.append(service)
+    else:
+        ret = service_status_check('ntpd')
+        if ret != 1:
+            data.append(service)
+
+    return data
+
+
+if __name__ == '__main__':
+
+    flags = 0
+
+    data = all_service_enabled_check()
+    if data:
+        flags = 1
+        print "check services self-start failed:"
+        for dict in data:
+            print json.dumps(dict)
+    else:
+        print "check services self-start succeed!"
+
+    data = all_service_status_check()
+    if data:
+        flags = 1
+        print "check services status failed:"
+        print data
+    else:
+        print "check services status succeed!"
+
+    if flags == 1:
+        exit(1)
+
+    exit(0)

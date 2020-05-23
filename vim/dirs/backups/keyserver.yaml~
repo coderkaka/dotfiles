@@ -1,0 +1,11 @@
+version: 1.0
+
+reload_db_interval: 259200000
+read_db_interval: 15
+
+xuanyuan_host: xuanyuan.mysql.minirds.poc2-inc.com
+xuanyuan_port: 3026
+xuanyuan_user: xuanyuan
+xuanyuan_passwd: r25qyueXRzkizuss
+xuanyuan_db: xuanyuan
+

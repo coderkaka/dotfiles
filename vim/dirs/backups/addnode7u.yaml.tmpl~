@@ -1,0 +1,20 @@
+---
+region_no: %(region_no)s
+versionFrom: 3.5.1
+versionTo: 17.04.11
+opProfile: %(opProfile)s
+reboot: true
+cluster_name: %(cluster_name)s
+site_name: %(site_name)s
+
+clusterscale:
+  laddr_mask_lvs: 25
+  laddr_mask_proxy: 28
+  num_lvs: 2
+  num_proxy: 2
+  gwip_mask: 26
+  laddr_mask: 25
+
+
+nodes: |
+...

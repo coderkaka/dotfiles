@@ -1,0 +1,187 @@
+#!/home/tops/bin/python2.7
+
+import sys
+import json
+import yaml
+import subprocess
+import logging
+import logging.config
+import pickle
+import importlib
+from slb_maintenance_tools.cmdb import CmdbSlbPresetPoint, CmdbSlb, CmdbSlbApi
+from common.log import *
+
+#workdir=os.path.dirname(os.path.realpath(__file__))
+#logging.config.fileConfig('%s/logging.conf'%workdir)
+#logger = logging.getLogger('basic')
+logger = logging.getLogger('basic')
+hdlr = logging.FileHandler('/var/log/warden_direct_call.log')
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+hdlr.setFormatter(formatter)
+logger.addHandler(hdlr)
+logger.setLevel(logging.DEBUG)
+
+control_conf_dir='/home/slb/control-proxy/conf'
+control_proxy_conf='%s/agent.yaml'%control_conf_dir
+backup_control_proxy_conf='%s/agent.yaml.old_ha'%control_conf_dir
+
+monitor_conf_dir='/home/slb/monitor-proxy/conf'
+monitor_proxy_conf='%s/envConf.py'%monitor_conf_dir
+
+backup_monitor_proxy_conf="%s/envConf.py.old_ha"%monitor_conf_dir
+
+def package_exists(package):
+    cmd='sudo rpm -qa | grep %s'%package
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stdin=subprocess.PIPE,
+        stderr=subprocess.PIPE, shell=True)
+    p.wait()
+    print("check package exists out: %s, retval: %s, err: %s"%(
+            p.stdout.read(), p.returncode, p.stderr.read()))
+    return p.returncode == 0
+
+
+def backup_conf(orig_conf, backup_conf):
+    try:
+        logger.info("begin backup: %s to : %s"%(orig_conf, backup_conf))
+        old=open(orig_conf)
+        new=open(backup_conf, 'w')
+        for line in old.read():
+            new.write(line)
+
+        old.close()
+        new.close()
+        logger.info("finish backup: %s to : %s"%(orig_conf, backup_conf))
+        return 0
+    except Exception, e:
+        logger.error("backup: %s to : %s failed: %s"%(orig_conf, backup_conf, str(e)))
+        return 1
+
+def restore_conf(backup_conf_file, orig_conf_file):
+    return backup_conf(backup_conf_file, orig_conf_file)
+
+def update_monitor_proxy_conf(master_real_ips, mode):
+    try:
+        sys.path.append(monitor_conf_dir)
+        import envConf as conf
+
+        if mode == 'newha':
+            logger.info("original centranNodeConf: %s"%(conf.centralNodeConf))
+            master_real_ips_str=master_real_ips
+            conf.centralNodeConf['host']=master_real_ips_str
+            logger.info("updated centranNodeConf: %s"%(conf.centralNodeConf))
+        elif mode == 'oldha':
+            logger.info("original centranNodeConf: %s"%(conf.centralNodeConf))
+            conf.centralNodeConf['host']=master_real_ips
+            logger.info("updated centranNodeConf: %s"%(conf.centralNodeConf))
+
+        f=open(monitor_proxy_conf,'w')
+        f.write('__author__ = "zhuo.chencz"')
+        f.write("\n")
+        f.write("dbConf = %s"%str(conf.dbConf))
+        f.write("\n")
+        f.write("\n")
+        f.write("statsDbConf = %s"%str(conf.statsDbConf))
+        f.write("\n")
+        f.write("\n")
+        f.write("centralNodeConf = %s"%json.dumps(conf.centralNodeConf))
+        f.write("\n")
+        f.write("\n")
+        f.write("LvsMonitorConf = %s"%str(conf.LvsMonitorConf))
+        f.write("\n")
+        f.write("\n")
+        f.write("TengineMonitorConf = %s"%str(conf.TengineMonitorConf))
+        f.write("\n")
+        f.write("\n")
+        f.write("handlers = %s"%str(conf.handlers))
+        f.write("\n")
+        f.close()
+
+        return 0
+    except Exception, e:
+        logger.error("update monitor_proxy conf failed, exception: %s"%str(e))
+        return 1
+
+
+def update_control_proxy_conf(ips, mode):
+    try:
+        logger.info("load control-proxy conf")
+        f=open(control_proxy_conf)
+        data=yaml.load(f)
+        f.close()
+
+        if mode == 'newha':
+            logger.info("begin update control-proxy conf to new ha mode")
+            ips=ips.split(",")
+            monitor_host=[]
+            monitor_host.extend(ips)
+            master_host=[]
+            master_host.extend(ips)
+            data['monitor_host']=monitor_host
+            data['master_host']=master_host
+            data['using_hc']=True
+            logger.info("finish update control-proxy conf: %s"%str(data))
+        elif mode == 'oldha':
+            logger.info("begin update control-proxy conf to haproxy mode")
+            data['monitor_host']=ips
+            if 'master_host' in data:
+                del data['master_host']
+            if 'using_hc' in data:
+                del data['using_hc']
+            logger.info("finish update control-proxy conf: %s"%str(data))
+        logger.info("store control-proxy conf")
+        t=open(control_proxy_conf,'w')
+        yaml.dump(data,t, default_flow_style=False)
+        t.close()
+
+        return 0
+    except Exception, e:
+        logger.error("update control-proxy conf failed: %s"%str(e))
+        return 1
+
+
+
+def doit(ips, mode):
+    try:
+        logger.info("backup control-proxy conf")
+        ret=backup_conf(control_proxy_conf, backup_control_proxy_conf)
+        if ret:
+            return ret
+
+        if package_exists('slb-monitor-proxy'):
+            logger.info("backup monitor-proxy conf")
+            ret=backup_conf(monitor_proxy_conf, backup_monitor_proxy_conf)
+            if ret:
+                return ret
+
+        logger.info("update control-proxy conf")
+        ret=update_control_proxy_conf(ips, mode)
+        if ret:
+            logger.error("update control-proxy conf failed, restore control-proxy conf")
+            restore_conf(backup_control_proxy_conf, control_proxy_conf)
+            return ret
+
+        if package_exists('slb-monitor-proxy'):
+            logger.info("update monitor-proxy conf")
+            ret=update_monitor_proxy_conf(ips, mode)
+            if ret:
+                logger.error("update monitor-proxy conf failed, restore control-proxy and monitor-proxy conf")
+                restore_conf(backup_control_proxy_conf, control_proxy_conf)
+                restore_conf(backup_monitor_proxy_conf, monitor_proxy_conf)
+                return ret
+
+        return 0
+    except Exception, e:
+        print("update conf failed, exception: %s"%str(e))
+        return 1
+
+if __name__ == '__main__':
+    assert len(sys.argv) == 3
+
+    logger.info("update master real ips")
+    ips=sys.argv[1]
+    mode=sys.argv[2]
+    if mode not in ['newha', 'oldha']:
+        print("ha mode error: %s"%mode)
+        sys.exit(1)
+
+    sys.exit(doit(ips, mode))

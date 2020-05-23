@@ -1,0 +1,215 @@
+#!/home/tops/bin/python2.7
+
+'''
+   name: apply_change.py
+   usage: python apply_change.py sls_file_path
+   example: python apply_change.py /home/admin/node.sls
+'''
+import os
+import commands
+import sys
+import json
+import time
+import logging
+import yaml
+from common.command import *
+from common.log import *
+from common.master_api import *
+from private.misc import *
+from private.envcheck import *
+
+opProfile = None
+rollback_script = '/home/slb/changefree/proxy-rollback.sh'
+
+class applyChange:
+    def __init__(self, pillar_root, file_root, tool_path, role_type):
+        self.role_type = role_type
+        self.env_checker = EnvCheck()
+        self.pillar_root = pillar_root
+        self.file_root = file_root
+        self.tool_path = tool_path
+        self.masterapi = masterApi(role_type, pillar_root + '/node.sls')
+        pass
+
+    def reboot_diagnose(self):
+        """0: no reboot; 1: reboot"""
+
+        ret = self.env_checker.reboot_check()
+        if ret == 0:
+            return 1
+
+        taskinfo = self.masterapi.get_taskinfo()
+        if not taskinfo.has_key('reboot'):
+            return 0
+
+        if taskinfo['reboot'] == True:
+            return 1
+
+        return 0
+
+    def rhrelease_fix(self):
+        cmd = "sudo %s/fix-rhrelease" % self.tool_path
+        ret, out = exec_local_cmd(cmd)
+        return ret, out
+
+    def ospf_env_check(self, protocol_type):
+        ret, out = exec_local_cmd("grep network_type  /etc/salt/grains |awk '{print $NF}'")
+        if out.strip() == "FortyGigabit":
+            cmd = "sudo %s/slb-env-check-40g %s" % (self.tool_path, self.pillar_root)
+        elif out.strip() == "FortyGigabit-w4h":
+            cmd = "sudo %s/slb-env-check-40g-w4h %s" % (self.tool_path, self.pillar_root)
+        else:
+            if protocol_type == 'bgp':
+                cmd = "sudo %s/slb-env-check-bgp-10g %s" % (self.tool_path, self.pillar_root)
+            else:
+                cmd = "sudo %s/slb-env-check %s" % (self.tool_path, self.pillar_root)
+        ret, out = exec_local_cmd(cmd)
+        return ret, out
+
+    def salt_run(self):
+        ret, out = exec_local_cmd("sudo yum clean all")
+        cmd = "sudo salt-call  --local state.highstate  --pillar-root %s --file-root %s" % (self.pillar_root, self.file_root)
+        ret, out = exec_local_cmd(cmd)
+        with open('/var/log/salt-minion.log', 'w+') as f:
+            f.seek(0)
+            f.truncate()
+            f.write(out)
+        if ret != 0:
+            return ret, out
+        failed_num = eval(out[out.find('Failed'):-1].split('\n')[0].split(':')[1].strip())
+        if failed_num != 0:
+            return failed_num, out
+        return ret, out
+
+    def do_rollback_script(self):
+        '''proxy-rollback.sh used to unload rpms newer than current version,
+           this script should be prepared by yourself.
+        '''
+
+        cmd = 'ls %s' % rollback_script
+        ret, out = exec_local_cmd(cmd)
+        if ret == 0:
+            cmd = 'sudo sh %s' % rollback_script
+            ret, out = exec_local_cmd(cmd)
+            if ret:
+                return 1
+
+        # global opProfile
+        # if opProfile == 'rollback':
+        #     cmd = 'ls %s' % rollback_script
+        #     ret, out = exec_local_cmd(cmd)
+        #     if ret == 0:
+        #         cmd = 'sudo sh %s' % rollback_script
+        #         ret, out = exec_local_cmd(cmd)
+        #         if ret:
+        #             return 1
+
+        return 0
+
+    def backup_rollback_script(self):
+
+        cmd = 'ls %s' % rollback_script
+        ret, out = exec_local_cmd(cmd)
+        if ret == 0:
+            cmd = 'sudo mv %s %s_bak' % (rollback_script, rollback_script)
+            exec_local_cmd(cmd)
+
+        # if opProfile == 'rollback':
+        #     cmd = 'ls %s' % rollback_script
+        #     ret, out = exec_local_cmd(cmd)
+        #     if ret == 0:
+        #         cmd = 'sudo mv %s %s_bak' % (rollback_script, rollback_script)
+        #         exec_local_cmd(cmd)
+
+        return 0
+
+    def fix_sysctl_params(self):
+        #fix kernel.core_pattern because tianji will set it repeatedly
+        cmd = "sed -i 's/kernel.core_pattern = .*/kernel.core_pattern = \/cloud\/data\/corefile\/core-%e-%p-%t-%h/' /etc/sysctl.d/99-slb-coredump.conf"
+        exec_local_cmd(cmd)
+
+    def process(self, protocol_type):
+        ret = self.reboot_diagnose()
+        if ret:
+            ret, out = exec_local_cmd('sudo touch /dev/shm/_node_reboot')
+
+        ret, out = self.rhrelease_fix()
+        if ret != 0:
+            logger.error("self.rhrelease_fix failed: %s" % out)
+            return 1
+
+        ret = system_fix()
+        if ret != 0:
+            logger.error("system fix failed")
+            return 1
+
+        ret, out = self.ospf_env_check(protocol_type)
+        if ret != 0:
+            logger.error("self.ospf_env_check failed: %s" % out)
+            return 1
+
+        ret = self.do_rollback_script()
+        if ret != 0:
+            logger.error("roolback version failed")
+            return 1
+
+        #adapt for ApsaraStack
+        os_version = get_os_version()
+        if os_version == '7u':
+            cmd = "chkconfig --level 2345 ntpd off"
+            exec_local_cmd(cmd)
+
+        ret,out = self.salt_run()
+        if ret != 0:
+            logger.error("self.salt_run failed: %s" % out)
+            return 1
+
+        self.backup_rollback_script()
+
+        self.fix_sysctl_params()
+
+        logger.info("wait...10s")   #wait route up
+        time.sleep(10)
+
+        return 0
+
+if __name__ == '__main__':
+    if len(sys.argv) != 2:
+        logger.error("deploy_node.py: params error,need one param: node.sls path")
+        exit(1)
+
+    pillar_file = sys.argv[1].strip()
+    if not os.path.exists(pillar_file):
+        logger.error("deploy_node.py: node.sls not exists")
+        exit(2)
+
+    yaml_info = yaml.load(file(pillar_file))
+    role = 'proxy'
+    version = yaml_info['taskinfo']['version']
+    opProfile = yaml_info['taskinfo']['opProfile']
+    protocol_type = yaml_info['taskinfo'].get('protocol_type', 'none')
+    root_path = '/home/slb/release/%s/%s/' % (version, role)
+    cluster_path = os.path.abspath(root_path + 'srv/pillar/node.sls')
+    exec_local_cmd("sudo cp -rf %s %s" % (pillar_file, cluster_path))
+    pillar_root = os.path.abspath(root_path + '/srv/pillar')
+    salt_root = os.path.abspath(root_path + '/srv/salt')
+    tool_path = os.path.abspath(root_path + '/scripts/common/tools')
+
+    logger.info("proxy deploy start...")
+
+    cmd = "sudo bash %s/prepare.sh" % (tool_path)
+    exec_local_cmd(cmd)
+
+    cmd = "sudo bash %s/prepare_7u.sh" % (tool_path)
+    exec_local_cmd(cmd)
+
+    app = applyChange(pillar_root, salt_root, tool_path, 'proxy')
+    ret = app.process(protocol_type)
+    if ret != 0:
+        msg = json.dumps(dict(msg="call %s, ret %d" % (sys.argv[0], ret), \
+                    ts=time.time(), logpath="/var/log/proxy_deploy.log"))
+        logger.error("deploy_node.py: " + str(msg))
+        exit(4)
+
+    logger.info("deploy node ok!")
+    exit(0)

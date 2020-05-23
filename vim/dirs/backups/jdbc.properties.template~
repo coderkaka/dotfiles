@@ -1,0 +1,12 @@
+#The mysql database config#
+db.source.driver=com.mysql.jdbc.Driver
+db.source.url=jdbc:mysql://@{DB_IP}?useUnicode=true&connectTimeout=8000&socketTimeout=50000&amp;characterEncoding=utf-8
+db.source.username=@{DB_USERNAME}
+db.source.password=@{DB_PASSWORD}
+db.source.min.idle=10
+db.source.max.idle=20
+db.source.max.active=100
+
+db.source.monitor.url=jdbc:mysql://@{DB_MONITOR_IP}?useUnicode=true&amp;characterEncoding=utf-8
+db.source.monitor.username=@{DB_MONITOR_USERNAME}
+db.source.monitor.password=@{DB_MONITOR_PASSWORD}

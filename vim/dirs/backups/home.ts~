@@ -1,0 +1,33 @@
+import { FunctionHandler, FaaSContext } from '@ali/midway-faas';
+import { Func, Inject, Provide } from '@midwayjs/decorator'; 
+import { Context, inject, controller, get, provide, init, config } from '@ali/midway';
+import { TrainService } from '../../service/trainService';
+
+@Provide()
+@Func('train.handler')
+export class IndexHandler implements FunctionHandler {
+  
+  @Inject()
+  ctx: FaaSContext;
+
+  handler() {
+    const id = ctx.request.query.id;
+    const url = ctx.request.query.url;
+    let events = ctx.request.query.events || '';
+    let trainEvents = events.split(',')
+    if(!id || !url || !events) {
+      this.ctx.body = {
+        status: false,
+        data: {},
+        err: '缺少业务参数'
+      }
+    }
+    (this.trainService as any).train(id, url, trainEvents)
+    this.ctx.body = {
+      status: true,
+      data: {},
+      err: 'SUCCESS'
+    }
+  }
+}
+

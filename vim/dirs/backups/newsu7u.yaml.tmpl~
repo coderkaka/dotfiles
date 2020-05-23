@@ -1,0 +1,31 @@
+---
+region_no: %(region_no)s
+versionFrom: 3.5.2
+versionTo: 17.08.20
+opProfile: newsu
+cluster_name: %(cluster_name)s
+site_name: %(site_name)s
+
+clusterscale:
+  laddr_mask_lvs: 25
+  laddr_mask_proxy: 28
+  num_lvs: 2
+  num_proxy: 2
+  gwip_mask: 26
+  laddr_mask: 28
+
+
+suinfo:
+  add:
+  - lvs_group: lvs_group1
+    name: suD
+    proxy_pool: proxy_pool1
+
+
+subid:
+  add:
+    suD:
+    - 0
+
+nodes: |
+...

@@ -1,0 +1,195 @@
+#!/usr/bin/env python
+import os,sys,json,telnetlib,commands
+
+def init_var():
+
+    HOST = "127.0.0.1"
+    PORT = 2604
+    PASSWD = "hello123"
+    return HOST,PORT,PASSWD
+
+def Tel_Read(T,anchor):
+    timeout = 2
+    rst = T.read_until(anchor,timeout)
+    if not rst.strip().endswith(anchor.strip()):
+        result = {"collection_flag":0,"error_info":"run command, wait %s failed" % anchor, "MSG": []}
+        print json.dumps(result, sort_keys=True, indent=2)
+        sys.exit(1)
+    else:
+        return T,rst.strip()
+
+def login_ospf(host,port,passwd):
+    try:
+        T = telnetlib.Telnet(host,port)
+        T,rst = Tel_Read(T,"Password: ");
+        T.write(passwd + "\n")
+        return T
+    except:
+        result = {"collection_flag":0,"error_info":"login ospf failed", "MSG": []}
+        print json.dumps(result, sort_keys=True, indent=2)
+        sys.exit(2)
+    return T
+
+def ospf_priviledge(T,passwd):
+    try:
+        T,rst = Tel_Read(T,"> ")
+        T.write("en\n")
+        T,rst = Tel_Read(T,"Password: ")
+        T.write(passwd + "\n")
+        return T
+    except:
+        result = {"collection_flag":0,"error_info":"enter ospf priviledge failed", "MSG": []}
+        print json.dumps(result, sort_keys=True, indent=2)
+        sys.exit(3)
+
+def get_ospf_nei(host,port,name):
+    T = login_ospf(host,port,name)
+    T = ospf_priviledge(T,name)
+    try:
+        T,rst = Tel_Read(T,"# ")
+        T.write("show ip  ospf nei\n")
+        T,rst = Tel_Read(T,"# ")
+        return rst 
+    except:
+        return False
+
+def get_ospf_neighbor_info(i,T):
+    try:
+        Tlist = T.split()
+        info={}
+        info['interface'] = i
+        info['state'] = 1
+        info['lsw_route_id'] = Tlist[0]
+        info['lsw_ip'] = Tlist[4]
+        info['ospf_neighbor_state'] = Tlist[2]
+        info['msg'] = 'get %s ospf info sucessfully' % i
+        #info['ret'] = ret
+        info['ospf_neighbor_count'] = 0
+        if Tlist[2].lower().find('delete') >= 0:
+            info['state'] = 3
+        if Tlist[2].lower().find('full') >= 0:
+            info['ospf_neighbor_count'] = 1
+            info['state'] = 1
+        return info
+    except:
+        return False
+
+def analyseIfNetframe():
+    status=commands.getstatusoutput("ifconfig -a | grep T1 &>/dev/null")[0]
+    if status==0:
+        return 'kernel'
+    else:
+        return 'netframe'
+
+def exec_local_cmd(cmd):
+    ret = commands.getstatusoutput(cmd)
+    return ret[0], ret[1]
+
+def get_network_type():
+    network_type = 'unsupport network type'
+
+    cmd = 'lspci |grep Ether |grep 40GbE |wc -l'
+    ret, out = exec_local_cmd(cmd)
+    count = int(out.strip())
+    if count == 4:
+        network_type = 'FortyGigabit'
+        return network_type
+    elif count == 2:
+        network_type = 'FortyGigabit-w4h'
+        return network_type
+
+    cmd = 'lspci |grep Ether |grep "Device 1584" |wc -l'
+    ret, out = exec_local_cmd(cmd)
+    count = int(out.strip())
+    if count == 2:
+        network_type = 'FortyGigabit-w4h'
+        return network_type
+
+    cmd = 'lspci |grep Ether |grep "82599\|ConnectX-4" |wc -l'
+    ret, out = exec_local_cmd(cmd)
+    count = int(out.strip())
+    if count > 0:
+        network_type = 'TenGigabit'
+        return network_type
+
+    return network_type
+    
+if __name__ == '__main__':
+    nt = get_network_type()
+    if nt != 'TenGigabit':
+        result = {"collection_flag":0,"error_info":"no ospf for none 10G device", "MSG": []}
+        print json.dumps(result, sort_keys=True, indent=2)
+        sys.exit(0)
+
+    if os.path.exists('/tmp/op.cfg'):
+        ret, out = exec_local_cmd("grep protocol_type /tmp/op.cfg |awk '{print $NF}'")
+        if out.strip() == 'bgp':
+            result = {"collection_flag": 0, "error_info": "no ospf for 10G BGP device", "MSG": []}
+            print json.dumps(result, sort_keys=True, indent=2)
+            sys.exit(0)
+    host,port,name = init_var()
+    result = get_ospf_nei(host,port,name)
+    flag = analyseIfNetframe()
+    if not result:
+        result = {"collection_flag":0,"error_info":"run command(show ip  ospf nei) failed", "MSG": []}
+        print json.dumps(result, sort_keys=True, indent=2)
+        sys.exit(0)
+    data = []
+    if flag == 'kernel':
+        T1_flag = 1
+        T2_flag = 1
+    else:
+        vlan100_flag=1
+        vlan101_flag=1
+    if flag == 'kernel' and result.find('T1:') == -1:
+        T1_flag = 0
+    if flag == 'kernel' and result.find('T2:') == -1:
+        T2_flag = 0
+    if flag == 'netframe' and result.find('vlan100') == -1:
+        vlan100_flag = 0
+    if flag == 'netframe' and result.find('vlan101') == -1:
+        vlan101_flag = 0
+    for i in result.split('\n'):
+        if i.find('T1:') != -1:
+            T1_item = get_ospf_neighbor_info('T1',i)
+            data.append(T1_item)
+        if i.find('T2:') != -1:
+            T2_item = get_ospf_neighbor_info('T2',i)
+            data.append(T2_item)
+        if i.find('vlan100:') != -1:
+            vlan100_item = get_ospf_neighbor_info('vlan100',i)
+            data.append(vlan100_item)
+        if i.find('vlan101:') != -1:
+            vlan101_item = get_ospf_neighbor_info('vlan101',i)
+            data.append(vlan101_item)
+    T_len = 0
+    for i in data:
+        T_len += i['ospf_neighbor_count']
+    data_item={}
+    data_item['interface'] = 'TT'
+    data_item['lsw_route_id'] = 'None'
+    data_item['lsw_ip'] = 'None'
+    data_item['ospf_neighbor_state'] = 'None'
+    data_item['msg'] = 'None'
+    data_item['ospf_neighbor_count'] = T_len
+    data_item['state'] = 0
+    for i in data:
+        if i['state'] == 1:
+            data_item['state'] = 1
+            break
+    
+    data.append(data_item)
+    if flag == 'kernel' and T1_flag==0:
+        T1_item={'interface':'T1','lsw_route_id':'None','lsw_ip':'None','ospf_neighbor_state':'None','msg':'get T1 ospf info failed','ospf_neighbor_count':0,'state':0}
+        data.append(T1_item)
+    if flag == 'kernel' and T2_flag==0:
+        T2_item={'interface':'T2','lsw_route_id':'None','lsw_ip':'None','ospf_neighbor_state':'None','msg':'get T2 ospf info failed','ospf_neighbor_count':0,'state':0}
+        data.append(T2_item)
+    if flag == 'netframe' and vlan100_flag==0:
+        vlan100_item={'interface':'vlan100','lsw_route_id':'None','lsw_ip':'None','ospf_neighbor_state':'None','msg':'get vlan100 ospf info failed','ospf_neighbor_count':0,'state':0}
+        data.append(vlan100_item)
+    if flag == 'netframe' and vlan101_flag==0:
+        vlan101_item={'interface':'vlan101','lsw_route_id':'None','lsw_ip':'None','ospf_neighbor_state':'None','msg':'get vlan101 ospf info failed','ospf_neighbor_count':0,'state':0}
+        data.append(vlan101_item)
+    result = {"collection_flag":0,"error_info":"None","MSG":data}
+    print json.dumps(result, sort_keys=True, indent=2)

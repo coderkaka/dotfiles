@@ -1,0 +1,181 @@
+{
+    "main_version":"17.08.17",
+    "compnent_list": [
+        {
+            "role": "Proxy",
+            "rpm_version_list": [
+                {
+                    "rpm": "t-coresystem-tengine-jushita",
+                    "version": "2.1.1-1716049.el6u2.x86_64"
+                },
+                {
+                    "rpm": "slb-vsock-ali878",
+                    "version": "1.2.0-1517216.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-vtoa-ali878",
+                    "version": "2.0.1-20180909212302.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-dstat-7layer",
+                    "version": "1.1.1-20180717141846.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-control-proxy",
+                    "version": "17.08.11-20180725211223.x86_64"
+                },
+                {
+                    "rpm": "slb-monitor-proxy",
+                    "version": "16.10.0-1087867.noarch"
+                },
+                {
+                    "rpm": "quagga",
+                    "version": "0.99.22.4-16.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-role-proxy-vpc",
+                    "version": "17.04.0-1683960.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-drop-logcache",
+                    "version": "0.0.5-1327646.alios6.x86_64"
+                },
+                {
+                    "rpm": "ali-sls-ilogtail",
+                    "version": "0.13.7-1446776.alios6.x86_64"
+                },
+                {
+                    "rpm": "python-simplejson",
+                    "version": "2.0.9-3.1.1.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb_clean_disk",
+                    "version": "16.12.2-1640205.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-common",
+                    "version": "3.5.3-993670.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-libevent",
+                    "version": "2.0.12-10.el6.x86_64"
+                },
+                {
+                    "rpm": "slb-libvsock",
+                    "version": "1.0.1-364501.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-pet",
+                    "version": "2.2.0-25.x86_64"
+                },
+                {
+                    "rpm": "slb-python-gevent",
+                    "version": "0.13.6-5.x86_64"
+                },
+                {
+                    "rpm": "slb-python-greenlet",
+                    "version": "0.3.1-2.x86_64"
+                },
+                {
+                    "rpm": "slb-syslog-logconfig",
+                    "version": "1.0-20160516.x86_64"
+                },
+                {
+                    "rpm": "taobao-cronolog",
+                    "version": "1.7.0b-2.el6.x86_64"
+                },
+                {
+                    "rpm": "tops-ntp",
+                    "version": "4.2.6p5-1.x86_64"
+                },
+                {
+                    "rpm": "tsar",
+                    "version": "2.1.13-1000140.2ed45dc.el6.x86_64"
+                },
+                {
+                    "rpm": "slb-sensor-sysmetrics",
+                    "version": "0.0.2-579530.noarch"
+                },
+                {
+                    "rpm": "python26-requests",
+                    "version": "0.13.1-1.noarch"
+                },
+                {
+                    "rpm": "protobuf-python",
+                    "version": "3.4.0-3.alios6.x86_64"
+                },
+                {
+                    "rpm": "python-six",
+                    "version": "1.9.0-2.1.alios6.noarch"
+                }
+            ]
+        }
+    ],
+    "change_list": [
+        "17.08.11",
+        "[Requirement] HTTP2用户可选关闭",
+        "[Requirement] 自定义超时时间（七层）",
+        "[Requirement] SLB同一端口绑定多个 https 证书 SNI需求",
+        "[Requirement] 协议重定向：访问80端口到443端口自动跳转",
+        "[Requirement] 输出到云监控给用户查看的请求响应状态码需求",
+        "[Requirement] HTTPS pool内的session resume"
+    ],
+    "bugfix" : [
+        "17.08.11",
+        "[Bugfix] 7U i40e 驱动更新，解决DCB Error Log问题",
+        "[Bugfix] 同步v1708代码，修改QPS失效问题",
+        "[Bugfix] fix issue of missing session hide cookie in rule.",
+        "[Bugfix] avoid big dyconf data and cached in file",
+        "[Bugfix] http2 request header limit enlarge",
+        "[Bugfix] 重命名agent_main_ref.py为agent_main.py",
+        "[Bugfix] http2的server域值由Nginx改为Tengine",
+        "[Bugfix] Proxy返回的特殊报文中增加via域",
+        "[Bugfix] enable http/websockt by default, use 'proxy_http_version auto'",
+        "[Bugfix] 健康检查默认up",
+        "[Bugfix] 增加request id",
+        "[Bugfix] proxy slbdstat修复总rs数量减小时可能引起某些rs健康检查同时上报两条或多条记录，引起的原因是没有清空记录上次健康检查的字典数据",
+        "[Bugfix] fix issue of out of index range of rs pool and rules",
+        "[Bugfix] tengine access log添加13个输出项",
+        "[Bugfix] ilogtail同步升级到0.13.7支持分隔符修复",
+        "[Bugfix] upstream泄漏问题",
+        "17.08.12",
+        "[Bugfix] 优化delete rule流程",
+        "[Bugfix] 修复http2 coredump",
+        "[Bugfix] 变配失败后agent版本清0",
+        "[Bugfix] fix exception issue of wildconf handling",
+        "[Bugfix] 修改vsock目的地址检查为网段检查",
+        "[Requirement] proxy slbdstat reqstat日志输出分隔符由空格改为||",
+        "17.08.13",
+        "[Bugfix] 修复hpack coredump",
+        "[Bugfix] 当请求中不带HOST字段，也可正常转发",
+        "[Bugfix] 修改dstat，适配异常情况，避免出现负值",
+        "[Bugfix] 修复qps值错误，在更新监听场景",
+        "[Requirement] tls协议以及密码套件可选",
+        "[Bugfix] use http/1.1 as the protocol between proxy and rs, when using proxy_http_version auto and HTTP/2.0",
+        "17.08.14",
+        "[Bugfix] port 1706版本，修复session sticky问题",
+        "[Bugfix] 增大dyconf和dycert能接收到的最大长度",
+        "[Bugfix] log格式调整",
+        "[Bugfix] cert文件落盘格式优化",
+        "[Bugfix] 没有匹配到location时，返回404，而不是500",
+        "[Bugfix] 修复upstream response time异常问题",
+        "[Bugfix] 当使用http2时，且proxy_http_version为auto，后端版本使用HTTP/1.1",
+        "17.08.15",
+        "[Bugfix] 修复7u vsock模块可能导致系统panic问题",
+        "[Bugfix] 修复Proxy上QPS数值不为qps/(device-1)的问题",
+        "[Bugfix] 修复更新pool内设备数量时，没有刷新实例在每个Proxy的QPS的问题",
+        "[Bugfix] 修复健康检查会重复发送问题",
+        "[Bugfix] 修复session tikcet可能会导致双向认证失效问题",
+        "[Bugfix] 修改tengine log的轮转时间为10分钟",
+        "[Bugfix] 运维框架修改ilgotail上传速率",
+        "17.08.16",
+        "[Bugfix] 修复大量RS变配时导致的健康检查抖动问题",
+        "[Bugfix] 增加接口支持在tengine对RS变配进行限速(默认关闭)",
+        "[Bugfix] 单worker最大连接数增大为20w",
+        "[Bugfix] 修复管控全量下发listen配置时可能导致QPS限速失效问题",
+        "[Bugfix] 默认限速值改为5000QPS",
+        "[Bugfix] 修复当管控先下发监听再下发lb后，重试的创建监听操作无法完成问题",
+        "17.08.17",
+        "[Bugfix] 当proxy主动发送报文时，在Via字段会携带非法字符，在部分场景下解析错误"
+    ]
+}

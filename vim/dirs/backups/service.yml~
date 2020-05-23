@@ -1,0 +1,69 @@
+Name: slb-proxy
+GlobalVariables:
+  - REGION
+  - intranet-domain
+ServerRoles:
+  - Name: SlbProxy#
+    CodeSource: git@gitlab.alibaba-inc.com:apsara_stack/service-slb-proxy.git
+    Branches: v3.9xR
+    Version: HEAD
+    Template: aone2709
+    RoleType: Worker
+    Count: 2
+    TestCount: 2
+    KeyMonitor: tengine_monitor
+    RequiredOS:
+      - MachineType:
+          - W1
+        OS: AliOS6U2-x86-64
+        Template: slb_server
+    NeedIP: false
+    Applications:
+      - Name: slb-proxy-app
+        ResourceQuota:
+            CPU: 1
+            DiskSize: 1
+            Memory: 1
+        TestResourceQuota:
+            CPU: 1
+            DiskSize: 1
+            Memory: 1
+  #    - Name: slb-proxy-app_post_check_app
+  #      ResourceQuota:
+  #        CPU: 0.1
+  #        DiskSize: 0.1
+  #        Memory: 0.1
+  #      TestResourceQuota:
+  #        CPU: 0.1
+  #        DiskSize: 0.1
+  #        Memory: 0.1
+      - Name: tianjimon-inspector-slbproxy
+        ResourceQuota:
+            CPU: 0.2
+            DiskSize: 1
+            Memory: 0.5
+    Decider:
+        Mode: Simple
+        GrayRate: 50%
+    IPResource:
+      - ID: loopback
+        Category: private
+        Description: Loopback Subnet（Loopback地址）
+        Note: 每台SLB Proxy服务器1个IP
+        MinCountScript: '{{.GetServerNum "PROXY"}}'
+        CountScript: '{{.GetServerNum "PROXY"}}'
+        NeedGateway: false
+        Optional: false
+      - ID: localip
+        Category: private
+        Description: Local Address Subnet（本地NAT地址）
+        Note: 最小值：proxy节点数量*16(/28,0.0625个C)，建议值：proxy节点数量*64(/26,0.25个C)。
+        MinCountScript: '{{MUL 16 (.GetServerNum "PROXY")}}'
+        CountScript: '{{MUL 64 (.GetServerNum "PROXY")}}'
+        NeedGateway: false
+        Optional: false
+    UserConfigs:
+      - Name: SlbProxy.yaml
+        ScriptPath: scripts/SlbProxy.py
+HybridSRGroups: All
+

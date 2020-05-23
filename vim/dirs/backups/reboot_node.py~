@@ -1,0 +1,24 @@
+#!/home/tops/bin/python2.7
+
+import os
+import commands
+import sys
+import json
+import time
+from common.command import *
+
+if __name__ == '__main__':
+    logger.info("reboot node ...")
+    if os.path.exists('/dev/shm/_node_reboot'):
+        ret, out = exec_local_cmd("sudo rm -f /dev/shm/_node_reboot")
+        logger.info("rebooting...")
+        ret, out = exec_local_cmd("sudo reboot")
+        if ret:
+            msg = json.dumps(dict(msg="call %s, ret %d" % (sys.argv[0], ret), \
+                    ts=time.time(), logpath="/var/log/proxy_deploy.log"))
+            logger.error("reboot_node.py: " + str(msg))
+            exit(1)
+
+    exec_local_cmd("sudo rm -rf /dev/shm/.slb_minion_need_reboot")
+    logger.info("no need reboot")
+    exit(0)

@@ -1,0 +1,72 @@
+#include<stdio.h>
+#include<iostream>
+using namespace std;
+int calday( unsigned int iYear, unsigned int iMonth, unsigned int iDay )
+{
+	int iWeek = 0;
+	unsigned int y = 0, c = 0, m = 0, d = 0;
+ 
+	if ( iMonth == 1 || iMonth == 2 )
+	{
+		c = ( iYear - 1 ) / 100;
+		y = ( iYear - 1 ) % 100;
+		m = iMonth + 12;
+		d = iDay;
+	}
+	else
+	{
+		c = iYear / 100;
+		y = iYear % 100;
+		m = iMonth;
+		d = iDay;
+	}
+	
+	iWeek = y + y / 4 + c / 4 - 2 * c + 26 * ( m + 1 ) / 10 + d - 1; 
+	iWeek = iWeek >= 0 ? ( iWeek % 7 ) : ( iWeek % 7 + 7 ); 
+	if ( iWeek == 0 )
+	{
+		iWeek = 7;
+	}
+ 
+	return iWeek;
+}
+
+
+bool is_run(int t)
+{
+	if (t%4==0||t%400==0&&t%100!=0)
+	return true;
+	else 
+	return false;
+}
+
+int main(){
+    unsigned int year, month, week, day;
+    cin >> year >> month >> week >> day;
+
+    int num = calday(year,month,1);
+
+    cout << num << endl;
+    int hao = 0;
+    hao = 7*(week-1) + (day-num) + 1;
+    
+
+    if(week == 1 && num > day){
+        return 0;
+    }
+    if(hao > 31)
+        return 0;
+
+    if((month == 4 || month == 6 || month ==9 || month ==11 ) && (hao > 30) )
+        return 0; //小月
+    if( (month == 2) && is_run(year) && (hao > 29))
+        return 0; //闰月
+    if( (month == 2) && !is_run(year) && (hao > 28))
+        return 0; //闰月
+
+
+    if(month < 10)
+        cout <<year<<"-0"<<month<<"-"<<hao<<endl;
+    else
+        cout <<year<<"-"<<month<<"-"<<hao<<endl;
+}

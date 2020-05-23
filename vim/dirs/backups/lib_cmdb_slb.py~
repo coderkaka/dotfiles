@@ -1,0 +1,1049 @@
+#!/home/tops/bin/python2.7
+# -*- encoding: UTF-8 -*-
+__author__ = 'yihu'
+
+import inspect
+import requests
+import json
+import hmac
+import time
+import urllib
+import ConfigParser
+import sys
+import os
+import yaml
+import httplib
+from hashlib import sha1
+from common.command import *
+
+cur_path = os.path.realpath(os.path.abspath(os.path.split(inspect.getfile(inspect.currentframe()))[0]))
+UNLOCK = 'unlock'
+LOCK = 'lock'
+
+test = False
+conf_path = './conf.local/application-conf.json'
+
+class LibCmdbBase:
+    def __init__(self, config_path='lib_cmdb_slb.conf'):
+        config_path = os.path.join(cur_path, config_path)
+        config = ConfigParser.ConfigParser()
+        config.readfp(open(config_path), 'rb')
+        config_section = config.get('global', 'section')
+        conf_yaml = json.loads(open(conf_path,'r').read())
+        #self.vnet_api_url = 'http://%s/api/dispatcher.do' % config.get(config_section, 'vnet_dns')
+        #self.vnet_api_url = 'http://%s/api/dispatcher.do' % conf_yaml['configurationRequired']['vnet_dns']
+        #self.access_key_id = config.get(config_section, 'access_key_id')
+        self.access_key_id = str(conf_yaml['configurationRequired']['vnet_ak_id'])
+        #self.access_key_secret = config.get(config_section, 'access_key_secret')
+        self.access_key_secret = str(conf_yaml['configurationRequired']['vnet_ak_key'])
+        self.app_conf = conf_yaml['configurationRequired']
+
+    def __check_vnet_enabled(self, address):
+        try:
+            api_port = '80'
+            timeout = int(30)
+            req = '/api/dispatcher.do'
+            conn = httplib.HTTPConnection(address, int(api_port), timeout=timeout)
+            conn.request('GET', req)
+            resp = conn.getresponse()
+            resp_content = resp.read()
+            conn.close()
+            resp_data = json.loads(resp_content)
+            if resp_data['errorMsg'] == 'accessKeyId can not be blank!':
+                return 0
+            else:
+                return 1
+        except Exception as e:
+            return 1
+
+        return 1
+
+    def __get_vnet_address(self):
+        if self.app_conf.has_key('vnet_ip_list'):
+            ip_list = self.app_conf['vnet_ip_list'].split(',')
+            for address in ip_list:
+                ret = self.__check_vnet_enabled(address)
+                if 0 == ret:
+                    return address
+
+        return self.app_conf['vnet_dns']
+
+    def get_vnet_api_url(self):
+        address = self.__get_vnet_address()
+        if not address:
+            raise Exception('get vnet address failed')
+
+        vnet_api_url = 'http://%s/api/dispatcher.do' % address
+        return vnet_api_url
+
+    def get_sign(self, version, action, timestamp):
+        data = hmac.new(self.access_key_secret, self.access_key_id + "_" + version + "_" + timestamp + "_" + action,
+                        sha1)
+        return data.digest().encode("hex")
+
+    def get_common_params(self, action):
+        timestamp = str(int(round(time.time() * 1000)))
+        version = "2016-07-07"
+        signature = self.get_sign(version, action, timestamp)
+        common_params = {
+            "version": version,
+            "action": action,
+            "timestamp": timestamp,
+            "signature": signature,
+            "accessKeyId": self.access_key_id,
+        }
+        return common_params
+
+    def add_data_to_cmdb(self, params):
+        common_params = self.get_common_params('resource.add')
+        url = self.get_vnet_api_url() + "?" + urllib.urlencode(common_params)
+        post_params = common_params
+        post_params.update(params)
+        header_info = {
+            "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+        }
+        logger.debug('add data to cmdb: %s' % url)
+        r = requests.post(url, data=post_params, headers=header_info)
+        logger.debug('response from cmdb: %s' % str(r))
+        return r.text
+        # if r.status_code == 200 and r.json()['success']:
+        #     return json.dumps(r.json()['data'])
+        # else:
+        #     return False
+
+    def del_data_from_cmdb(self, params):
+
+        common_params = self.get_common_params('resource.delete')
+        url = self.get_vnet_api_url() + "?" + urllib.urlencode(common_params)
+        delete_params = common_params
+        delete_params.update(params)
+        header_info = {
+            "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+        }
+        logger.debug('del data from cmdb: %s' % url)
+        r = requests.post(url, data=delete_params, headers=header_info)
+        logger.debug('response from cmdb: %s' % str(r))
+        return r.text
+        # if r.status_code == 200 and r.json()['success']:
+        #     return json.dumps(r.json()['data'])
+        # else:
+        #     raise Exception("request fail:" + r.text)
+
+    def update_data_to_cmdb(self, params):
+        common_params = self.get_common_params('resource.update')
+        url = self.get_vnet_api_url() + "?" + urllib.urlencode(common_params)
+        update_params = common_params
+        update_params.update(params)
+        header_info = {
+            "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+        }
+        logger.debug('update data to cmdb: %s' % url)
+        r = requests.post(url, data=update_params, headers=header_info)
+        logger.debug('response from cmdb: %s' % str(r))
+        return r.text
+        # if r.status_code == 200 and r.json()['success']:
+        #     return json.dumps(r.json()['data'])
+        # else:
+        #     raise Exception("request fail:" + r.text)
+
+    def get_data_from_cmdb(self, params):
+        common_params = self.get_common_params('resource.get')
+        get_params = common_params
+        get_params.update(params)
+        url = self.get_vnet_api_url() + "?" + urllib.urlencode(get_params)
+        logger.debug('get data from cmdb: %s' % url)
+        r = requests.get(url)
+        logger.debug('response from cmdb: %s' % str(r))
+        if r.status_code == 200 and r.json()['success']:
+            return json.dumps(r.json(), indent=2)
+        else:
+            raise Exception("request fail:" + r.text)
+
+    def cmdb_get_node(self, node_path):
+        params = {
+            'path': node_path,
+        }
+        return self.get_data_from_cmdb(params)
+
+    def cmdb_delete_node(self, node_path):
+        params = {
+            'path': node_path,
+        }
+        return self.del_data_from_cmdb(params)
+
+    def cmdb_update_node(self, path, data):
+        data = json.loads(data)
+        params = {
+            'path': path,
+            'data': json.dumps(data, indent=2)
+        }
+        return self.update_data_to_cmdb(params)
+
+    def cmdb_add_node(self, path, data):
+        data = json.loads(data)
+        params = {
+            'path': path,
+            'data': json.dumps(data, indent=2)
+        }
+        return self.add_data_to_cmdb(params)
+
+    def cmdb_mv_node(self, old_path, new_path):
+        # get node
+        data = json.loads(self.cmdb_get_node(old_path))["data"]
+        # add new node
+        ret = self.cmdb_add_node(new_path, json.dumps(data))
+        # delete node
+        self.cmdb_delete_node(old_path)
+        return ret
+
+    def cmdb_update_serial_node(self, path, operation, entry):
+        """
+        update list entry
+        :param path:
+        :param operation: add or del
+        :param entry: json format
+        :return:
+        """
+        entry = json.loads(entry)
+        data = json.loads(self.cmdb_get_node(path))["data"]
+        if type(data) != list:
+            return return_error("%s:%s is not list" % (path, data))
+        new_data = []
+        if operation == "add":
+            if len(data) == 0 or type(data[0]) == type(entry):
+                data.append(entry)
+                new_data = data
+            else:
+                return return_error("new entry type error! %s" % type(entry))
+        elif operation == "del":
+            for it in data:
+                if it != entry:
+                    new_data.append(it)
+        else:
+            return return_error("%s operation is not support" % operation)
+
+        return self.cmdb_update_node(path, json.dumps(new_data))
+
+
+def return_success(data):
+    ret = {
+        "success": True,
+        "errMsg": "",
+        "requestId": None,
+        "data": data
+    }
+    return json.dumps(ret, indent=2)
+
+
+def return_error(data):
+    ret = {
+        "success": False,
+        "errMsg": data,
+        "requestId": None,
+        "data": ""
+    }
+    return json.dumps(ret, indent=2)
+
+
+class LibCmdbSlb:
+    def __init__(self, config_path='lib_cmdb_slb.conf'):
+        self.all_status = ['init', 'onlining', 'done', 'offlining']
+        self.cmdb_base = LibCmdbBase(config_path=config_path)
+        self.all_region_info = json.loads(self.cmdb_base.cmdb_get_node('/slb'))
+
+    def reload_all_region_info(self):
+        self.all_region_info = json.loads(self.cmdb_base.cmdb_get_node('/slb'))
+
+    def cmdb_get_region(self, region_no):
+        path = '/slb/%s' % region_no
+        params = {
+            'path': path,
+        }
+        return self.cmdb_base.get_data_from_cmdb(params)
+
+    def cmdb_update_region(self, regione_no, data):
+
+        data = json.loads(data)
+        path = '/slb/%s' % region_no
+        params = {
+            'path': path,
+            'data': json.dumps(data, indent=2)
+        }
+        ret = self.cmdb_base.update_data_to_cmdb(params)
+        self.reload_all_region_info()
+        return ret
+
+    # cluster api
+    def cmdb_get_cluster(self, region_name, cluster_name):
+        path = '/slb/%s/%s' % (region_name, cluster_name)
+        params = {
+            'path': path,
+        }
+        return self.cmdb_base.get_data_from_cmdb(params)
+
+    def cmdb_add_cluster(self, region_name, cluster_name, data):
+        data = json.loads(data)
+        path = '/slb/%s/%s' % (region_name, cluster_name)
+        ret = self.cmdb_base.cmdb_add_node(path, json.dumps(data))
+        self.reload_all_region_info()
+        return ret
+
+    def cmdb_update_cluster(self, region_name, cluster_name, data):
+        data = json.loads(data)
+        path = '/slb/%s/%s' % (region_name, cluster_name)
+        params = {
+            'path': path,
+            'data': json.dumps(data, indent=2)
+        }
+        ret = self.cmdb_base.update_data_to_cmdb(params)
+        self.reload_all_region_info()
+        return ret
+
+    def cmdb_delte_cluster(self, region_name, cluster_name):
+        path = '/slb/%s/%s' % (region_name, cluster_name)
+        params = {
+            'path': path,
+        }
+        return self.cmdb_base.del_data_from_cmdb(params)
+
+    def cmdb_get_cluster_v2(self, clustername):
+        ret = json.loads(self.cmdb_get_region_no(clustername))
+        if not ret['success']:
+            return return_error("can't find the cluster: %s" % clustername)
+        region_no = ret['data']
+        data = self.all_region_info['data'][region_no][clustername]
+        data.update({'region_no': region_no})
+        return return_success(data)
+
+    def cmdb_get_cluster_v3(self, host_name):
+        for cluster_name in self._cmdb_list_cluster_name():
+            hosts = self.cmdb_get_cluster_hosts(cluster_name)
+            for host in hosts:
+                if host_name == host[-1]:
+                    return self.cmdb_get_cluster(cluster_name)
+
+    # statistic
+    def cmdb_list_region_no(self):
+        data = self.all_region_info['data'].keys()
+        return return_success(data)
+
+    def cmdb_get_region_no(self, cluster_name):
+        for region_no in self.all_region_info['data'].keys():
+            region = self.all_region_info['data'][region_no]
+            if type(region) != type({}):
+                continue
+            if cluster_name in region.keys():
+                return return_success(region_no)
+        return return_error("can't get region no")
+
+    # private
+    def _cmdb_get_region_no(self, cluster_name):
+        ret = self.cmdb_get_region_no(cluster_name)
+        ret = json.loads(ret)
+        if not ret['success']:
+            raise Exception("get %s's region no failed" % cluster_name)
+        else:
+            return ret['data']
+
+    def cmdb_list_cluster_name(self, region_no=None):
+        ret = []
+        if region_no is not None:
+            region = self.all_region_info['data'][region_no]
+            if type(region) != type({}):
+                return []
+            ret = region.keys()
+            return return_success(ret)
+        else:
+            for region_no in self.all_region_info['data'].keys():
+                region = self.all_region_info['data'][region_no]
+                if type(region) != type({}):
+                    continue
+                ret[len(ret): len(ret)] = region.keys()
+
+            return return_success(ret)
+
+    # private
+    def _cmdb_list_cluster_name(self, region_no=None):
+        ret = self.cmdb_list_cluster_name(region_no)
+        ret = json.loads(ret)
+        if not ret['success']:
+            raise Exception("list cluster failed failed")
+        else:
+            return ret['data']
+
+    # private
+    def cmdb_get_cluster_hosts(self, cluster_name):
+        region_no = self._cmdb_get_region_no(cluster_name)
+        cluster = self.all_region_info['data'][region_no][cluster_name]
+        ret = []
+        # get lvs
+        for group_no, group in cluster['lvs_group'].items():
+            for site_name, site in group['site_list'].items():
+                for hostname, host in site['server_list'].items():
+                    if 'dummy0_ip' in host.keys():
+                        host_ip = host['dummy0_ip']
+                    elif 'mgt_ip' in host.keys():
+                        host_ip = host['mgt_ip']
+                    else:
+                        host_ip = 'null'
+
+                    ret.append(('lvs', group_no, site_name, host_ip, hostname))
+
+        # get proxy
+        for pool_no, pool in cluster['proxy_pool'].items():
+            for site_name, site in pool['site_list'].items():
+                for hostname, host in site['server_list'].items():
+                    if 'dummy0_ip' in host.keys():
+                        host_ip = host['dummy0_ip']
+                    elif 'mgt_ip' in host.keys():
+                        host_ip = host['mgt_ip']
+                    else:
+                        host_ip = 'null'
+                    ret.append(('proxy', pool_no, site_name, host_ip, hostname))
+
+        # get key server
+        for hostname, host in cluster['key_server'].items():
+            ret.append(('key_server', host['bond0_ip'], hostname))
+
+        # get tmd server
+        if 'server_list' in cluster['tmd_server'].keys():
+            for hostname, host in cluster['tmd_server']['server_list'].items():
+                ret.append(('tmd_server', host['bond0_ip'], hostname))
+
+        # get master
+        if type(cluster['master']) == type({}):
+            for hostname, host in cluster['master']['server_list'].items():
+                ret.append(('master', host['bond0_ip'], hostname))
+        return ret
+
+    def cmdb_get_host_path(self, host_name):
+        host_paths = []
+        for cluster_no in self._cmdb_list_cluster_name():
+            region_no = self._cmdb_get_region_no(cluster_no)
+            hosts = self.cmdb_get_cluster_hosts(cluster_no)
+            for host in hosts:
+                if host_name == host[-1]:
+                    host_path = ""
+                    if host[0] == 'lvs':
+                        host_path = '/slb/%s/%s/lvs_group/%s/site_list/%s/server_list/%s' \
+                                    '' % (region_no, cluster_no, host[1], host[2], host[-1])
+                    if host[0] == 'proxy':
+                        host_path = '/slb/%s/%s/proxy_pool/%s/site_list/%s/server_list/%s' \
+                                    '' % (region_no, cluster_no, host[1], host[2], host[-1])
+
+                    if host[0] == 'key_server':
+                        host_path = '/slb/%s/%s/key_server/%s' % (region_no, cluster_no, host[-1])
+
+                    if host[0] == 'tmd_server':
+                        host_path = '/slb/%s/%s/tmd_server/server_list/%s' % (region_no, cluster_no, host[-1])
+
+                    if host[0] == 'master':
+                        host_path = '/slb/%s/%s/master/server_list/%s' % (region_no, cluster_no, host[-1])
+                    host_paths.append(host_path)
+        if len(host_paths) >= 1:
+            return return_success(host_paths)
+        else:
+            return return_error("%s not exist" % host_name)
+
+    def _cmdb_get_host_path(self, hostname):
+        ret = self.cmdb_get_host_path(hostname)
+        ret = json.loads(ret)
+        if not ret['success']:
+            raise Exception("get %s path error" % hostname)
+        else:
+            return ret['data']
+
+    def cmdb_get_region_syncid(self, region_no):
+        """
+        get lvs sync id group by lsw name
+        :return: {lsw_name:[{'gw_ip': gw_ip, 'sync_id':sync_id}, ...]}
+        """
+        lsw_syncids = {}
+
+        def get_path_data(path):
+            return json.loads(self.cmdb_base.cmdb_get_node(path))['data']
+
+        for cluser_name in self._cmdb_list_cluster_name(region_no):
+            hosts = self.cmdb_get_cluster_hosts(cluser_name)
+            for host in hosts:
+                if host[0] in ['lvs']:
+                    path = self._cmdb_get_host_path(host[-1])[0]
+                    network_type = get_path_data(os.path.join(path, 'network_type'))
+                    if network_type == 'FortyGigabit':
+                        t1_lsw_path = os.path.join(path, "eth4_lsw_hostname")
+                        t2_lsw_path = os.path.join(path, "eth5_lsw_hostname")
+                    else:
+                        t1_lsw_path = os.path.join(path, "t1_lsw_hostname")
+                        t2_lsw_path = os.path.join(path, "t2_lsw_hostname")
+
+                    sync_id_path = os.path.join(os.path.dirname(os.path.dirname(path)), 'sync_id')
+                    t1_lsw_name = get_path_data(t1_lsw_path)
+                    t2_lsw_name = get_path_data(t2_lsw_path)
+                    sync_id = get_path_data(sync_id_path)
+
+                    lsw_syncids.setdefault(t1_lsw_name, {'sync_id': []})
+                    lsw_syncids.setdefault(t2_lsw_name, {'sync_id': []})
+                    lsw_syncids[t1_lsw_name]['sync_id'].append(sync_id)
+                    lsw_syncids[t1_lsw_name]['sync_id'] = list(set(lsw_syncids[t1_lsw_name]['sync_id']))
+                    lsw_syncids[t2_lsw_name]['sync_id'].append(sync_id)
+                    lsw_syncids[t2_lsw_name]['sync_id'] = list(set(lsw_syncids[t2_lsw_name]['sync_id']))
+        return return_success(lsw_syncids)
+
+    def cmdb_get_cluster_loopback_ip(self, cluster_name):
+        loopbacks = []
+
+        def get_path_data(path):
+            return json.loads(self.cmdb_base.cmdb_get_node(path))['data']
+
+        hosts = self.cmdb_get_cluster_hosts(cluster_name)
+        for host in hosts:
+            if host[0] in ['lvs', 'proxy']:
+                path = self._cmdb_get_host_path(host[-1])[0]
+                network_type = get_path_data(os.path.join(path, 'network_type'))
+                if network_type == 'FortyGigabit':
+                    dummy0_path = os.path.join(path, 'mgt_ip')
+                else:
+                    dummy0_path = os.path.join(path, 'dummy0_ip')
+                    server_data = get_path_data(path)
+                    if "local_as" in server_data and "remote_as" in server_data:
+                        dummy0_path = os.path.join(path, 'mgt_ip')
+                    else:
+                        dummy0_path = os.path.join(path, 'dummy0_ip')
+                loopbacks.append(get_path_data(dummy0_path))
+
+        return return_success(loopbacks)
+
+    def cmdb_get_site_laddr(self, cluster_name, site_name, role):
+        laddrs = []
+
+        def get_path_data(path):
+            return json.loads(self.cmdb_base.cmdb_get_node(path))['data']
+
+        hosts = self.cmdb_get_cluster_hosts(cluster_name)
+        for host in hosts:
+            if host[0] in [role]:
+                path = self._cmdb_get_host_path(host[-1])[0]
+                if host[2] == site_name:
+                    laddr_net_path = os.path.join(path, 'laddr_network')
+                    laddr_mask_path = os.path.join(path, 'laddr_prefix')
+                    laddrs.append("%s/%s" % (get_path_data(laddr_net_path), get_path_data(laddr_mask_path)))
+
+        return return_success(laddrs)
+
+    def cmdb_get_cluster_gw_ip(self, cluster_name):
+        gwips = []
+
+        def get_path_data(path):
+            return json.loads(self.cmdb_base.cmdb_get_node(path))['data']
+
+        hosts = self.cmdb_get_cluster_hosts(cluster_name)
+        for host in hosts:
+            if host[0] in ['lvs']:
+                path = self._cmdb_get_host_path(host[-1])[0]
+                gw_ip_path = os.path.join(os.path.dirname(os.path.dirname(path)), 'gw_ip')
+                gwips.append(get_path_data(gw_ip_path))
+
+        return return_success(list(set(gwips)))
+
+    def cmdb_rename_server(self, old_server_name, new_server_name):
+        rs = []
+        is_success = True
+        old_paths = self._cmdb_get_host_path(old_server_name)
+        for old_path in old_paths:
+            new_path = '/'.join(old_path.split('/')[:-1]) + '/%s' % new_server_name
+            server = json.loads(self.cmdb_base.cmdb_get_node(old_path))['data']
+            server['hostname'] = new_server_name
+            ret = self.cmdb_base.cmdb_add_node(new_path, json.dumps(server))
+            if json.loads(ret)['success']:
+                ret1 = self.cmdb_base.cmdb_delete_node(old_path)
+                if json.loads(ret1)['success']:
+                    rs.append("rename success, old:%s, new:%s" % (old_path, new_path))
+                else:
+                    rs.append("rename failed, old:%s, new:%s" % (old_path, new_path))
+                    is_success = False
+            else:
+                rs.append("rename failed, old:%s, new:%s" % (old_path, new_path))
+                is_success = False
+
+        self.reload_all_region_info()
+        if is_success:
+            return return_success(rs)
+        else:
+            return return_error(rs)
+
+    def cmdb_update_server_attr(self, server_name, attr, data):
+        if attr is None or len(attr) == 0:
+            return return_error("attr can't be empty!")
+        try:
+            data = eval(data)
+        except:
+            data = data
+
+        if attr == 'status':
+            if data not in self.all_status:
+                return return_error("unsupport status %s!" % data)
+        # init_host_info("source/host_info.json")
+        ret = {}
+        server_paths = self._cmdb_get_host_path(server_name)
+        is_success = True
+        for server_path in server_paths:
+            attr_path = '/'.join(attr.split('.'))
+            full_path = server_path + '/' + attr_path
+            t = json.loads(self.cmdb_base.cmdb_update_node(full_path, json.dumps(data)))
+            if t['success']:
+                ret[full_path] = t['data']
+            else:
+                ret[full_path] = t['data']
+                is_success = False
+
+        self.reload_all_region_info()
+        if is_success:
+            return return_success(ret)
+        else:
+            return return_error(ret)
+
+    def cmdb_add_server_attr(self, server_name, attr, data):
+        if attr is None or len(attr) == 0:
+            return return_error("attr can't be empty!")
+        try:
+            data = eval(data)
+        except:
+            data = data
+        if attr == 'status':
+            if data not in self.all_status:
+                return return_error("unsupport status %s!" % data)
+        ret = {}
+        server_paths = self._cmdb_get_host_path(server_name)
+        is_success = True
+        for server_path in server_paths:
+            attr_path = '/'.join(attr.split('.'))
+            full_path = server_path + '/' + attr_path
+            t = json.loads(self.cmdb_base.cmdb_add_node(full_path, json.dumps(data)))
+            if t['success']:
+                ret[full_path] = t['data']
+            else:
+                ret[full_path] = t['data']
+                is_success = False
+        self.reload_all_region_info()
+        if is_success:
+            return return_success(ret)
+        else:
+            return return_error(ret)
+
+    def cmdb_delete_server_attr(self, server_name, attr):
+        if attr is None or len(attr) == 0:
+            return return_error("attr can't be empty!")
+        ret = {}
+        server_paths = self._cmdb_get_host_path(server_name)
+        is_success = True
+        for server_path in server_paths:
+            attr_path = '/'.join(attr.split('.'))
+            full_path = server_path + '/' + attr_path
+            t = json.loads(self.cmdb_base.cmdb_delete_node(full_path))
+            if t['success']:
+                ret[full_path] = t['data']
+            else:
+                ret[full_path] = t['data']
+                is_success = False
+        self.reload_all_region_info()
+        if is_success:
+            return return_success(ret)
+        else:
+            return return_error(ret)
+
+    def cmdb_delete_server(self, server_name):
+        ret = {}
+        server_paths = self._cmdb_get_host_path(server_name)
+        is_success = True
+        for server_path in server_paths:
+            full_path = server_path
+            t = json.loads(self.cmdb_base.cmdb_delete_node(full_path))
+            if t['success']:
+                ret[full_path] = t['data']
+            else:
+                ret[full_path] = t['data']
+                is_success = False
+        self.reload_all_region_info()
+        if is_success:
+            return return_success(ret)
+        else:
+            return return_error(ret)
+
+    # data must be json format
+    def cmdb_get_server_attr(self, server_name, attr):
+        if attr is None or len(attr) == 0:
+            return "attr can't be empty!"
+        ret = {}
+        is_success = True
+        server_paths = self._cmdb_get_host_path(server_name)
+        for server_path in server_paths:
+            attr_path = '/'.join(attr.split('.'))
+            full_path = server_path + '/' + attr_path
+            t = json.loads(self.cmdb_base.cmdb_get_node(full_path))
+            if t['success']:
+                ret[full_path] = t['data']
+            else:
+                ret[full_path] = t['data']
+                is_success = False
+        if is_success:
+            return return_success(ret)
+        else:
+            return return_error(ret)
+
+    # list server host name with role
+    def cmdb_list_hostname_in_role(self, role):
+        ret = []
+        for cluster_name in self._cmdb_list_cluster_name():
+            for host in self.cmdb_get_cluster_hosts(cluster_name):
+                if host[0] == role:
+                    ret.append(host[-1])
+        return return_success(ret)
+
+    # list server host ip with role, lvs/proxy=dummy0, other=bond0
+    def cmdb_list_hostip_in_role(self, role):
+        ret = []
+        for cluster_name in self._cmdb_list_cluster_name():
+            for host in self.cmdb_get_cluster_hosts(cluster_name):
+                if host[0] == role:
+                    ret.append(host[-2])
+        return return_success(ret)
+
+    def cmdb_update_cluster_status(self, cluster_name, new_status='init'):
+        # status is a list['init', 'onlining', 'done', 'offlining']
+        if new_status not in self.all_status:
+            ret = json.dumps({"success": False, 'errMsg': "unsupport status %s!" % (new_status)}, indent=2)
+            return ret
+        region_no = self._cmdb_get_region_no(cluster_name)
+        path = '/slb/%s/%s/status' % (region_no, cluster_name)
+        return self.cmdb_base.cmdb_update_node(path, json.dumps(new_status))
+
+    def cmdb_get_cluster_status(self, clustername):
+        region_no = self._cmdb_get_region_no(clustername)
+        path = '/slb/%s/%s/status' % (region_no, clustername)
+        return self.cmdb_base.cmdb_get_node(path)
+
+    def cmdb_get_vip_networks(self, clustername):
+        """
+        return cluster vip networks with json str
+        :param clustername:
+        :return:
+        """
+        region_no = self._cmdb_get_region_no(clustername)
+        return json.dumps(self.all_region_info['data'][region_no][clustername]['vip_networks'], indent=2)
+
+    def cmdb_add_vip_networks(self, clustername, vip, type='internet', status='init'):
+        """
+        add vip network
+        :param clustername:
+        :param vip:
+        :param type: default is internet
+        :param status: default is done
+        :return:
+        """
+        region_no = self._cmdb_get_region_no(clustername)
+        old_vip_networks = json.loads(self.cmdb_get_vip_networks(clustername))
+        for item in old_vip_networks:
+            if item['vip'] == vip:
+                ret = json.dumps(
+                        {"success": False,
+                         'errMsg': "vip:%s exist!" % vip},
+                        indent=2)
+                return ret
+        new_entry = {'status': status, 'vip': vip, "type": type}
+        old_vip_networks.append(new_entry)
+
+        path = '/slb/%s/%s/vip_networks' % (region_no, clustername)
+        ret = self.cmdb_base.cmdb_update_node(path, json.dumps(old_vip_networks))
+        self.reload_all_region_info()
+        return ret
+
+    def cmdb_update_vip_status(self, clustername, vip, status):
+        """
+        update vip status
+        :param clustername:
+        :param vip:
+        :param status
+        :return:
+        """
+        if status not in self.all_status:
+            ret = json.dumps({"success": False, 'errMsg': "unsupport status %s!" % status}, indent=2)
+            return ret
+        region_no = self._cmdb_get_region_no(clustername)
+        old_vip_networks = json.loads(self.cmdb_get_vip_networks(clustername))
+        new_vip_networks = []
+        find_flag = False
+        for item in old_vip_networks:
+            if item['vip'] == vip:
+                find_flag = True
+                item['status'] = status
+                new_vip_networks.append(item)
+            else:
+                new_vip_networks.append(item)
+
+        if not find_flag:
+            return json.dumps({"success": False, 'errMsg': "vip:%s not exist!" % vip}, indent=2)
+
+        path = '/slb/%s/%s/vip_networks' % (region_no, clustername)
+        ret = self.cmdb_base.cmdb_update_node(path, json.dumps(new_vip_networks))
+        self.reload_all_region_info()
+        return ret
+
+    def cmdb_del_vip_networks(self, clustername, vip):
+        """
+        delete vip from vip networks
+        :param clustername:
+        :param vip:
+        :return:
+        """
+        region_no = self._cmdb_get_region_no(clustername)
+        old_vip_networks = json.loads(self.cmdb_get_vip_networks(clustername))
+        new_vip_networks = []
+        find_flag = False
+        for item in old_vip_networks:
+            if item['vip'] == vip:
+                find_flag = True
+                continue
+            else:
+                new_vip_networks.append(item)
+
+        if not find_flag:
+            return json.dumps({"success": False, 'errMsg': "vip:%s not exist!" % vip}, indent=2)
+
+        path = '/slb/%s/%s/vip_networks' % (region_no, clustername)
+        ret = self.cmdb_base.cmdb_update_node(path, json.dumps(new_vip_networks))
+        self.reload_all_region_info()
+        return ret
+
+    def cmdb_update_master_database(self, cluster_name, attr, value):
+        region_no = self._cmdb_get_region_no(cluster_name)
+        path = "/slb/%s/%s/master/database/%s" % (region_no, cluster_name, attr)
+        ret = self.cmdb_base.cmdb_update_node(path, json.dumps(value))
+        self.reload_all_region_info()
+        return ret
+
+    def cmdb_update_master_vrrp(self, cluster_name, attr, value):
+        region_no = self._cmdb_get_region_no(cluster_name)
+        path = "/slb/%s/%s/master/vrrp/%s" % (region_no, cluster_name, attr)
+        ret = self.cmdb_base.cmdb_update_node(path, json.dumps(value))
+        self.reload_all_region_info()
+        return ret
+
+    def cmdb_lvs_add_site(self, cluster_name, lvs_group, site_name, site_info):
+        region_no = self._cmdb_get_region_no(cluster_name)
+        path = '/slb/%s/%s/lvs_group/%s/site_list/%s' % (region_no, cluster_name, lvs_group, site_name)
+        ret = self.cmdb_base.cmdb_add_node(path, json.dumps(site_info))
+        self.reload_all_region_info()
+        return ret
+
+    def cmdb_lvs_del_site(self, cluster_name, lvs_group, site_name):
+        region_no = self._cmdb_get_region_no(cluster_name)
+        path = '/slb/%s/%s/lvs_group/%s/site_list/%s' % (region_no, cluster_name, lvs_group, site_name)
+        ret = self.cmdb_base.cmdb_delete_node(path)
+        self.reload_all_region_info()
+        return ret
+
+    def cmdb_lvs_get_site(self, cluster_name, lvs_group, site_name):
+        region_no = self._cmdb_get_region_no(cluster_name)
+        path = '/slb/%s/%s/lvs_group/%s/site_list/%s' % (region_no, cluster_name, lvs_group, site_name)
+        return self.cmdb_base.cmdb_get_node(path)
+
+    def cmdb_lvs_update_site_attr(self, cluster_name, lvs_group, site_name, attr, value):
+        region_no = self._cmdb_get_region_no(cluster_name)
+        path = '/slb/%s/%s/lvs_group/%s/site_list/%s/%s' % (region_no, cluster_name, lvs_group, site_name, attr)
+        ret = self.cmdb_base.cmdb_update_node(path, json.dumps(value))
+        self.reload_all_region_info()
+        return ret
+
+    def cmdb_proxy_add_site(self, cluster_name, proxy_pool, site_name, site_info):
+        region_no = self._cmdb_get_region_no(cluster_name)
+        path = '/slb/%s/%s/proxy_pool/%s/site_list/%s' % (region_no, cluster_name, proxy_pool, site_name)
+        ret = self.cmdb_base.cmdb_add_node(path, json.dumps(site_info))
+        self.reload_all_region_info()
+        return ret
+
+    def cmdb_proxy_del_site(self, cluster_name, proxy_pool, site_name):
+        region_no = self._cmdb_get_region_no(cluster_name)
+        path = '/slb/%s/%s/proxy_pool/%s/site_list/%s' % (region_no, cluster_name, proxy_pool, site_name)
+        ret = self.cmdb_base.cmdb_delete_node(path)
+        self.reload_all_region_info()
+        return ret
+
+    def cmdb_proxy_get_site(self, cluster_name, proxy_pool, site_name):
+        region_no = self._cmdb_get_region_no(cluster_name)
+        path = '/slb/%s/%s/proxy_pool/%s/site_list/%s' % (region_no, cluster_name, proxy_pool, site_name)
+        return self.cmdb_base.cmdb_get_node(path)
+
+    def cmdb_lvs_del_group(self, cluster_name, lvs_group):
+        region_no = self._cmdb_get_region_no(cluster_name)
+        path = '/slb/%s/%s/lvs_group/%s' % (region_no, cluster_name, lvs_group)
+        ret = self.cmdb_base.cmdb_delete_node(path)
+        self.reload_all_region_info()
+        return ret
+
+    def cmdb_proxy_del_proxy_pool(self, cluster_name, proxy_pool):
+        region_no = self._cmdb_get_region_no(cluster_name)
+        path = '/slb/%s/%s/proxy_pool/%s' % (region_no, cluster_name, proxy_pool)
+        ret = self.cmdb_base.cmdb_delete_node(path)
+        self.reload_all_region_info()
+        return ret
+
+
+class LibCmdbSlbApi:
+    def __init__(self, config_path='lib_cmdb_slb.conf'):
+        self.cmdb_base = LibCmdbBase(config_path=config_path)
+        self.slbapi_info = json.loads(self.cmdb_base.cmdb_get_node('/slb-api'))
+
+    def cmdb_get_slbapi(self, slb_api_ip):
+        return return_success(self.slbapi_info['data'][slb_api_ip])
+
+    def cmdb_update_slbapi(self, slb_api_ip, slb_api_info):
+        path = '/slb-api/%s' % slb_api_ip
+        ret = self.cmdb_base.cmdb_update_node(path, json.dumps(slb_api_info))
+        self.slbapi_info = json.loads(self.cmdb_base.cmdb_get_node('/slb-api'))
+        return ret
+
+    def cmdb_list_slbapi(self):
+        return return_success(self.slbapi_info['data'].keys())
+
+    def cmdb_slbapi_add_region_info(self, slb_api_ip, ec_region_no, ec_region_no_alias, master_url, slb_cluster_name):
+        entry = {
+            "ec_region_no": ec_region_no,
+            "ec_region_no_alias": ec_region_no_alias,
+            "master_url": master_url,
+            "slb_cluster_name": slb_cluster_name
+        }
+        region_info = self.slbapi_info['data'][slb_api_ip]['region_info']
+        region_info.append(entry)
+        path = '/slb-api/%s/region_info' % slb_api_ip
+        return self.cmdb_base.cmdb_update_node(path, json.dumps(region_info))
+
+    def cmdb_slbapi_del_region_info(self, slb_api_ip, master_url):
+        new_region_info = []
+        region_info = self.slbapi_info['data'][slb_api_ip]['region_info']
+        for entry in region_info:
+            if entry['master_url'] != master_url:
+                new_region_info.append(entry)
+        path = '/slb-api/%s/region_info' % slb_api_ip
+        return self.cmdb_base.cmdb_update_node(path, json.dumps(new_region_info))
+
+
+class LibCmdbSlbAg:
+    def __init__(self, config_path='lib_cmdb_slb.conf'):
+        self.cmdb_base = LibCmdbBase(config_path=config_path)
+        self.ag_info = json.loads(self.cmdb_base.cmdb_get_node('/slb-ag'))
+
+    def reload_api_info(self):
+        self.ag_info = json.loads(self.cmdb_base.cmdb_get_node('/slb-ag'))
+
+    def list_ag_info(self, ag_type=None):
+        if ag_type is None:
+            return return_success(self.ag_info['data'])
+        return return_success(self.ag_info['data'][ag_type])
+
+    def get_ag_by_cluster(self, cluster_name):
+        ret = {}
+        for k, v in self.ag_info['data'].items():
+            if cluster_name in v['members']:
+               ret[cluster_name] = v['desc']
+        return return_success(ret)
+
+    def add_ag(self, ag_type, desc):
+        data = {'members': [], "desc": desc}
+        path = '/slb-ag/%s' % ag_type
+        ret = self.cmdb_base.cmdb_add_node(path, json.dumps(data))
+        self.reload_api_info()
+        return ret
+
+    def del_ag(self, ag_type):
+        path = '/slb-ag/%s' % ag_type
+        if len(self.ag_info['data'][ag_type]['members']) > 0:
+            return return_error('The member of type %s is not empty' % type)
+        ret = self.cmdb_base.cmdb_delete_node(path)
+        self.reload_api_info()
+        return ret
+
+    def add_cluster(self, cluster_name, ag_type):
+        all_cluster = []
+        for k, v in self.ag_info['data'].items():
+            all_cluster[len(all_cluster): len(all_cluster)] = v['members']
+
+        if cluster_name in all_cluster:
+            return return_error("This cluster is exist in cmdb!!!")
+        path = '/slb-ag/%s/members' % ag_type
+        ret = self.cmdb_base.cmdb_update_serial_node(path, 'add', json.dumps(cluster_name))
+        self.reload_api_info()
+        return ret
+
+    def del_cluster(self, cluster_name):
+        path = None
+        for k, v in self.ag_info['data'].items():
+            if cluster_name in v['members']:
+                path = '/slb-ag/%s/members' % k
+
+        if path is None:
+            return return_error("Cluster %s is not exist!!" % cluster_name)
+        ret = self.cmdb_base.cmdb_update_serial_node(path, 'del', json.dumps(cluster_name))
+        self.reload_api_info()
+        return ret
+
+
+class LibCmdbPresetPoint:
+    def __init__(self, config_path='lib_cmdb_slb.conf'):
+        self.cmdb_base = LibCmdbBase(config_path=config_path)
+        self.base_path = '/slb-preset-point'
+        self.preset_point = json.loads(self.cmdb_base.cmdb_get_node(self.base_path))
+
+    def reload_preset_point(self):
+        self.preset_point = json.loads(self.cmdb_base.cmdb_get_node(self.base_path))
+
+    def get_preset_point(self, region_no=None):
+        if region_no:
+            path = "%s/region/%s" % (self.base_path, region_no)
+        else:
+            path = self.base_path
+
+        return self.cmdb_base.cmdb_get_node(path)
+
+    # private
+    def get_node_path(self, node_name):
+        for region_no in self.preset_point['data']['region']:
+            region = self.preset_point['data']['region'][region_no]
+            if node_name in region['ecs'].keys():
+                path = self.base_path + '/region/' + region_no + '/ecs/' + node_name
+                return path
+            for cluster_name in region['lb']:
+                if node_name in region['lb'][cluster_name].keys():
+                    path = "%s/region/%s/lb/%s/%s" % (self.base_path, region_no, cluster_name, node_name)
+                    return path
+        return None
+
+    def update_node_attr(self, node_name, attr, value):
+        if attr is None or len(attr) == 0:
+            return "attr can't be empty!"
+        path = self.get_node_path(node_name) + '/' + attr
+        ret = self.cmdb_base.cmdb_update_node(path, json.dumps(value))
+        self.reload_preset_point()
+        return ret
+
+    def add_node_attr(self, node_name, attr, value):
+        if attr is None or len(attr) == 0:
+            return "attr can't be empty!"
+        path = self.get_node_path(node_name) + '/' + attr
+        ret = self.cmdb_base.cmdb_add_node(path, json.dumps(value))
+        self.reload_preset_point()
+        return ret
+
+    def del_node_attr(self, node_name, attr):
+        if attr is None or len(attr) == 0:
+            return "attr can't be empty!"
+        path = self.get_node_path(node_name) + '/' + attr
+        ret = self.cmdb_base.cmdb_delete_node(path)
+        self.reload_preset_point()
+        return ret
+
+    def del_node(self, node_name):
+        path = self.get_node_path(node_name)
+        ret = self.cmdb_base.cmdb_delete_node(path)
+        self.reload_preset_point()
+        return ret
+

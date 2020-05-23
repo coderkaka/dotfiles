@@ -1,0 +1,118 @@
+#!/bin/bash
+#########################################################################
+# File Name: prepare.sh
+# Author : cibei.lj 
+# mail   : cibei.lj@taobao.com 
+# Created Time: Thu 08 Sep 2016 09:02:32 PM CST
+# history: 
+#        time       comments
+#        20161226   fenghui.zfh@alibaba-inc.com  add FortyGigabit-w4h for w4h machine
+#########################################################################
+filename="/etc/salt/grains"
+opcfg="/tmp/op.cfg"
+# 40G FortyGigabit,  10G  TenGigabit
+if lscpu |grep  "node0" |grep -q '-'; then
+    echo "numa_type: continue" >$filename
+else
+    echo "numa_type: cross" >$filename
+fi
+
+total_mem=`free -g |sed -n 2p |awk '{print $2}'`
+if [ "$total_mem"  -le "64" ]; then
+    echo "machine_type: mini" >>$filename
+elif [ "$total_mem"  -le "256" ]; then
+    echo "machine_type: standard" >>$filename
+else
+    echo "machine_type: large" >>$filename
+fi
+
+# where env is nobonding
+if ip add show dev lo |grep -q lo:nc; then
+    echo "bonding: False" >>$filename
+else
+    echo "bonding: True" >>$filename
+fi
+
+count=`ip addr show dev bond0|grep -e 'inet' -e 'UP'|wc -l`
+if (($count == 2)); then
+   echo "bond0_enabled: True" >>$filename
+else
+   echo "bond0_enabled: False" >>$filename
+fi
+
+if lspci -n | grep 0435; then
+    echo "encrypt_mode: DH895xCC" >>$filename
+else
+    echo "encrypt_mode: soft" >> $filename
+fi
+
+if [[ -f $opcfg ]]; then
+    num=`grep protocol_type $opcfg | wc -l`
+    if (($num == 1)); then
+        protocol=`grep protocol_type $opcfg`
+        echo $protocol >>$filename
+    fi
+fi
+
+# w4h two 40G FortyGigabit nic 
+if lspci |grep Ether |grep -q  40GbE; then
+    num=`lspci |grep 40GbE | wc -l`
+    if (($num == 4)); then
+        echo "network_type: FortyGigabit" >>$filename
+    elif (($num == 2)); then
+        echo "network_type: FortyGigabit-w4h" >>$filename
+    else
+        echo "ERROR, unsupport 40GbE nic type"
+        exit -1
+    fi
+    exit 0
+elif lspci | grep Ether | grep -q 'Device 1584'; then
+    num=`lspci | grep 'Device 1584' | wc -l`
+    if (($num == 2)); then
+        echo "network_type: FortyGigabit-w4h" >>$filename
+    else
+        echo "ERROR, unsupport nic type"
+        exit -1
+    fi
+    exit 0
+elif lspci |grep Ether |grep -q  82599; then
+    echo "network_type: TenGigabit" >>$filename
+    exit 0
+elif lspci |grep Ether |grep -q ConnectX;then
+    eth_40g_list=''
+    eth_10g_list=''
+
+    pcilist=`lspci |grep Ethernet| grep ConnectX | awk '{print $1}'`
+        #echo pcilist
+    for i in $pcilist; do
+        j="0000:"$i
+        result=`find /sys/devices/ -name 'speed' | grep $j | xargs cat`
+        #echo $result
+        if [ $result -eq 40000 ]; then
+          eth_40g_list=$eth_40g_list$j,
+        fi
+        if [ $result -eq 10000 ]; then
+          eth_10g_list=$eth_10g_list$j,
+        fi
+    done
+    eth_40g_list=`echo $eth_40g_list| sed 's/,$//' | awk -F ',' '{print NF}'`
+    eth_10g_list=`echo $eth_10g_list| sed 's/,$//' | awk -F ',' '{print NF}'` 
+
+    if [ $eth_40g_list -eq 2 ]; then
+        echo "network_type: FortyGigabit-w4h" >>$filename
+
+    elif [ $eth_40g_list -eq 4 ]; then
+        echo "network_type: FortyGigabit" >>$filename
+
+    elif [ $eth_40g_list -eq 0 ]; then
+        if [ $eth_10g_list -gt 0 ]; then
+           echo "network_type: TenGigabit" >>$filename
+
+        fi
+    fi
+    exit 0
+else
+    echo "ERROR, unsupport nic type"
+    logger -p user.warning -t "prepare.sh" "ERROR, unsupport nic type" 
+    exit -1
+fi

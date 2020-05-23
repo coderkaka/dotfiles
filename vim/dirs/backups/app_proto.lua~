@@ -1,0 +1,22 @@
+module('dyconf.modules.app_proto', package.seeall)
+local m = require 'dyconf.nginx_module'
+local module_name = 'app_proto'
+
+local function app_proto_handler(conf)
+  -- ngx.log(ngx.ERR, "app_proto_handler")
+  ngx.var.app_proto = conf.app_proto
+  return true
+end
+
+local function app_proto_set(cf, cmd)
+  local app_proto_module = m.get_module(cf, module_name)
+  local app_proto_conf = app_proto_module.conf
+  local scheme = cf.args[2]
+
+  -- ngx.log(ngx.ERR, "app_proto_set: scheme", scheme)
+  app_proto_module.handler = app_proto_handler
+  return true
+end
+
+m.register_module(module_name, {handler = app_proto_handler})
+m.register_module_directive(module_name, m.http_loc_conf, m.CONF_FLAG, app_proto_set)

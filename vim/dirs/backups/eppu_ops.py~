@@ -1,0 +1,363 @@
+#!/usr/bin/env python
+# -*- coding:UTF-8 -*-
+from __future__ import print_function
+
+import argparse
+import itertools
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+import traceback
+
+import yaml
+
+from .command import exec_remote_cmd
+from .batch_run import *
+from .lingyun import *
+from .master_api import MasterApi
+
+
+def last_min_ts():
+    now = time.time()
+    t = now - 60
+    ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(t))
+
+    return ts
+
+
+def get_instance_qps_on_proxy(proxy, instance_id):
+
+    ts = last_min_ts()
+    cmd = "sudo grep '%s' /home/slb/logs/slbdstat/slb_vipqps.out | grep '%s' | awk '{print $11, $15}'" % (ts, instance_id)
+    ret, out, err = exec_remote_cmd(proxy, cmd)
+    if not out.strip():
+        return -1
+
+    lines = out.strip().split('\n')
+    if len(lines) == 1:
+        (listener_id, field_qps) = lines[0].strip().split()
+        return int(field_qps)
+
+    listener_dict = {}
+    for line in lines:
+        (listener_id, field_qps) = line.strip().split()
+        qps = int(field_qps)
+        if listener_id not in listener_dict:
+            listener_dict[listener_id] = qps
+        else:
+            if qps > listener_dict[listener_id]:
+                listener_dict[listener_id] = qps
+
+    print("listeners'qps of %s on proxy %s is %s" % (instance_id, str(proxy), listener_dict))
+
+    instance_qps = 0
+    for listener_qps in listener_dict.values():
+        instance_qps += listener_qps
+
+    return instance_qps
+
+def get_instance_ppu_qps(cluster_name, ppu_name, instance_id):
+    proxy_list = query_online_proxy_by_ppu_name(cluster_name, ppu_name)
+    if not proxy_list:
+        print('get proxy list of %s in %s failed' % (ppu_name, cluster_name))
+        return -1
+
+    instance_qps = 0
+    fail = 0
+    for proxy in proxy_list:
+        try:
+            qps = get_instance_qps_on_proxy(proxy, instance_id)
+            if qps < 0:
+                print('get qps of %s from proxy %s failed' % (instance_id, str(proxy)))
+                fail = 1
+                continue
+            print("qps of %s from %s is %s" % (instance_id, str(proxy), qps))
+            instance_qps += qps
+        except Exception as e:
+            print("get qps of %s from proxy %s failed: %s" % (instance_id, str(proxy), str(e)))
+            fail = 1
+        pass
+
+    if fail == 1:
+        return -1
+
+    return instance_qps
+
+def eppu_handler(param_list):
+    (action, user_id, cluster_name, instance_id,
+     target_ppu_name, old_ppu_name) = param_list
+    master_api = MasterApi(cluster_name)
+    result_json = {}
+    if action == 'AddEppu':
+        result_json = master_api.add_ppu(
+            user_id, instance_id, target_ppu_name, old_ppu_name)
+    elif action == 'EnableEppu':
+        result_json = master_api.enable_ppu(user_id, instance_id,
+                                            target_ppu_name, old_ppu_name)
+    elif action == 'DisableEppu':
+        result_json = master_api.disable_ppu(user_id, instance_id,
+                                             target_ppu_name, old_ppu_name)
+    elif action == 'DeleteEppu':
+        result_json = master_api.delete_ppu(user_id, instance_id,
+                                            target_ppu_name, old_ppu_name)
+
+    result_json['instance_id'] = instance_id
+    result_json['action'] = action
+    return result_json
+
+
+class EppuOps(object):
+    def __init__(self, context):
+        self.instance_list = []
+        self.core_context = context['core_context']
+        self.task_context = context['task_context']
+        self.cluster_name = self.core_context['clusterName']
+        self.opProfile = self.core_context['opProfile']
+        self.instance_type = self.task_context['instanceType']
+        if not self.instance_type:
+            print('please provide instance type in config file')
+            sys.exit(1)
+        if self.instance_type != "listener" and self.instance_type != "lb":
+            print('instance type must be listener or lb')
+            sys.exit(1)
+        self.instance_list = self.task_context['instance']
+        if not self.instance_list:
+            print('please input instance list')
+            sys.exit(1)
+        self.instance_num = len(self.instance_list)
+        self.init_real_instance_list()
+        self.masterapi = MasterApi(self.cluster_name)
+        self.master_vip = self.masterapi.get_master_vip()
+        self.master_vip = '100.81.167.65'
+
+        if 'currentEppu' in self.task_context:
+            self.current_ppu_list = self.task_context['currentEppu']
+        if 'changeEppu' in self.task_context:
+            self.change_ppu_list = self.task_context['changeEppu']
+
+        pass
+
+    def init_real_instance_list(self):
+        self.real_instance_list = []
+        self.real_userid_list = []
+        if self.instance_type == "listener":
+            data_list = query_userid_by_listenerid(self.cluster_name,
+                                                   self.instance_list)
+            for data in data_list:
+                self.real_instance_list.append(data['listener_id'])
+                self.real_userid_list.append(data['user_id'])
+        else:
+            data_list = query_userid_by_lbid(self.cluster_name,
+                                             self.instance_list)
+            for data in data_list:
+                self.real_instance_list.append(data['lb_global_id'])
+                self.real_userid_list.append(data['user_id'])
+
+        assert len(self.real_instance_list) == len(self.real_userid_list)
+        self.real_instance_num = len(self.real_instance_list)
+
+    def __format_result_list(self, result_list):
+        '''return (code, fail_list)'''
+
+        fail_list = []
+        for result in result_list:
+            if result['code'] != 200:
+                fail_list.append(result)
+
+        assert len(fail_list) <= len(result_list)
+        if len(fail_list) == 0:
+            return (0, [])
+        else:
+            return (1, fail_list)
+        ##return succeed if at least one instance succeed
+        #if len(fail_list) > 0 and len(fail_list) < len(result_list):
+        #    return (0, fail_list)
+
+        ## return fail if all fail
+        #if len(fail_list) == len(result_list):
+        #    return (1, fail_list)
+
+    def add_eppu_precheck(self):
+        return self.check_eppu_binding()
+
+    def __do_eppu_handler(self, action):
+        result_list = []
+
+        if self.opProfile == 'InstanceMigrate' and (action == 'DisableEppu'
+                                                    or action == 'DeleteEppu'):
+            change_ppu_list = self.current_ppu_list
+            current_ppu_list = self.change_ppu_list
+        else:
+            change_ppu_list = self.change_ppu_list
+            current_ppu_list = self.current_ppu_list
+
+        if self.opProfile == 'EppuReduce':
+            for target_ppu_name in change_ppu_list:
+                current_ppu_list.remove(target_ppu_name)
+
+        for target_ppu_name in change_ppu_list:
+            param_list = list(
+                map((
+                    lambda action, user_id, cluster_name, instance, target_ppu, old_ppu:
+                    (action, user_id, cluster_name, instance, target_ppu, old_ppu)),
+                    itertools.repeat(action, self.real_instance_num),
+                    self.real_userid_list,
+                    itertools.repeat(self.cluster_name,
+                                     self.real_instance_num),
+                    self.real_instance_list,
+                    itertools.repeat(target_ppu_name, self.real_instance_num),
+                    itertools.repeat(current_ppu_list[0], self.real_instance_num)))
+            t_list = batch_run(eppu_handler, param_list)
+            result_list.extend(t_list)
+
+        return self.__format_result_list(result_list)
+
+    def add_eppu(self):
+        action = 'AddEppu'
+        return self.__do_eppu_handler(action)
+
+    def enable_eppu_precheck(self):
+        print(sys._getframe().f_code.co_name)
+        pass
+
+    def enable_eppu(self):
+        action = 'EnableEppu'
+        return self.__do_eppu_handler(action)
+
+    def enable_eppu_postcheck(self):
+        print(sys._getframe().f_code.co_name)
+        pass
+
+    def disable_eppu_precheck(self):
+        print(sys._getframe().f_code.co_name)
+        pass
+
+    def disable_eppu(self):
+        action = 'DisableEppu'
+        return self.__do_eppu_handler(action)
+        pass
+
+    def check_eppu_binding(self):
+        fail = 0
+        fail_list = []
+        print("check eppu binding start...")
+        for instance_id in self.real_instance_list:
+            result = check_target_eppu_binding(self.cluster_name, instance_id, self.change_ppu_list[0])
+            if not result:
+                msg = "get eppu binding status failed"
+            if result['success'] != "true":
+                msg = "check %s's eppu binding status failed: %s" % (instance_id, str(result))
+                fail = 1
+                fail_list.append(msg)
+                continue
+
+        print("check eppu binding end.")
+        return (fail, fail_list)
+
+
+    def delete_eppu_precheck(self):
+        #print(sys._getframe().f_code.co_name)
+        print("wait 60s...")
+        time.sleep(60)
+
+        if self.opProfile == 'InstanceMigrate':
+            change_ppu_list = self.current_ppu_list
+            current_ppu_list = self.change_ppu_list
+        else:
+            change_ppu_list = self.change_ppu_list
+            current_ppu_list = self.current_ppu_list
+
+        if self.opProfile == 'EppuReduce':
+            for target_ppu_name in change_ppu_list:
+                current_ppu_list.remove(target_ppu_name)
+
+        fail, fail_list = self.check_eppu_binding()
+        if fail == 1:
+            return (fail, fail_list)
+
+        print("qps check start...")
+        fail = 0
+        fail_list = []
+        ppu_list = []
+        for ppu_name in current_ppu_list:
+            if ppu_name not in ppu_list:
+                ppu_list.append(ppu_name)
+
+        for ppu_name in change_ppu_list:
+            if ppu_name not in ppu_list:
+                ppu_list.append(ppu_name)
+
+        for instance_id in self.real_instance_list:
+            qps_dict = {}
+            total_instance_qps = 0
+
+            # compute qps in all ppu
+            print("==================current ppu qps===================")
+            for ppu_name in current_ppu_list:
+                instance_ppu_qps = get_instance_ppu_qps(self.cluster_name, ppu_name, instance_id)
+                if instance_ppu_qps == -1:
+                    msg = "get qps of %s from current ppu %s failed" % (instance_id, ppu_name)
+                    fail = 1
+                    fail_list.append(msg)
+                    continue
+                print("qps of %s from current ppu is %s" % (ppu_name, instance_ppu_qps))
+                total_instance_qps += instance_ppu_qps
+
+            print("==================change ppu qps===================")
+            for ppu_name in change_ppu_list:
+                instance_ppu_qps = get_instance_ppu_qps(self.cluster_name, ppu_name, instance_id)
+                if instance_ppu_qps == -1:
+                    msg = "get qps of %s from ppu %s failed" % (instance_id, ppu_name)
+                    fail = 1
+                    fail_list.append(msg)
+                    continue
+                print("qps of %s from ppu is %s" % (ppu_name, instance_ppu_qps))
+                qps_dict[ppu_name] = instance_ppu_qps
+
+                total_instance_qps += instance_ppu_qps
+
+            for ppu_name, qps in qps_dict.items():
+                msg = "the total qps of %s is %s and its qps in ppu %s is %s" % (instance_id, total_instance_qps, ppu_name, qps)
+                add_msg = ""
+
+                if qps < 0:
+                    add_msg += ", get %s's qps in ppu %s failed" % (instance_id, ppu_name)
+                    print(msg + add_msg)
+                    fail = 1
+                    fail_list.append(msg + add_msg)
+                    continue
+
+                if total_instance_qps > 100 * qps:
+                    print(msg)
+                    continue
+                add_msg += ", ppu %s qps > total qps / 100" % (ppu_name)
+
+                if qps < 10:
+                    print(msg)
+                    continue
+
+                add_msg += "and ppu %s qps > 10" % (ppu_name)
+                print(msg + add_msg)
+                fail = 1
+                fail_list.append(msg + add_msg)
+
+        print("qps check end.")
+        return (fail, fail_list)
+
+    def delete_eppu(self):
+        #print(sys._getframe().f_code.co_name)
+        action = 'DeleteEppu'
+        return self.__do_eppu_handler(action)
+        pass
+
+    def delete_eppu_postcheck(self):
+        print(sys._getframe().f_code.co_name)
+        pass
+
+    def postall_check(self):
+        print(sys._getframe().f_code.co_name)
+        pass

@@ -1,0 +1,590 @@
+#!/home/tops/bin/python2.7
+# -*- coding:UTF-8 -*-
+
+import os
+import commands
+import sys
+import json
+import time
+import logging
+import yaml
+import signal
+import codecs
+import traceback
+sys.path.append("./scripts")
+from common.log import *
+from common.command import *
+from common.utils import *
+from lib_cmdb_slb import LibCmdbSlb
+from slb_cmdb_update import SlbCmdbInit
+from utils import jinja_render
+from steps_ops import *
+from jinja_context_cmdb import gen_slb_context
+import socket
+import struct
+from common.node_envcheck import *
+from op_profile import *
+
+OPS_ADDNODE = "addnode"
+OPS_UPGRADE = "upgrade"
+OPCFG_PATH = '/tmp/op.cfg'
+PATHLIST=["/sbin", "/usr/sbin", "/home/tops/salt/bin/"]
+
+kernel_type = ''
+
+def get_host_name():
+    host = os.popen('echo $HOSTNAME')
+    hostname = host.read().strip()
+    return hostname
+
+def get_hosts_from_res_yaml(yaml_path):
+    res = yaml.load(open(yaml_path, 'r'))
+    return [ x['hostname'] for x in res['servers']]
+
+def get_region_from_in_yaml(yaml_path):
+    res = yaml.load(open(yaml_path, 'r'))
+    return res['region_no']
+
+def get_cluster_from_in_yaml(yaml_path):
+    res = yaml.load(open(yaml_path, 'r'))
+    return res['cluster_name']
+
+def get_proxypool_from_in_yaml(yaml_path):
+    res = yaml.load(open(yaml_path, 'r'))
+    hostname = get_host_name()
+    for node_info in res['nodes']:
+        n = node_info.split()
+        if n[0] == hostname:
+            return n[3]
+    return None
+
+def get_proxypool_from_cmdb(yaml_path):
+    hostname = get_host_name()
+    cluster_name = get_cluster_from_in_yaml(yaml_path)
+    cmdb = LibCmdbSlb()
+    res = cmdb.cmdb_get_cluster_hosts(cluster_name)
+    for node in res:
+        if node[0] == 'proxy' and node[4] == hostname:
+            return node[1]
+    return None
+
+def get_site_from_in_yaml(yaml_path):
+    res = yaml.load(open(yaml_path, 'r'))
+    hostname = get_host_name()
+    for node_info in res['nodes']:
+        n = node_info.split()
+        if n[0] == hostname:
+            return n[1]
+    return None
+
+def get_site_from_cmdb(yaml_path):
+    hostname = get_host_name()
+    cluster_name = get_cluster_from_in_yaml(yaml_path)
+    cmdb = LibCmdbSlb()
+    res = cmdb.cmdb_get_cluster_hosts(cluster_name)
+    for node in res:
+        if node[0] == 'proxy' and node[4] == hostname:
+            return node[2]
+    return None
+
+def get_rpm_version_local():
+    ret, out = exec_local_cmd("rpm -qa slb-proxy")
+    if ret:
+        return None
+    start = out.find('slb')+len('slb-proxy-')
+    end = out.find('.aarch64')
+    return out[start:end]
+
+def get_rpm_version_conf():
+    global kernel_type
+    if kernel_type == KERNEL_6U:
+        rpm_path = './rpms/alios6u'
+
+    if kernel_type == KERNEL_7U:
+        rpm_path = './rpms/alios7u'
+
+    ret, out = exec_local_cmd("ls %s |grep slb-proxy" % rpm_path)
+    if ret:
+        return None
+    start = out.find('slb')+len('slb-proxy-')
+    end = out.find('.aarch64')
+    return out[start:end]
+
+def get_bond0_ip():
+    global kernel_type
+    if kernel_type == KERNEL_6U:
+        ret, out = exec_local_cmd("/sbin/ifconfig bond0|grep 'inet addr'")
+        if ret:
+            return None
+        bond0_ip = out.split()[1].split(':')[1]
+    elif kernel_type == KERNEL_7U:
+        ret, out = exec_local_cmd("/sbin/ifconfig bond0|grep 'inet'")
+        if ret:
+            return None
+        bond0_ip = out.split()[1]
+
+    return bond0_ip
+
+#def get_bond0_mask():
+#    global kernel_type
+#    if kernel_type == KERNEL_6U:
+#        ret, out = exec_local_cmd("/sbin/ifconfig bond0|grep 'inet addr'")
+#        if ret:
+#            return None
+#        bond0_mask = out.split()[3].split(':')[1]
+#    elif kernel_type == KERNEL_7U:
+#        ret, out = exec_local_cmd("/sbin/ifconfig bond0|grep 'inet'")
+#        if ret:
+#            return None
+#        bond0_mask = out.split()[3]
+#
+#    return bond0_mask
+
+#def get_bond0_gateway():
+#    bond0_ip = get_bond0_ip()
+#    bond0_mask = get_bond0_mask()
+#    bond0_ip_int=struct.unpack("!I",socket.inet_aton(bond0_ip))[0]
+#    bond0_mask_int=struct.unpack("!I",socket.inet_aton(bond0_mask))[0]
+#    bond0_gateway_int=(bond0_ip_int&~(0xffffffff-bond0_mask_int)|(0xffffffff-bond0_mask_int))+1-9
+#    bond0_gateway=socket.inet_ntoa(struct.pack("!I",bond0_gateway_int))
+#    return bond0_gateway
+
+def get_bond0_gateway():
+    bonding = 0
+
+    cmd = 'ip add show dev lo |grep -q lo:nc'
+    ret, out = exec_local_cmd(cmd)
+    if ret != 0:
+        bonding = 1
+
+    if bonding == 1:
+        with open('/var/clone/clone_info') as f:
+            data = f.read()
+            json_data = json.loads(data)
+
+        if 'addrs' in json_data:
+            bond0_ip = get_bond0_ip()
+            for data in json_data['addrs']:
+                if data['ip'] == bond0_ip:
+                    bond0_gateway = data['gateway']
+                    break
+        else:
+            cmd = "cat /etc/sysconfig/network-scripts/route-bond0 | grep 'dev bond0 table 6' | grep 'default via'| awk '{print $3}'"
+            ret, out = exec_local_cmd(cmd)
+            bond0_gateway = out.strip()
+            if not bond0_gateway:
+                bond0_gateway = None
+    else:
+        bond0_gateway = None
+
+    return bond0_gateway
+
+def is_first_machine(yaml_path):
+    hostname = get_host_name()
+    host_list = get_hosts_from_res_yaml(yaml_path)
+    if host_list[0] == hostname:
+        return True
+    else:
+        return False
+
+def read_conf_appliation_conf():
+    conf_path = './conf.local/application-conf.json'
+    data = json.loads(open(conf_path, 'r').read())
+    return data['configurationRequired']
+
+def gen_op_cfg(tofile, cluster_name, res_yaml):
+    tmpl = './scripts/conf/cluster.sls.tmpl'
+    inyaml = '/tmp/taskinfo.yaml'
+    _taskinfo = yaml.load(open(inyaml, 'r').read())
+    res = yaml.load(open(res_yaml, 'r'))
+    _taskinfo['protocol_type'] = res['protocol'].lower()
+    raw = {'taskinfo': _taskinfo}
+    context = gen_slb_context(cluster_name, raw)
+
+    app_conf = read_conf_appliation_conf()
+    master_list = app_conf['slb_pdf_vip_master_site_a_rs_ip_list'].split(',')
+    monitor_master_list = app_conf['slb_monitor_ip_list'].split(',')
+    context['list_master'] = master_list
+    context['list_monitor'] = monitor_master_list
+
+    ydata = jinja_render(tmpl, context)
+    with codecs.open(tofile, 'w', encoding='utf-8') as fd:
+        fd.write(ydata)
+    return 0
+
+def rpm_install_or_upgrade():
+    cmd = "rpm -ivh  ./rpms/yum-utils-1.1.31-34.2.alios7.noarch.rpm"
+    exec_local_cmd(cmd)
+    cmd = "rm -rf /usr/lib/yum-plugins/"
+    exec_local_cmd(cmd)
+    cmd = "cp -rf  yum-plugins /usr/lib/"
+    exec_local_cmd(cmd)
+    cmd = "rpm -e tsar"
+    exec_local_cmd(cmd)
+
+    local_rpm_version = get_rpm_version_local()
+    conf_rpm_version = get_rpm_version_conf()
+    if local_rpm_version == conf_rpm_version:
+        logger.debug('skip: config version == local version')
+        return 0
+
+    if local_rpm_version:
+        ecmd = "rpm -e slb-proxy"
+        ret, out = exec_local_cmd(ecmd)
+        if ret:
+            logger.debug('do %s failed' % ecmd)
+            return out
+
+    global kernel_type
+    if kernel_type == KERNEL_6U:
+        icmd = "rpm -ivh ./rpms/alios6u/slb-proxy*"
+    if kernel_type == KERNEL_7U:
+        icmd = "rpm -ivh ./rpms/alios7u/slb-proxy*"
+
+    ret, out = exec_local_cmd(icmd)
+    if ret:
+        logger.debug('do %s failed' % icmd)
+        return out
+
+    return 0
+
+def slb_op_client_install():
+    global kernel_type
+    if kernel_type == KERNEL_6U:
+        exec_local_cmd("rpm -ivh ./rpms/tops-python27-ipcalc-1.1.1-0.aarch64.rpm")
+        exec_local_cmd("rpm -ivh ./rpms/tops-python27-mysqldb-1.2.3-2.aarch64.rpm")
+        ret, out = exec_local_cmd("rpm -qa slb-op-client")
+        if ret == 0:
+            start = out.find('slb')+len('slb-op-client-')
+            end = out.find('.aarch64')
+            local_version = out[start:end]
+        else:
+            local_version = None
+        ret, out = exec_local_cmd("ls ./rpms/alios6u |grep slb-op-client")
+        if ret == 0:
+            start = out.find('slb')+len('slb-op-client-')
+            end = out.find('.aarch64')
+            conf_version = out[start:end]
+        else:
+            conf_version = None
+
+        if local_version == conf_version:
+            return 0
+        if local_version:
+            ecmd = "rpm -e slb-op-client"
+            ret, out = exec_local_cmd(ecmd)
+            if ret:
+                return out
+
+        icmd = "rpm -ivh --force ./rpms/alios6u/slb-op-client*"
+        ret,out = exec_local_cmd(icmd)
+        if ret:
+            return ret
+    if kernel_type == KERNEL_7U:
+        exec_local_cmd("rpm -ivh ./rpms/tops-python27-ipcalc-1.1.1-0.aarch64.rpm")
+        exec_local_cmd("rpm -ivh ./rpms/alios7u/staragent-script-1.0.15-1252207.alios7.aarch64.rpm")
+        exec_local_cmd("systemctl disable staragentctl.service")
+        exec_local_cmd("systemctl stop staragentctl.service")
+        ret, out = exec_local_cmd("rpm -qa slb-op-client")
+        if ret == 0:
+            start = out.find('slb')+len('slb-op-client-')
+            end = out.find('.aarch64')
+            local_version = out[start:end]
+        else:
+            local_version = None
+        ret, out = exec_local_cmd("ls ./rpms/alios7u |grep slb-op-client")
+        if ret == 0:
+            start = out.find('slb')+len('slb-op-client-')
+            end = out.find('.aarch64')
+            conf_version = out[start:end]
+        else:
+            conf_version = None
+
+        if local_version == conf_version:
+            return 0
+        if local_version:
+            ecmd = "rpm -e slb-op-client"
+            ret, out = exec_local_cmd(ecmd)
+            if ret:
+                return out
+
+        icmd = "rpm -ivh --force ./rpms/alios7u/slb-op-client*"
+        ret,out = exec_local_cmd(icmd)
+        if ret:
+            return ret
+
+    return 0
+
+def mkdir_slb_etc():
+    if not os.path.exists('/home/slb/etc'):
+        ret, out = exec_local_cmd('/bin/mkdir /home/slb/etc')
+        if ret:
+            logger.error("mkdir /home/slb/etc error\n")
+            return ret
+
+def get_role_work_path(role):
+    inyaml = '/tmp/taskinfo.yaml'
+    yaml_info = yaml.load(file(inyaml))
+    version = yaml_info['versionTo']
+    role_work_path = '/home/slb/release/%s/%s/' % (version, role)
+
+    return role_work_path
+
+def get_node_sls_path(role_work_path):
+    return role_work_path + '/srv/pillar/node.sls'
+
+def write_certificate(role_work_path, data):
+    srcfile_path = role_work_path + 'srv/salt/srcfile'
+    if not os.path.exists(srcfile_path):
+        os.makedirs(srcfile_path)
+
+    for crt in "ca.crt client.crt client.key".split():
+        with open(os.path.join(srcfile_path, crt), "w") as f:
+            f.write(data["certificate"][crt])
+
+def check_and_upgrade_bond0_in_cmdb(cmdb, region_no, cluster_name, proxy_pool, site):
+    hostname = get_host_name()
+    bond0_ip = get_bond0_ip()
+    bond0_gateway = get_bond0_gateway()
+
+    #check bond0 ip in cmdb
+    bond0_ip_path = '/slb/%s/%s/proxy_pool/%s/site_list/%s/server_list/%s/bond0_ip' % (region_no, cluster_name, proxy_pool, site, hostname)
+    ret_json = cmdb.cmdb_base.cmdb_get_node(bond0_ip_path)
+    cdata = json.loads(ret_json).get('data')
+    if cdata == "":
+        #upgrade bond0 in cmdb
+        cdata = cmdb.cmdb_base.cmdb_update_node(bond0_ip_path, '"%s"' % bond0_ip)
+        #check again
+        ret_json = cmdb.cmdb_base.cmdb_get_node(bond0_ip_path)
+        cdata = json.loads(ret_json).get('data')
+        if cdata == "":
+            logger.error("bond0_ip is null")
+            return 1
+
+    # check bond0 gateway in cmdb
+    bond0_gateway_path = '/slb/%s/%s/proxy_pool/%s/site_list/%s/server_list/%s/bond0_gateway' % (region_no, cluster_name, proxy_pool, site, hostname)
+    ret_json = cmdb.cmdb_base.cmdb_get_node(bond0_gateway_path)
+    cdata = json.loads(ret_json).get('data')
+    if cdata == "":
+        #upgrade bond0 gateway in cmdb
+        cdata = cmdb.cmdb_base.cmdb_update_node(bond0_gateway_path, '"%s"' % bond0_gateway)
+        #check again
+        ret_json = cmdb.cmdb_base.cmdb_get_node(bond0_gateway_path)
+        cdata = json.loads(ret_json).get('data')
+        if cdata == "":
+            logger.error("bond0_gateway is null")
+            return 1
+
+    return 0
+
+def start():
+    if not check_kernel_version():
+        logger.error("kernel_version not supported")
+        exit(1)
+
+    #全局变量赋值
+    global kernel_type
+    kernel_type = get_kernel_type()
+
+    logger.info("try to install slb-op-client")
+    ret = slb_op_client_install()
+    if ret:
+        logger.error("install slb-op-client failed")
+        return ret
+    logger.info("install slb-op-client succeed")
+
+
+    OPS_SENCE = OPS_UPGRADE
+
+    #拼接res_yaml路径
+    res_yaml = get_res_yaml_path()
+    logger.info('res_yaml: ' + res_yaml)
+
+    #生成in_yaml
+    in_yaml = './conf.proxy/services/slb-proxy/user/in.yaml'
+    logger.info("try to create %s for addnode" % in_yaml)
+    ret, out = exec_local_cmd("./scripts/gen_inyaml.py addnode")
+    if ret:
+        logger.error("gen in yaml file error: %s", out)
+        return ret
+    logger.info("create %s succeed" % in_yaml)
+
+    cmdb = LibCmdbSlb()
+    # cmdb_init = SlbCmdbInit(in_yaml, res_yaml)
+    node_list = get_hosts_from_res_yaml(res_yaml)
+    region_no = get_region_from_in_yaml(in_yaml)
+    cluster_name = get_cluster_from_in_yaml(in_yaml)
+    proxy_pool = get_proxypool_from_cmdb(in_yaml)
+    if not proxy_pool:
+        proxy_pool = get_proxypool_from_in_yaml(in_yaml)
+    site = get_site_from_cmdb(in_yaml)
+    if not site:
+        site = get_site_from_in_yaml(in_yaml)
+    mkdir_slb_etc()
+
+    if is_first_machine(res_yaml):
+        logger.info("this is the first machine")
+        cdata_ = cmdb.cmdb_get_cluster_v2(cluster_name)
+        cdata = json.loads(cdata_)
+        if not cdata['success'] or 'proxy_pool' not in cdata['data'].keys() or proxy_pool not in cdata['data']['proxy_pool'].keys() :
+            logger.info("try to create %s for newcluster" % in_yaml)
+            ret, out = exec_local_cmd("./scripts/gen_inyaml.py newcluster")
+            if ret:
+                logger.error("gen in yaml file error: %s", out)
+                return ret
+            logger.info("create %s succeed" % in_yaml)
+
+            logger.info("try to create task")
+            ret, out = exec_local_cmd("./scripts/task_create.py -r %s %s" % (res_yaml, in_yaml))
+            if ret:
+                logger.error("exec task_create.py err: %s", out)
+                return ret
+            logger.info("create task succeed")
+
+            #ret,out = cmdb_init.slb_cmdb_init()
+            OPS_SENCE = OPS_ADDNODE
+        else:
+            logger.info("collect proxy node list in cmdb")
+            node_name_list = []
+            cnode_list = cmdb.cmdb_get_cluster_hosts(cluster_name)
+            for n in cnode_list:
+                if n[0] == 'proxy':
+                    node_name_list.append(n[4])
+
+            logger.info('node_name_list: ' + str(node_name_list))
+
+            #如果机器不在cmdb中则创建任务
+            logger.info("try to create task")
+            #cnode_list = [ n[4] for n in cnode_list ]
+            for node in node_list:
+                if  node not in node_name_list:
+                    ret,out = exec_local_cmd("./scripts/task_create.py -r %s %s" % (res_yaml, in_yaml))
+                    if ret:
+                        logger.error("exec task_create.py err: %s", out)
+                        return ret
+                    OPS_SENCE = OPS_ADDNODE
+                    break
+            logger.info("create task succeed")
+
+    ret = check_and_upgrade_bond0_in_cmdb(cmdb, region_no, cluster_name, proxy_pool, site)
+    if ret:
+        logger.error("check and upgrade bond0 in cmdb failed")
+        return ret
+
+    logger.info("reload all region info in cmdb")
+    cmdb.reload_all_region_info()
+
+    logger.info("try to create /tmp/taskinfo.yaml")
+    ret, out = exec_local_cmd("./scripts/gen_task_info.py -r %s %s" % (res_yaml, in_yaml))
+    if ret:
+        logger.error("exec gen_task_info.py err: %s", out)
+        return ret
+    logger.info("create /tmp/taskinfo.yaml succeed")
+
+
+    logger.info("try to install or upgrade slb-proxy")
+    #addnode or upgrade
+    ret = rpm_install_or_upgrade()
+    if ret != 0:
+        logger.error("rpm_install_or_upgrade err: %s", ret)
+        return 1
+    logger.info("install or upgrade slb-proxy succeed")
+
+    #get release root path
+    role_work_path = get_role_work_path('proxy')
+    node_sls_path = get_node_sls_path(role_work_path)
+
+    #生成/tmp/op.cfg
+    logger.info("try to create %s" % OPCFG_PATH)
+    ret = gen_op_cfg(OPCFG_PATH, cluster_name, res_yaml)
+    if ret:
+        logger.error("gen_op_cfg err: %s", ret)
+        return ret
+    logger.info("create %s succeed" % OPCFG_PATH)
+
+    logger.info("try to create %s" % node_sls_path)
+    ret, out = exec_local_cmd("./scripts/node-gen-conf.py --sls %s %s" % (node_sls_path, OPCFG_PATH))
+    if ret:
+        logger.error("exec node-gen-conf.py error %s", out)
+        return ret
+    logger.info("create %s succeed" % node_sls_path)
+
+    logger.info("get cluster data from cmdb")
+    cdata_ = cmdb.cmdb_get_cluster_v2(cluster_name)
+    cdata = json.loads(cdata_)
+    #logger.debug(cdata)
+    if not cdata['success']:
+        logger.error("%s", cdata)
+        return 1
+
+    hostname = get_host_name()
+    data = cdata.get('data')
+    if hostname in data['proxy_pool'][proxy_pool]['site_list'][site]['server_list'].keys():
+        node_status = data['proxy_pool'][proxy_pool]['site_list'][site]['server_list'][hostname]['status']
+        logger.debug("node_status: %s" % node_status)
+    else:
+        logger.error("the hostname %s does not exist", hostname)
+        return 1
+
+    '''
+    addnode:
+    1. get cmdb data failed  ???
+    2. node not in cmdb
+    3. status in cmdb not done;
+    4. 'start' process killed or node rebooted should still be treated as addnode
+        if previous opProfile is 'addnode'.
+    '''
+    if node_status != 'done' or get_opProfile() == 'addnode':
+        OPS_SENCE = OPS_ADDNODE
+
+    # write certificate file
+    # 公有云使用的是固定的文件，专有云首次部署的时候在lvs上生成
+    logger.info("try to create ca.crt client.crt client.key")
+    if "certificate" in data.keys():
+        write_certificate(role_work_path, data)
+    else:
+        logger.error("the certificate data does not exist")
+        return 1
+    logger.info("create ca.crt client.crt client.key succeed")
+
+    logger.info("start [%s] steps" % OPS_SENCE)
+    set_opProfile(OPS_SENCE)
+    step_ops = StepOps(OPS_SENCE, OPCFG_PATH, role_work_path)
+    ret = step_ops.do_steps(retry=5)
+    if ret:
+        logger.error("do_steps err: %s", ret)
+        return ret
+    logger.info("end [%s] steps" % OPS_SENCE)
+
+    logger.info("end.")
+
+    logger.info("================start post check app==================")
+    cmd = "python ./post_check_app/rpms_install.py"
+    ret, out = exec_local_cmd(cmd)
+    if ret:
+        logger.error("install rpms for post_check_app failed")
+        return 1
+    logger.info("Enter post check, view log in /home/admin/logs/proxy_monitor.log.")
+    monitor_report_log = "/home/admin/logs/monitor_report.log"
+    while 1:
+        cmd = "./post_check_app/start >>%s 2>&1" % monitor_report_log
+        ret, out = exec_local_cmd(cmd, logging=False)
+        if ret:
+            logger.error("start post check failed: %s" % out)
+            time.sleep(1)
+            continue
+        time.sleep(1)
+
+if __name__ == '__main__':
+    os.environ["PATH"] += os.pathsep + os.pathsep.join(PATHLIST)
+    logger.info("the PATH environment variable: %s", os.getenv("PATH"))
+    signal.signal(signal.SIGTERM, signal_handler)
+    try:
+        ret = start()
+        if ret:
+            exit(ret)
+    except Exception, e:
+        msg = traceback.format_exc()
+        logger.error(msg)
+        logger.error("error: %s" % str(e))
+        exit(1)

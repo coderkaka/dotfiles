@@ -1,0 +1,144 @@
+#!/home/tops/bin/python2.7
+#coding: utf-8
+
+import re
+import os
+import sys
+import yaml
+import time
+import shlex
+import subprocess
+import commands
+
+sys.path.append('/usr/alisys/dragoon/libexec/ssop/c3')
+
+import lldp_info
+
+
+def popen(cmd):
+    return subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+def check_mount():
+    if os.path.exists('/sys/kernel/debug/sched_features'):
+        return True
+    else:
+        n = 0
+        while n <= 4:
+            time.sleep(1)
+            status,output = commands.getstatusoutput('mount -t debugfs node /sys/kernel/debug')
+            if status == 0:
+                return True
+            else:
+                n += 1
+        else:
+            raise NameError('can not mount the debugfs')
+
+def close_lldp_agent(dev):
+    cmd1 = "ethtool -i {dev} |  grep bus-info ".format(dev=dev)
+    bus_info =  commands.getoutput(cmd1).split()[1]
+    cmd2 = "echo lldp stop > /sys/kernel/debug/i40e/{bus_info}/command".format(bus_info=bus_info)
+    status,output = commands.getstatusoutput(cmd2)
+    n = 0
+    while n <= 4:
+        status,output = commands.getstatusoutput(cmd2)
+        if status == 0 :
+            break
+        else:
+            n += 1
+            continue
+    if status == 0 :
+        return True
+    else:
+        sys.exit()
+
+def get_lsw_info():
+    """ Function to get LSW infomatioin
+    Return:
+    """
+    os.system("/usr/alisys/dragoon/libexec/armory/lldp/lldpdctl.sh start")
+    timeout = 180
+    start = int(time.time())
+    while True:
+        try:
+            li = lldp_info.lldp_info()
+            t1_info = li['T1']
+            t2_info = li['T2']
+            t1_lsw_hostname = t1_info['chassis.name'].split('(')[0]
+            t2_lsw_hostname = t2_info['chassis.name'].split('(')[0]
+            if 'port.ifname' in t1_info:
+                t1_port = t1_info['port.ifname']
+            else:
+                t1_port = t1_info['port.local']
+            if 'port.ifname' in t2_info:
+                t2_port = t2_info['port.ifname']
+            else:
+                t2_port = t2_info['port.local']
+            break
+        except:
+            if int(time.time()-start) > timeout:
+                os.system("/usr/alisys/dragoon/libexec/armory/lldp/lldpdctl.sh stop")
+                raise Exception('get lldp_info timeout.')
+            time.sleep(1)
+    os.system("/usr/alisys/dragoon/libexec/armory/lldp/lldpdctl.sh stop")
+    return dict(t1_lsw_hostname=t1_lsw_hostname,
+                t1_port=t1_port,
+                t2_lsw_hostname=t2_lsw_hostname,
+                t2_port=t2_port)
+
+def compare(item, v1, v2):
+    if str(v1) != str(v2):
+        print "%s: %s != %s " % (item, v1, v2)
+        return 1
+    return 0
+
+def check(salt_pillar_path):
+    ret = 0
+
+    salt_pillar = yaml.load(file(salt_pillar_path))
+    conf_byhost = salt_pillar['byhost'][os.uname()[1]]
+    # check for lvs and proxy only
+    if conf_byhost['role_name'] not in ['lvs', 'proxy']:
+        sys.exit()
+
+    #netframe lvs maybe don't have  T1,T2
+    if conf_byhost['role_name'] in ['lvs']:
+        status,output = commands.getstatusoutput('/sbin/ip link show |grep T1')
+        if status != 0:
+            status,output = commands.getstatusoutput('rmmod ixgbe;sleep 1 ; modprobe ixgbe')
+
+    # up T1/T2
+    os.system("/sbin/ifconfig T1 up")
+    os.system("/sbin/ifconfig T2 up")
+
+    #close lldp_agent
+    for dev in ('eth4','eth5','eth6','eth7'):
+        result = check_mount()
+        if result:
+            close_lldp_agent(dev)
+        else:
+            sys.exit('can not mount the debugfs')
+
+    # check lsw link
+    lsw_info = get_lsw_info()
+    ret = ret + compare("t1_lsw_hostname", lsw_info['t1_lsw_hostname'], conf_byhost['t1_lsw_hostname'])
+    ret = ret + compare("t1_port", lsw_info['t1_port'], conf_byhost['t1_port'])
+    ret = ret + compare("t2_lsw_hostname", lsw_info['t2_lsw_hostname'], conf_byhost['t2_lsw_hostname'])
+    ret = ret + compare("t2_port", lsw_info['t2_port'], conf_byhost['t2_port'])
+
+    # down T1,T2 for netframe lvs
+    if conf_byhost['role_name'] in ['lvs']:
+        os.system("/sbin/ifconfig T1 down")
+        os.system("/sbin/ifconfig T2 down")
+    sys.exit(ret)
+
+
+def test():
+    print get_lsw_info()
+    sys.exit()
+
+if __name__ == '__main__':
+    if len(sys.argv) != 2:
+        exit(0)
+    else:
+        salt_pillar_path = sys.argv[1].strip() + '/node.sls'
+    check(salt_pillar_path)

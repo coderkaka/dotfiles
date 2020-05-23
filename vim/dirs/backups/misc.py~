@@ -1,0 +1,183 @@
+#!/home/tops/bin/python2.7
+# -*- coding:UTF-8 -*-
+import sys
+import re
+import os
+import json
+import time
+from common.command import *
+
+def get_os_version():
+    cmd = 'uname -r'
+    ret, out = exec_local_cmd(cmd)
+    if out.strip() == '3.10.0-327.ali2008.alios7.x86_64':
+        os_version = '7u'
+    elif out.strip() == '2.6.32-220.23.2.ali878.el6.x86_64':
+        os_version = '6u'
+    else:
+        os_version = ''
+
+    return os_version
+
+def system_get_core_num():
+    cmd = "lscpu | grep 'Core(s) per socket' | awk '{print $4}'"
+    ret, out = exec_local_cmd(cmd)
+    if ret:
+        return -1
+
+    core_num = int(out.strip())
+
+    cmd = "lscpu | grep '[Ss]ocket(s)' | awk -F: '{print $2}'"
+    ret, out = exec_local_cmd(cmd)
+    if ret:
+        return -1
+
+    socket_num = int(out.strip())
+
+    return core_num * socket_num
+
+def system_set_ht():
+    ht_close = "/home/tops/bin/python /usr/alisys/dragoon/libexec/hwqc/hwqc.py bios -s ht -a close" \
+               "|| /home/tops/bin/python /usr/alisys/dragoon/libexec/hwqc/hwqc.py bios -s h -a close"
+    #ht_open = "/home/tops/bin/python /usr/alisys/dragoon/libexec/hwqc/hwqc.py bios -s ht -a open" \
+    #          "|| /home/tops/bin/python /usr/alisys/dragoon/libexec/hwqc/hwqc.py bios -s h -a open"
+
+    # core_num = system_get_core_num()
+    ret, out = exec_local_cmd(ht_close)
+
+    if ret:
+        return 1
+
+    return 0
+
+def system_set_numa():
+    cmd = "/home/tops/bin/python /usr/alisys/dragoon/libexec/hwqc/hwqc.py bios -s numa -a close" \
+          "|| /home/tops/bin/python /usr/alisys/dragoon/libexec/hwqc/hwqc.py bios -s n -a close"
+    ret, out = exec_local_cmd(cmd)
+    if ret:
+        return 1
+
+    cmd = '/sbin/grubby --update-kernel=`/sbin/grubby --default-kernel` --args="nohz=off numa=off"'
+    ret, out = exec_local_cmd(cmd)
+    if ret:
+        return 1
+
+    return 0
+
+def system_fix():
+    ret1 = system_set_ht()
+    ret2 = system_set_numa()
+    if ret1 or ret2:
+        return 1
+
+    return 0
+
+def rpm_get_info(rpm, state='offline'):
+    if state == 'online':
+        cmd = 'rpm -q --nosignature --qf "%%{Name} %%{Version} %%{Release}" %s' % rpm
+    else:
+        cmd = 'rpm -qp --nosignature --qf "%%{Name} %%{Version} %%{Release}" %s' % rpm
+    ret, out = exec_local_cmd(cmd)
+    if ret:
+        #logger.error('get rpm %s info failed' % rpm)
+        return None
+    (name, version, release) = out.strip().split()
+    dict = {}
+    dict['name'] = name
+    dict['version'] = version
+    dict['release'] = release
+
+    return dict
+
+def rpm_check(rpm_path):
+    """0: fail; 1: succeed"""
+
+    cmd = "ls -C %s | grep 'rpm$'" % rpm_path
+    ret, out = exec_local_cmd(cmd)
+    if ret:
+        #logger.error('no rpm in %s' % rpm_path)
+        return (0, None)
+
+    check_pass = 1
+    data = []
+    rpm_list = out.strip().split('\n')
+    for rpm in rpm_list:
+        f_rpm = '%s/%s' % (rpm_path, rpm)
+        base = rpm_get_info(f_rpm)
+
+        #adapt for ApsaraStack
+        os_version = get_os_version()
+        if os_version == '7u' and base['name'] == 'tops-ntp':
+            continue
+        if os_version == '6u' and base['name'] == 'tops-ntp':
+            continue
+
+        curr = rpm_get_info(base['name'], 'online')
+        if curr == None:
+            check_pass = 0
+            dict = {}
+            dict['name'] = base['name']
+            dict['base'] = '%s-%s' % (base['version'], base['release'])
+            dict['current'] = ''
+            data.append(dict)
+            #logger.error('check %s version failed, %s not install' \
+            #             % (base['name'], base['name']))
+            continue
+
+        if base['version'] != curr['version'] or base['release'] != curr['release']:
+            if base['name'] == 'ali-sls-ilogtail':
+                continue
+            check_pass = 0
+            dict = {}
+            dict['name'] = base['name']
+            dict['base'] = '%s-%s' % (base['version'], base['release'])
+            dict['current'] = '%s-%s' % (curr['version'], curr['release'])
+            data.append(dict)
+            #logger.error('check %s version failed, base: %s-%s, current: %s-%s' \
+            #             % (base['name'], base['version'], base['release'], curr['version'], curr['release']))
+
+    if check_pass == 0:
+        #logger.error('check rpms failed: %s' % repr(data))
+        return (0, data)
+
+    return (1, None)
+
+def replace_spaces(str):
+    result = ' '.join(filter(lambda x: x, str.strip().split()))
+    return result
+
+def sysctl_check(file_path):
+    data = []
+
+    with open(file_path) as f:
+        lines = f.readlines()
+        for line in lines:
+            if re.match("^#", line):
+                continue
+
+            if not line.strip():
+                continue
+
+            (str1, str2) = line.strip().split('=')
+            key = str1.strip()
+            base_value = replace_spaces(str2)
+
+            cmd = 'sysctl -n %s' % key
+            ret, out = exec_local_cmd(cmd)
+            if ret:
+                #dict = {}
+                #dict['name'] = key
+                #dict['base'] = base_value
+                #dict['current'] = ''
+                #data.append(dict)
+                continue
+
+            curr_value = replace_spaces(out)
+            if curr_value != base_value:
+                dict = {}
+                dict['name'] = key
+                dict['base'] = base_value
+                dict['current'] = curr_value
+                data.append(dict)
+
+    return data

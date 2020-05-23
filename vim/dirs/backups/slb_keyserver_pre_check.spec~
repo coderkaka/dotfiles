@@ -1,0 +1,56 @@
+Name:       slb-keyserver-precheck
+Version:1.0.1
+Release:    %(echo $RELEASE)%{?dist}
+Summary:    keyserver key check tool
+
+Vendor:     Alibaba Inc.
+Group:      ali/slb
+License:    Commercial
+URL:        http://gitlab.alibaba-inc.com/L2support/Keyserver_check.git
+Source0:    $RPM_SOURCE_DIR/%{name}-%{version}.tar.gz
+BuildRoot:  %(mktemp -ud %{_tmppath}/%{name}-%{version}-%{release}-XXXXXX)
+
+
+%description
+slb-keyserver-prechek.py is used to check whether certificate and key is match or not;
+slb-check-cert.so provide APIs
+
+%define _prefix /home/slb/slb-keyserver-precheck
+
+%install
+mkdir -p .%{_prefix}
+mkdir -p .%{_prefix}/lib
+mkdir -p .%{_prefix}/bin
+mkdir -p .%{_prefix}/tianji
+
+cp -af $OLDPWD/../lib/slb-check-cert.so .%{_prefix}/lib/
+cp -af $OLDPWD/../bin/genkeyserver.py .%{_prefix}/bin/
+cp -af $OLDPWD/../bin/precheck-key.py .%{_prefix}/bin/
+cp -af $OLDPWD/../bin/merge_result.py .%{_prefix}/bin/
+cp -af $OLDPWD/../bin/fixcmdb_key.py .%{_prefix}/bin/
+cp -af $OLDPWD/../precheck .%{_prefix}/
+cp -af $OLDPWD/../tianji/* .%{_prefix}/tianji/
+chmod +x .%{_prefix}/precheck
+chmod +x .%{_prefix}/tianji/exporter.py
+chmod +x .%{_prefix}/tianji/tianji_clt
+
+%clean
+
+%files
+%defattr(-,root,root,-)
+%doc
+%{_prefix}/bin/precheck-key.py
+%{_prefix}/precheck
+%{_prefix}/bin/genkeyserver.py
+%{_prefix}/bin/merge_result.py
+%{_prefix}/bin/fixcmdb_key.py
+%{_prefix}/lib/slb-check-cert.so
+%{_prefix}/tianji/exporter.py
+%{_prefix}/tianji/tianji_clt
+%{_prefix}/tianji/tianji_cltc
+%{_prefix}/tianji/tj_clt.conf
+%{_prefix}/tianji/util.py
+
+%changelog
+* Fri Aug 10 2018 yahua.lyh
+- init

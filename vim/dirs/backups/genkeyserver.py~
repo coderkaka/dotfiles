@@ -1,0 +1,61 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# ****************************************************************#
+# ScriptName: slbgencli.py
+# Author: yahua.lyh@alibaba-inc.com
+# Create Date: 2018-04-08 15:27
+# Modify Author: yahua.lyh@alibaba-inc.com
+# Modify Date: 2018-04-08 15:27
+# Function:
+# ***************************************************************#
+import os
+import yaml
+
+
+product = 'slb'
+path = '/home/slb/slb-keyserver-precheck/tianji/ops_config'
+
+
+def genpathlist():
+    '''
+    generate the role.conf list
+    '''
+    path_list = []
+    if os.path.exists(path):
+        basepath = os.path.join(path, 'projects', product, 'clusters')
+        for f in os.listdir(basepath):
+            if 'yaochi' in f:
+                continue
+            topath = os.path.join(basepath, f)
+            for root, dirs, files in os.walk(topath, topdown=False):
+                if 'role.conf' in files:
+                    rpath = os.path.join(root, 'role.conf')
+                    path_list.append(rpath)
+    return path_list
+
+
+def load_yaml_file(filename):
+    f = open(filename, 'r')
+    result = yaml.load(f)
+    f.close()
+    return result
+
+
+def slb_info():
+    machine_list = []
+    for f in genpathlist():
+        if 'slb-keyserver/role.conf' in f:
+            content = load_yaml_file(f)
+            keyserver_list = content['ServerRoles']['SlbKeyserver#']
+            machine_list.extend(keyserver_list)
+
+    with open('/home/slb/slb-keyserver-precheck/machine.list', 'w') as fd:
+        for machine in machine_list:
+            fd.write(str(machine))
+            fd.write('\n')
+        fd.close()
+    return machine_list
+
+
+if __name__ == "__main__":
+    slb_info()

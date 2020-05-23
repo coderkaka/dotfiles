@@ -1,0 +1,101 @@
+#!/bin/bash
+
+#标准输出会在crontab中被重定向到/home/admin/disk_clean.log
+
+. /etc/profile
+
+#全局变量定义
+#时间标识
+FDDT='*20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'
+
+log_echo() {
+    TS=$(date "+%Y-%m-%d %H:%M:%S")
+    echo '['$TS']' $1
+}
+
+#随机休眠，防止集群内所有主机同时进行磁盘清理
+sleep_random() {
+    range=$1
+    number=0
+    while [ "$number" -le 0 ]; do
+        number=$RANDOM   #使用系统RANDOM变量生成随机数
+        let "number %= $range"
+    done
+    log_echo "sleep $number seconds"
+    sleep $number
+}
+
+disk_used_rate() {
+    USED_RATE=$(df -h  /home|awk  '/home/{print $5}'|tr -d '%')
+    [ ! $USED_RATE ] && USED_RATE=$(df -h  /home|awk  '/\//{print $5}'|tr -d '%')
+    echo $USED_RATE
+}
+
+log_clean() {
+    rm_script=/usr/local/slb_clean_disk/limitrm.py
+    find $1 -mtime +$2 -name "*$FDDT*" -type f -size +1000000k -follow -exec $rm_script --block-size 4m --force --limit-time 10m  {} \;
+    find $1 -mtime +$2 -name "*$FDDT*" -type f -size 1000000k -follow -exec $rm_script --block-size 4m --force --limit-time 8m  {} \;
+    find $1 -mtime +$2 -name "*$FDDT*" -type f -size +500000k -follow -exec $rm_script --block-size 4m --force --limit-time 6m  {} \;
+    find $1 -mtime +$2 -name "*$FDDT*" -type f -size 500000k -follow -exec $rm_script --block-size 4m --force --limit-time 4m  {} \;
+    find $1 -mtime +$2 -name "*$FDDT*" -type f -size -500000k -follow | xargs  rm -vf;
+}
+
+#main
+#========================1.对3天前的日志和coredump目录进行无条件清理
+#1.1目录定义
+LOG_DIR="/home/admin/logs/ /home/admin/tengine/logs/ /home/slb/logs /home/slb/cert-central-agent/logs/slb"
+#1.2目录审核
+DIR="`ls -d $LOG_DIR 2>/dev/null`"
+if [ "${DIR}x" == "x" ];then
+    log_echo "no logs need to clean"
+    exit 0
+fi
+log_echo "clean path: $DIR"
+
+#1.3对3天前的日志 
+log_clean "$DIR" 3
+
+#=========================2.如果磁盘利用率超过50%，执行深度清理动作
+#2.1目录定义(tengine对应的日志，包括proxy和keyserver)
+LOG_MIN_DIR="/home/admin/logs /home/slb/logs/tengine"
+
+#2.2目录审核
+MIN_DIR="`ls -d $LOG_MIN_DIR 2>/dev/null`"
+if [ "${MIN_DIR}x" == "x" ];then
+    log_echo "no logs need to clean next"
+    exit 0
+fi
+
+#2.3对大于5小时的日志进行无条件清理
+TARGET_RATE=50
+NRATE1=`disk_used_rate`
+log_echo "start clean disk, disk used rate: $NRATE1"
+if [ $NRATE1 -ge $TARGET_RATE ];then
+    sleep_random 180
+    log_echo "disk used rate exceed 50 degree, delete logs in $DIR more than 5 hours'"
+    find $MIN_DIR -name "$FDDT" -name "*log*" -type f -mmin +300 -follow | xargs -n 1 rm -vf;
+fi
+
+#2.4对于5小时且上传完成的tengine日志执行清理
+NRATE2=`disk_used_rate`
+if [ $NRATE2 -ge $TARGET_RATE ];then
+    sleep_random 60
+    log_echo "disk used rate still exceed 50 degree, try to clean logs in 6 hours"
+    python /usr/local/slb_clean_disk/clean_tengine_log.py
+fi
+
+#=========================3.重启一下ilogtail，释放可能被缓存的fd
+sleep 5
+cache_file_num=$(lsof -c ilogtail | grep '/home/admin/logs/' | wc -l)
+NRATE3=`disk_used_rate`
+#24对应2个小时tengine access log和error log的日志数量
+if [ $NRATE3 -ge $TARGET_RATE -a $cache_file_num -ge 24 ];then
+    sleep_random 60
+    log_echo "ilogtail restart"
+    /etc/init.d/ilogtaild stop
+    /etc/init.d/ilogtaild start
+fi
+
+#=========================4.打印清理后的磁盘利用率
+NRATE_FANAL=`disk_used_rate`
+log_echo "clean disk finished, disk used rate: $NRATE_FANAL"

@@ -1,0 +1,12 @@
+interface Person {
+    firstName: string;
+    lastName: string;
+}
+
+function greeter(person: Person) {
+    return "Hello, " + person.firstName + " " + person.lastName;
+}
+
+var user = { firstName: "Jane", lastname: "User" }; //错误的属性名lastname，应为lastName
+document.body.innerHTML = greeter(user);
+console.log(document)

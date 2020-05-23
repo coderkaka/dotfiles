@@ -1,0 +1,1829 @@
+#include <linux/version.h>
+#include <linux/init.h>
+#include <linux/kernel.h>
+#include <linux/module.h>
+#include <linux/proc_fs.h>      /* proc_create, remove_proc_entry */
+#include <linux/slab.h>         /* kmalloc() */
+#include <linux/errno.h>        /* error codes */
+#include <linux/types.h>        /* size_t */
+#include <linux/interrupt.h>    /* mark_bh */
+#include <linux/in.h>
+#include <linux/netdevice.h>    /* struct device, and other headers */
+#include <linux/etherdevice.h>  /* eth_type_trans */
+#include <linux/skbuff.h>
+#include <linux/netfilter.h>
+#include <linux/netfilter_ipv4.h>
+#include <linux/proc_fs.h>
+
+#include <net/ip.h>
+#include <net/ipv6.h>
+#include <net/flow.h>
+#include <net/ip6_route.h>
+#include <net/inet6_hashtables.h>
+#include <net/tcp.h>
+#include <net/udp.h>
+#include <net/route.h>
+#include <net/sock.h>
+
+#include "vsock.h"
+#include "vxlan.h"
+
+
+struct slb_vsock_stat_mib *vsock_stats;
+struct slb_vsock_stat_entry slb_vsock_stats[] = {
+	SLB_VSOCK_STAT_ITEM("vxlan_out_info_ok", VXLAN_OUT_INFO_OK),
+	SLB_VSOCK_STAT_ITEM("vxlan_out_inner_csum", VXLAN_OUT_INNER_CSUM),
+	SLB_VSOCK_STAT_ITEM("vxlan_out_exceed_mtu", VXLAN_OUT_EXCEED_MTU),
+	SLB_VSOCK_STAT_ITEM("vxlan_out_not_fullsk", VXLAN_OUT_NOT_FULLSK),
+	SLB_VSOCK_STAT_ITEM("vxlan_out_no_sock", VXLAN_OUT_NO_SOCK),
+	SLB_VSOCK_STAT_ITEM("vxlan_out_route_fail", VXLAN_OUT_ROUTE_FAIL),
+	SLB_VSOCK_STAT_ITEM("vxlan_in_cnt", VXLAN_IN_CNT),
+	SLB_VSOCK_STAT_ITEM("vxlan_in_err", VXLAN_IN_ERR),
+	SLB_VSOCK_STAT_ITEM("vxlan_dst_unmatch", VXLAN_DST_UNMATCH),
+	SLB_VSOCK_STAT_ITEM("vxlan_in_truncated", VXLAN_IN_TRUNCATED),
+	SLB_VSOCK_STAT_ITEM("vxlan_in_discard", VXLAN_IN_DISCARD),
+	SLB_VSOCK_STAT_ITEM("vxlan_in_ok", VXLAN_IN_OK),
+	SLB_VSOCK_STAT_ITEM("vxlan_in_update", VXLAN_IN_UPDATE),
+	SLB_VSOCK_STAT_ITEM("vxlan_find_no_sk", VXLAN_FIND_NO_SK),
+	SLB_VSOCK_STAT_ITEM("vxlan_rst_on_data1", VXLAN_RST_ON_DATA1),
+	SLB_VSOCK_STAT_ITEM("vxlan_rst_on_data2", VXLAN_RST_ON_DATA2),
+	SLB_VSOCK_STAT_ITEM("vxlan_rst_bad_sk", VXLAN_RST_BAD_SK),
+	SLB_VSOCK_STAT_ITEM("vxlan_bad_synack", VXLAN_BAD_SYNACK),
+	SLB_VSOCK_STAT_ITEM("vxlan_paws_active_rejected", VXLAN_PAWS_ACTIVE_REJECTED),
+	SLB_VSOCK_STAT_ITEM("vxlan_sk_locked", VXLAN_SK_LOCKED),
+	SLB_VSOCK_STAT_ITEM("vxlan_in_skb_toobig", VXLAN_IN_SKB_TOOBIG),
+	SLB_VSOCK_STAT_ITEM("vxlan_alloc_skb_fail", VXLAN_ALLOC_SKB_FAIL),
+	SLB_VSOCK_STAT_ITEM("vxlan_linearize_skb_fail", VXLAN_LINEARIZE_SKB_FAIL),
+	SLB_VSOCK_STAT_ITEM("vxlan_syn_recv", VXLAN_SYN_RECV),
+	SLB_VSOCK_STAT_END
+};
+
+
+#define SET_CMDID(cmd)		(cmd - VSOCK_BASE_CTL)
+#define SET_VSOCK_TOA_INFO_LEN  (sizeof(struct vsock_vxlan_toa))
+#define SET_VSOCK_INFO_LEN	(sizeof(struct vsock_vxlan))
+
+static const unsigned char set_arglen[SET_CMDID(VSOCK_SO_SET_MAX) + 1] = {
+	[SET_CMDID(VSOCK_SO_SET_VX_TOA)] = SET_VSOCK_TOA_INFO_LEN,
+	[SET_CMDID(VSOCK_SO_SET_VX)] = SET_VSOCK_INFO_LEN,
+};
+
+static int
+do_slb_vsock_set_info(struct sock *sk, int cmd,
+		void __user * user, unsigned int len)
+{
+	unsigned char arg[SET_VSOCK_TOA_INFO_LEN];
+	union vxlan_data *vsock;
+	struct vsock_vxlan_toa *vx_toa;
+	struct vsock_vxlan *vx_info;
+	int ret = 0;
+
+	if (len < set_arglen[SET_CMDID(cmd)]) {
+		SLB_VSOCK_INFO("set_ctl: len %u < %u\n",
+		       len, set_arglen[SET_CMDID(cmd)]);
+		return -EINVAL;
+	}
+
+	if (copy_from_user(arg, user, len) != 0)
+		return -EFAULT;
+
+	switch (cmd) {
+	case VSOCK_SO_SET_VX_TOA:
+		vx_toa = (struct vsock_vxlan_toa *) arg;
+		vsock = (union vxlan_data *)sk->sk_toa_data;
+		SLB_VSOCK_DBG("set vid:%u daddr:%pI4\n",
+				vx_toa->vx.vid, &vx_toa->vx.vx_daddr);
+		if (!vx_toa->vx.vid) {
+			SLB_VSOCK_INFO("bad vid:%u\n", vx_toa->vx.vid);
+			ret = -EINVAL;
+			goto out;
+		}
+
+		if (vx_toa->toa.toa_ip == 0 || vx_toa->toa.toa_port == 0) {
+			SLB_VSOCK_INFO("bad toa ip:port setting: %u:%u\n",
+				       vx_toa->toa.toa_ip, vx_toa->toa.toa_port);
+			ret = -EINVAL;
+			goto out;
+		}
+
+		vsock->flags = VSOCK_TOA_FLAGS;
+		vsock->vx.vid = vx_toa->vx.vid;
+		vsock->vx.vx_daddr = vx_toa->vx.vx_daddr;
+		vsock->toa.toa_port = vx_toa->toa.toa_port;
+		vsock->toa.toa_ip = vx_toa->toa.toa_ip;
+		break;
+	case VSOCK_SO_SET_VX:
+		vx_info = (struct vsock_vxlan *) arg;
+		vsock = (union vxlan_data *)sk->sk_toa_data;
+		SLB_VSOCK_DBG("set vid:%u daddr:%pI4\n",
+				vx_info->vid, &vx_info->vx_daddr);
+		if (!vx_info->vid) {
+			SLB_VSOCK_INFO("bad vid:%u\n", vx_info->vid);
+			ret = -EINVAL;
+			goto out;
+		}
+
+		vsock->flags = VSOCK_FLAGS;
+		vsock->vx.vid = vx_info->vid;
+		vsock->vx.vx_daddr = vx_info->vx_daddr;
+		break;
+	default:
+		ret = -EINVAL;
+	}
+out:
+	return ret;
+}
+
+static int
+do_slb_vsock_set_info_v6(struct sock *sk, int cmd,
+                void __user * user, unsigned int len)
+{
+	if (cmd == VSOCK_SO_SET_VX_TOA) {
+		return -EINVAL;
+	}
+
+	return do_slb_vsock_set_info(sk, cmd, user, len);
+}
+
+#define GET_CMDID(cmd)		(cmd - VSOCK_BASE_CTL)
+#define GET_VSOCK_TOA_INFO_LEN	(sizeof(struct vsock_vxlan_toa))
+#define GET_VSOCK_INFO_LEN	(sizeof(struct vsock_vxlan))
+
+static const unsigned char get_arglen[GET_CMDID(VSOCK_SO_GET_MAX) + 1] = {
+	[GET_CMDID(VSOCK_SO_GET_VX_TOA)] = GET_VSOCK_TOA_INFO_LEN,
+	[GET_CMDID(VSOCK_SO_GET_VX)] = GET_VSOCK_INFO_LEN,
+};
+
+static int
+do_slb_vsock_get_info(struct sock *sk, int cmd,	void __user * user, int *len)
+{
+	union vxlan_data *vsock;
+	int ret = 0;
+
+	if (*len < get_arglen[GET_CMDID(cmd)]) {
+		SLB_VSOCK_INFO("get_ctl: len %u < %u\n",
+		       *len, get_arglen[GET_CMDID(cmd)]);
+		return -EINVAL;
+	}
+
+	switch (cmd) {
+	case VSOCK_SO_GET_VX_TOA:
+		vsock = (union vxlan_data *)sk->sk_toa_data;
+		if ((vsock->flags != VSOCK_TOA_FLAGS) || (!vsock->vx.vid)) {
+			SLB_VSOCK_INFO("vxlan info error,flags=0x%x\n",
+					vsock->flags);
+			ret = -EINVAL;
+			goto out;
+		}
+
+		if (copy_to_user(user, &vsock->vx, GET_VSOCK_TOA_INFO_LEN) != 0)
+			ret = -EFAULT;
+
+		break;
+	case VSOCK_SO_GET_VX:
+		vsock = (union vxlan_data *)sk->sk_toa_data;
+		if ((vsock->flags != VSOCK_FLAGS) || (!vsock->vx.vid)) {
+			SLB_VSOCK_INFO("vxlan info error,flags=0x%x\n",
+					vsock->flags);
+			ret = -EINVAL;
+			goto out;
+		}
+
+		if (copy_to_user(user, &vsock->vx, GET_VSOCK_INFO_LEN) != 0)
+			ret = -EFAULT;
+
+		break;
+	default:
+		ret = -EINVAL;
+	}
+out:
+	return ret;
+}
+
+static int
+do_slb_vsock_get_info_v6(struct sock *sk, int cmd, void __user * user, int *len)
+{
+	if (cmd == VSOCK_SO_GET_VX_TOA) {
+		return -EINVAL;
+	}
+
+	return do_slb_vsock_get_info(sk, cmd, user, len);
+}
+
+static struct nf_sockopt_ops slb_vsock_sockopts = {
+	.pf = PF_INET,
+	.set_optmin = VSOCK_BASE_CTL,
+	.set_optmax = VSOCK_SO_SET_MAX + 1,
+	.set = do_slb_vsock_set_info,
+	.get_optmin = VSOCK_BASE_CTL,
+	.get_optmax = VSOCK_SO_GET_MAX + 1,
+	.get = do_slb_vsock_get_info,
+	.owner = THIS_MODULE,
+};
+
+static struct nf_sockopt_ops slb_vsock_sockopts_ip6 = {
+	.pf = PF_INET6,
+	.set_optmin = VSOCK_BASE_CTL,
+	.set_optmax = VSOCK_SO_SET_MAX + 1,
+	.set = do_slb_vsock_set_info_v6,
+	.get_optmin = VSOCK_BASE_CTL,
+	.get_optmax = VSOCK_SO_GET_MAX + 1,
+	.get = do_slb_vsock_get_info_v6,
+	.owner = THIS_MODULE,
+};
+
+static inline void slb_vsock_update_rt(struct sk_buff *skb, struct iphdr *iph)
+{
+	struct rtable *rt;
+	struct flowi4 fl4 = {
+		.flowi4_oif = 0,
+		.flowi4_mark = sysctl_vsock_vxlan_route_mark,
+		.flowi4_tos = iph->tos,
+		.saddr = iph->saddr,
+		.daddr = iph->daddr,
+	};
+
+	rt = ip_route_output_key(&init_net, &fl4);
+	if (IS_ERR(rt)) {
+		SLB_VSOCK_DBG("ip_route_output error, dst:%pI4 src:%pI4\n",
+				     &iph->daddr, &iph->saddr);
+		SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_OUT_ROUTE_FAIL);
+		return;
+	}
+
+	/* drop old route */
+	skb_dst_drop(skb);
+	skb_dst_set(skb, &rt->dst);
+}
+
+/*
+ * Reuse skb to reply rst packet, called by slb_vsock_in.
+ */
+static int
+send_rst_reuse_skb(struct sk_buff *skb, __be32 outer_saddr, __be32 outer_daddr, u32 vid)
+{
+	struct tcphdr *th;
+	struct udphdr *uh;
+	struct vxlanhdr *vxh;
+	struct iphdr *inner_iph;
+	struct iphdr *outer_iph;
+	unsigned int tcplen, tcphoff, udphoff;
+	unsigned short tmp_port;
+	__be32 tmp_addr;
+	u32 rtos;
+	int needs_ack = 0;
+
+	if (skb_linearize(skb))
+		goto drop;
+
+	/* network header has been set to inner_iph */
+	inner_iph = ip_hdr(skb);
+	th = tcp_hdr(skb);
+
+	tcphoff = ip_hdrlen(skb);
+	tcplen = skb->len - tcphoff;
+
+	/* remove tcp payload, skb->data has been set to inner_iph */
+	if (pskb_trim(skb, ip_hdrlen(skb) + sizeof(struct tcphdr)))
+		goto drop;
+
+	/* prepare tcp header */
+	tmp_port = th->dest;
+	th->dest = th->source;
+	th->source = tmp_port;
+
+	/* reset seq ack_seq */
+	if(th->ack) {
+		th->seq = th->ack_seq;
+		th->ack_seq = 0;
+	} else {
+		needs_ack = 1;
+		th->ack_seq = htonl(ntohl(th->seq) + th->syn + th->fin
+			+ tcplen - (th->doff << 2));	/* oldskb seq+len */
+		th->seq = 0;
+	}
+
+	/* reset flags */
+	((u_int8_t *)th)[13] = 0;
+	th->rst = 1;
+	th->ack = needs_ack;
+	th->doff = sizeof(struct tcphdr) >> 2;
+	th->window = 0;
+	th->urg_ptr = 0;
+
+	/* prepare inner_iph */
+	tmp_addr = inner_iph->saddr;
+	inner_iph->saddr = inner_iph->daddr;
+	inner_iph->daddr = tmp_addr;
+
+	inner_iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct tcphdr));
+	inner_iph->frag_off = htons(IP_DF);
+	inner_iph->ttl = IPDEFTTL;
+	inner_iph->protocol = IPPROTO_TCP;
+
+	ip_send_check(inner_iph);
+
+	th->check = 0;
+	skb->csum = skb_checksum(skb, tcphoff, skb->len - tcphoff, 0);
+	th->check = csum_tcpudp_magic(inner_iph->saddr, inner_iph->daddr,
+						skb->len - tcphoff,
+						IPPROTO_TCP, skb->csum);
+
+	/* prepare vxlan header */
+	vxh = (struct vxlanhdr *)skb_push(skb, sizeof(struct vxlanhdr));
+	vxh->flags = VXLAN_FLAGS;
+	vxh->version = 1;
+	vxh->slb_type = sysctl_vsock_healthcheck ? VX_SLB_HC : VX_SLB_L7;
+	vxh->vid = htonl(vid << 8);
+
+	/* prepare udp header */
+	uh = (struct udphdr *)skb_push(skb, sizeof(struct udphdr));
+	uh->source = th->source;	/* use tcp source port */
+	uh->dest = sysctl_vsock_vxlan_use_another_dport && sysctl_vsock_vxlan_another_dport ?
+		htons(sysctl_vsock_vxlan_another_dport) : VXLAN_LISTEN_PORT;
+	uh->len = htons(skb->len);
+	skb_reset_transport_header(skb);
+
+	/* prepare outer ip header */
+	outer_iph = (struct iphdr *)skb_push(skb, sizeof(struct iphdr));
+	rtos = RT_TOS(inner_iph->tos);
+	udphoff = sizeof(struct iphdr);
+	skb_reset_network_header(skb);
+	*((__u16 *) outer_iph) = htons((4 << 12) | (5 << 8) | (rtos & 0xff));
+	outer_iph->tot_len = htons(skb->len);
+	outer_iph->frag_off = htons(IP_DF);
+	outer_iph->ttl = IPDEFTTL;
+	outer_iph->protocol = IPPROTO_UDP;
+	outer_iph->saddr = outer_saddr;
+	outer_iph->daddr = outer_daddr;
+
+	ip_send_check(outer_iph);
+
+	uh->check = 0;
+	if (sysctl_vxlan_hdr_csum) {
+		skb->csum = skb_checksum(skb, udphoff, skb->len - udphoff, 0);
+		uh->check = csum_tcpudp_magic(outer_iph->saddr, outer_iph->daddr,
+				skb->len - udphoff, IPPROTO_UDP, skb->csum);
+	}
+
+	skb->ip_summed = CHECKSUM_UNNECESSARY;
+
+	/* update the route */
+	slb_vsock_update_rt(skb, outer_iph);
+
+	NF_HOOK(NFPROTO_IPV4, NF_INET_LOCAL_OUT, dev_net(skb_dst(skb)->dev), NULL, skb, NULL,
+		skb_dst(skb)->dev, dst_output);
+
+	return NF_STOLEN;
+
+drop:
+	kfree_skb(skb);
+	return NF_STOLEN;
+}
+
+/* copied from net/ipv4/tcp_minisocks.c */
+static bool tcp_in_window(u32 seq, u32 end_seq, u32 s_win, u32 e_win)
+{
+	if (seq == s_win)
+		return true;
+	if (after(end_seq, s_win) && before(seq, e_win))
+		return true;
+	return seq == e_win && seq == end_seq;
+}
+
+/*
+ * most of logics are from tcp_timewait_state_process().
+ * return values:
+ *   1: send reset in vsock and drop
+ *   0: forward to kernel stack
+ */
+static int
+vsock_tcp_timewait_state_process(struct sock *sk, struct sk_buff *skb,
+				 const struct tcphdr *th)
+{
+	struct inet_timewait_sock *tw = inet_twsk(sk);
+	struct tcp_options_received tmp_opt;
+	struct tcp_timewait_sock *tcptw;
+	bool paws_reject;
+	struct iphdr *iph;
+	uint32_t seq;
+	uint32_t end_seq;
+    struct net *net = sock_net(sk);
+
+	if (tw->tw_substate == TCP_FIN_WAIT2) {
+		tcptw = tcp_twsk(sk);
+		iph = ip_hdr(skb);
+		seq = ntohl(th->seq);
+		end_seq = seq + th->syn + th->fin + skb->len - (iph->ihl + th->doff) * 4;
+
+		paws_reject = false;
+		tmp_opt.saw_tstamp = 0;
+		if (th->doff > (sizeof(*th) >> 2) && tcptw->tw_ts_recent_stamp) {
+			tcp_parse_options(net, skb, &tmp_opt, 0, NULL);
+
+			if (tmp_opt.saw_tstamp) {
+				tmp_opt.rcv_tsecr -= tcptw->tw_ts_offset;
+				tmp_opt.ts_recent = tcptw->tw_ts_recent;
+				tmp_opt.ts_recent_stamp = tcptw->tw_ts_recent_stamp;
+				paws_reject = tcp_paws_reject(&tmp_opt, th->rst);
+			}
+		}
+
+		/* Out of window, send ACK, let kernel stack do */
+		if (paws_reject ||
+		    !tcp_in_window(seq, end_seq,
+				   tcptw->tw_rcv_nxt,
+				   tcptw->tw_rcv_nxt + tcptw->tw_rcv_wnd)) {
+			return 0;
+		}
+
+		if (th->rst) {
+			return 0;
+		}
+
+		if (th->syn && !before(seq, tcptw->tw_rcv_nxt)) {
+			return 1;
+		}
+
+		/* Dup ACK? */
+		if (!th->ack ||
+		    !after(end_seq, tcptw->tw_rcv_nxt) ||
+		    end_seq == seq) {
+			return 0;
+		}
+
+		/* New data or FIN. If new data arrive after half-duplex close,
+		 * reset.
+		 */
+		if (!th->fin ||
+		    end_seq != tcptw->tw_rcv_nxt + 1) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static int vsock_tcp_rcv_synsent_state_process(struct sock *sk, struct sk_buff *skb,
+					       const struct tcphdr *th)
+{
+	struct tcp_sock *tp;
+	uint32_t seq;
+	uint32_t end_seq;
+	uint32_t ack_seq;
+	struct tcp_options_received tmp_opt;
+	struct iphdr *iph;
+    struct net *net = sock_net(sk);
+
+	if (th->ack) {
+		iph = ip_hdr(skb);
+		seq = ntohl(th->seq);
+		end_seq = seq + th->syn + th->fin + skb->len - (iph->ihl + th->doff) * 4;
+		ack_seq = ntohl(th->ack_seq);
+		tp = tcp_sk(sk);
+
+		if (!after(ack_seq, tp->snd_una) ||
+		    after(ack_seq, tp->snd_nxt)) {
+			return 1;
+		}
+
+		tmp_opt.saw_tstamp = 0;
+		tcp_parse_options(net, skb, &tmp_opt, 0, NULL);
+		if (tmp_opt.saw_tstamp && tmp_opt.rcv_tsecr)
+			tmp_opt.rcv_tsecr -= tp->tsoffset;
+
+		if (tmp_opt.saw_tstamp && tmp_opt.rcv_tsecr &&
+		    !between(tmp_opt.rcv_tsecr, tp->retrans_stamp,
+			     tcp_time_stamp)) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+/* modified from tcp_parse_aligned_timestamp(), the difference
+ * is the vsock version parses timestamps to tmp_opt instead of
+ * updating tp->rx_opt.
+ */
+static bool vsock_tcp_parse_aligned_timestamp(struct tcp_sock *tp, const struct tcphdr *th,
+					      struct tcp_options_received *tmp_opt)
+{
+	const __be32 *ptr = (const __be32 *)(th + 1);
+
+	if (*ptr == htonl((TCPOPT_NOP << 24) | (TCPOPT_NOP << 16)
+			  | (TCPOPT_TIMESTAMP << 8) | TCPOLEN_TIMESTAMP)) {
+		tmp_opt->saw_tstamp = 1;
+		++ptr;
+		tmp_opt->rcv_tsval = ntohl(*ptr);
+		++ptr;
+		if (*ptr)
+			tmp_opt->rcv_tsecr = ntohl(*ptr) - tp->tsoffset;
+		else
+			tmp_opt->rcv_tsecr = 0;
+		return true;
+	}
+	return false;
+}
+
+/* Fast parse options. This hopes to only see timestamps.
+ * If it is wrong it falls back on tcp_parse_options().
+ * it is modified from tcp_fast_parse_options(), the difference
+ * is the vsock version parses timestamps to tmp_opt instead of
+ * updating tp->rx_opt.
+ */
+static bool vsock_tcp_fast_parse_options(const struct sk_buff *skb,
+					 const struct tcphdr *th, struct tcp_sock *tp,
+					 struct tcp_options_received *tmp_opt)
+{
+	/* In the spirit of fast parsing, compare doff directly to constant
+	 * values.  Because equality is used, short doff can be ignored here.
+	 */
+	if (th->doff == (sizeof(*th) / 4)) {
+		tmp_opt->saw_tstamp = 0;
+		return false;
+	} else if (tp->rx_opt.tstamp_ok &&
+		   th->doff == ((sizeof(*th) + TCPOLEN_TSTAMP_ALIGNED) / 4)) {
+		if (vsock_tcp_parse_aligned_timestamp(tp, th, tmp_opt))
+			return true;
+	}
+
+    struct net *net = sock_net((struct sock *)tp);
+	/* tcp_parse_options() will check tstamp_ok when estab == 1 */
+	tmp_opt->tstamp_ok = tp->rx_opt.tstamp_ok;
+	tmp_opt->saw_tstamp = 0;
+	tcp_parse_options(net, skb, tmp_opt, 1, NULL);
+	if (tmp_opt->saw_tstamp && tmp_opt->rcv_tsecr)
+		tmp_opt->rcv_tsecr -= tp->tsoffset;
+
+	return true;
+}
+
+static inline bool vsock_tcp_paws_check(const struct tcp_options_received *rx_opt,
+					const struct tcp_options_received *tmp_opt,
+					int paws_win)
+{
+	if ((s32)(rx_opt->ts_recent - tmp_opt->rcv_tsval) <= paws_win)
+		return true;
+	if (unlikely(get_seconds() >= rx_opt->ts_recent_stamp + TCP_PAWS_24DAYS))
+		return true;
+	/*
+	 * Some OSes send SYN and SYNACK messages with tsval=0 tsecr=0,
+	 * then following tcp messages have valid values. Ignore 0 value,
+	 * or else 'negative' tsval might forbid us to accept their packets.
+	 */
+	if (!rx_opt->ts_recent)
+		return true;
+	return false;
+}
+
+/* Check that window update is acceptable.
+ * The function assumes that snd_una<=ack<=snd_next.
+ * copied from function with same name from kernel stack.
+ */
+static inline bool tcp_may_update_window(const struct tcp_sock *tp,
+					 const u32 ack, const u32 ack_seq,
+					 const u32 nwin)
+{
+	return after(ack, tp->snd_una) ||
+		after(ack_seq, tp->snd_wl1) ||
+		(ack_seq == tp->snd_wl1 && nwin > tp->snd_wnd);
+}
+
+static int vsock_tcp_disordered_ack(const struct sock *sk, const struct sk_buff *skb,
+			      const struct tcp_options_received *tmp_opt,
+			      u32 seq, u32 end_seq, u32 ack)
+{
+	const struct tcp_sock *tp = tcp_sk(sk);
+	const struct tcphdr *th = tcp_hdr(skb);
+
+	return (/* 1. Pure ACK with correct sequence number. */
+		(th->ack && seq == end_seq && seq == tp->rcv_nxt) &&
+
+		/* 2. ... and duplicate ACK. */
+		ack == tp->snd_una &&
+
+		/* 3. ... and does not update window. */
+		!tcp_may_update_window(tp, ack, seq, ntohs(th->window) << tp->rx_opt.snd_wscale) &&
+
+		/* 4. ... and sits in replay window. */
+		(s32)(tp->rx_opt.ts_recent - tmp_opt->rcv_tsval) <= (inet_csk(sk)->icsk_rto * 1024) / HZ);
+}
+
+static inline bool vsock_tcp_paws_discard(const struct sock *sk,
+					  const struct sk_buff *skb,
+					  const struct tcp_options_received *tmp_opt,
+					  u32 seq, u32 end_seq, u32 ack)
+{
+	const struct tcp_sock *tp = tcp_sk(sk);
+
+	return !vsock_tcp_paws_check(&tp->rx_opt, tmp_opt, TCP_PAWS_WINDOW) &&
+		!vsock_tcp_disordered_ack(sk, skb, tmp_opt, seq, end_seq, ack);
+}
+
+
+/* copied from net/ipv4/tcp_input.c */
+static inline bool tcp_sequence(const struct tcp_sock *tp, u32 seq, u32 end_seq)
+{
+	return !before(end_seq, tp->rcv_wup) &&
+		!after(seq, tp->rcv_nxt + tcp_receive_window(tp));
+}
+
+static int vsock_tcp_rcv_state_process_fin_wait(struct sock *sk, struct sk_buff *skb,
+						const struct tcphdr *th)
+{
+	struct tcp_sock *tp;
+	uint32_t seq;
+	uint32_t end_seq;
+	uint32_t ack_seq;
+	struct tcp_options_received tmp_opt;
+	struct iphdr *iph;
+
+	iph = ip_hdr(skb);
+	seq = ntohl(th->seq);
+	end_seq = seq + th->syn + th->fin + skb->len - (iph->ihl + th->doff) * 4;
+	ack_seq = ntohl(th->ack_seq);
+	tp = tcp_sk(sk);
+
+	if (!th->ack && !th->rst && !th->syn)
+		return 0;
+
+	/* Below step 1 to 4 are from tcp_validate_incoming() */
+
+	/* Step 1: RFC1323: H1. Apply PAWS check first. */
+	if (vsock_tcp_fast_parse_options(skb, th, tp, &tmp_opt) && tmp_opt.saw_tstamp &&
+	    vsock_tcp_paws_discard(sk, skb, &tmp_opt, seq, end_seq, ack_seq)) {
+		/* in tcp_validate_incoming(), Reset is accepted even if it
+		 * did not pass PAWS, but reset will also be sent to kernel
+		 * stack in below step 2 for vsock case, so no need to
+		 * check reset here. */
+		return 0;
+	}
+
+	if (!tcp_sequence(tp, seq, end_seq)) {
+		return 0;
+	}
+
+	/* Step 2: check RST bit */
+	if (th->rst) {
+		return 0;
+	}
+
+	/* step 3: check security and precedence [ignored] */
+
+	/* step 4: Check for a SYN
+	 * RFC 5961 4.2 : Send a challenge ack
+	 */
+	if (th->syn) {
+		return 0;
+	}
+
+	if (sk->sk_state == TCP_FIN_WAIT1) {
+		/* since Fast Open socket is not supported in our system, skip.
+		 * Please note it does not mean Fast Open is supported.
+		 */
+		if (tp->fastopen_rsk) {
+			return 0;
+		}
+
+		/* in tcp_rcv_state_process(), tp->snd_una is checked, since
+		 * tcp_ack() has been called before this check, in vsock, tp
+		 * is not touched, so check ack_seq instead. */
+		if (ack_seq != tp->write_seq) {
+			return 0;
+		}
+
+		/* SOCK_DEAD should be always set in SLB, since nginx always
+		 * closes a connection with close() call. */
+		if (!sock_flag(sk, SOCK_DEAD)) {
+			return 0;
+		}
+
+		/* tp->linger2 < 0 is also supported even SLB wont set so. */
+		if (tp->linger2 < 0 ||
+		    (end_seq != seq &&
+		     after(end_seq - th->fin, tp->rcv_nxt))) {
+			return 1;
+		}
+	}
+
+	/* step 7: process the segment text (of tcp_rcv_state_process) */
+	if (sk->sk_state == TCP_FIN_WAIT1 || sk->sk_state == TCP_FIN_WAIT2) {
+		/* RFC 793 says to queue data in these states,
+		 * RFC 1122 says we MUST send a reset.
+		 * BSD 4.4 also does reset.
+		 */
+		/* RCV_SHUTDOWN should be always set in SLB, since nginx always
+		 * closes connections with close() call. */
+		if (sk->sk_shutdown & RCV_SHUTDOWN) {
+			if (end_seq != seq &&
+			    after(end_seq - th->fin, tp->rcv_nxt)) {
+				/* tcp_reset() is called in tcp_rcv_state_process(),
+				 * but there is no export symbol for tcp_reset().
+				 * re-implement tcp_reset() here, to reduce the
+				 * complexity, consider only SOCK_DEAD case. */
+				if (!sock_flag(sk, SOCK_DEAD))
+					return 0;
+				return 2;
+			}
+		}
+	}
+
+	return 0;
+}
+
+static inline void update_vxlan_daddr_ipv6(struct sk_buff *skb,
+		struct ipv6hdr *ip6h, u32 vid, __be32 daddr)
+{
+    return;/* just stub, confirm with cangli */
+}
+
+#if 0
+/* decapsulate the vxlan packet */
+static unsigned int
+slb_vsock_in(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
+{
+	struct iphdr *inner_iph, *iph;
+	struct tcphdr *inner_th;
+	struct udphdr *uh;
+	struct vxlanhdr *vxh;
+	struct sock *sk;
+	int len;
+	int inner_iph_len;
+	u32 vid;
+	__be32 addr;
+	__be32 outer_saddr;
+	__be32 outer_daddr;
+	int send_reset;
+	bool refcounted;
+	union vxlan_data *vsock;
+	int ret;
+
+	if (unlikely(!skb->dev))
+		return NF_ACCEPT;
+
+	/* only PACKET_HOST */
+	if (unlikely(skb->pkt_type != PACKET_HOST))
+		return NF_ACCEPT;
+
+	iph = ip_hdr(skb);
+	len = iph->ihl * 4;
+	/* only care udp packets */
+	if (iph->protocol != IPPROTO_UDP)
+		return NF_ACCEPT;
+
+	/* Need Udp and inner Vxlan hdr */
+	if (!pskb_may_pull(skb, len + VXLAN_HLEN + sizeof(struct iphdr)))
+		return NF_ACCEPT;
+
+	iph = ip_hdr(skb);
+	addr = iph->saddr;
+	uh = (struct udphdr*)(skb_network_header(skb) + len);
+	/* only care packets to vxlan listen port */
+	if (!sysctl_vsock_vxlan_another_dport) {
+		if (uh->dest != VXLAN_LISTEN_PORT)
+			return NF_ACCEPT;
+	} else {
+		if (uh->dest != VXLAN_LISTEN_PORT &&
+		    uh->dest != htons(sysctl_vsock_vxlan_another_dport))
+			return NF_ACCEPT;
+	}
+
+	/* vxlan header check */
+	vxh = (struct vxlanhdr *)(uh + 1);
+	if (vxh->flags != VXLAN_FLAGS || vxh->version != 1 ||
+	    (vxh->vid & htonl(0xff)))
+		goto inhdr_error;
+
+	/* check the daddr */
+	if (sysctl_vsock_vtep_check && !ipv4_prefix_equal(iph->daddr,
+				vxlan_saddr, sysctl_vsock_vtep_cidr_v4)) {
+		SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_DST_UNMATCH);
+		goto drop;
+	}
+
+
+	SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_CNT);
+	/* get vpc id, vid will be used below */
+	vid = vxlan_id(vxh);
+
+	outer_saddr = iph->saddr;
+	outer_daddr = iph->daddr;
+
+	/* pull the outer ip hdr ,udp and inner vxlan hdr */
+	skb_pull_rcsum(skb, len + VXLAN_HLEN);
+	skb_reset_network_header(skb);
+
+	/* Note, we do not support ipv6 in vxlan so far
+	 * do inner iphdr check, copied from ip_rcv.
+	 */
+	inner_iph = ip_hdr(skb);
+	if (inner_iph->ihl < 5 || inner_iph->version != 4)
+		goto inhdr_error;
+
+	inner_iph_len = inner_iph->ihl * 4;
+	if (!pskb_may_pull(skb, inner_iph_len))
+		goto inhdr_error;
+
+	inner_iph = ip_hdr(skb);
+
+	if (unlikely(ip_fast_csum((u8 *)inner_iph, inner_iph->ihl)))
+		goto inhdr_error;
+
+	len = ntohs(inner_iph->tot_len);
+	if (skb->len < len) {
+		SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_TRUNCATED);
+		goto drop;
+	} else if (len < inner_iph_len)
+		goto inhdr_error;
+
+	/* Our transport medium may have padded the buffer out. Now we know it
+	 * is IP we can trim to the true length of the frame.
+	 * Note this now means skb->len holds ntohs(iph->tot_len).
+	 */
+	if (pskb_trim_rcsum(skb, len)) {
+		SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_DISCARD);
+		goto drop;
+	}
+
+	/* skb->transport_header has been set in ip_rcv before PRE_ROUTING
+	 * Reset transport_header here
+	 */
+	skb->transport_header = skb->network_header + inner_iph_len;
+
+	if (inner_iph->protocol != IPPROTO_TCP)
+		goto ok;
+
+	/* IPPROTO_TCP */
+	if (!pskb_may_pull(skb, inner_iph_len + sizeof(struct tcphdr)))
+		goto inhdr_error;
+
+	inner_th = tcp_hdr(skb);
+
+	if (unlikely(inner_th->doff < sizeof(struct tcphdr) / 4))
+		goto inhdr_error;
+
+	if (!pskb_may_pull(skb, inner_iph_len + inner_th->doff * 4))
+		goto inhdr_error;
+
+	inner_iph = ip_hdr(skb);
+	inner_th = tcp_hdr(skb);
+
+	if (unlikely(skb_dst(skb)))
+		skb_dst_drop(skb);
+
+	if (unlikely(ip_route_input(skb, inner_iph->daddr, inner_iph->saddr,
+				    inner_iph->tos, skb->dev)))
+		goto drop;
+
+	send_reset = 0;
+	sk = __inet_lookup_skb(&tcp_hashinfo, skb, tcp_hdrlen(skb),
+			       inner_th->source, inner_th->dest, &refcounted);
+	if (sk == NULL) {
+		if (sysctl_vsock_rst_no_sk) {
+			SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_FIND_NO_SK);
+			if (sysctl_vsock_rst_no_sk > 1) {
+				send_reset = 1;
+			}
+		}
+	} else if (sk->sk_state == TCP_CLOSE) {
+		/* __inet_lookup_skb inc the refcnt */
+		if (refcounted)
+			sock_put(sk);
+	} else if (sk->sk_state == TCP_TIME_WAIT) {
+		if (sysctl_vsock_rst_on_data2 &&
+		    vsock_tcp_timewait_state_process(sk, skb, inner_th)) {
+			SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_RST_ON_DATA2);
+			if (sysctl_vsock_rst_on_data2 > 1) {
+				inet_twsk_deschedule_put(inet_twsk(sk));
+				send_reset = 1;
+			} else {
+				inet_twsk_put(inet_twsk(sk));
+			}
+		} else {
+			inet_twsk_put(inet_twsk(sk));
+		}
+	} else {
+		bh_lock_sock(sk);
+		vsock = (union vxlan_data *)sk->sk_toa_data;
+		if ((vsock->flags & VSOCK_TOA_FLAGS) == VSOCK_TOA_FLAGS && vsock->vx.vid == vid && vid != 0) {
+			if (sysctl_vxlan_daddr_update && vsock->vx.vx_daddr != addr) {
+				vsock->vx.vx_daddr = addr;	/* update the daddr */
+				SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_UPDATE);
+			}
+		} else if (sysctl_vsock_rst_bad_sk) {
+			/* invalid packets with invalid vid */
+			SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_RST_BAD_SK);
+			if (sysctl_vsock_rst_bad_sk > 1) {
+				send_reset = 1;
+			}
+		}
+		bh_unlock_sock(sk);
+
+		if (send_reset) {
+			/* do nothing, skip sk_state checking */
+		} else if (sk->sk_state == TCP_SYN_SENT) {
+			if (sysctl_vsock_rst_bad_synack &&
+			    vsock_tcp_rcv_synsent_state_process(sk, skb, inner_th)) {
+				SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_BAD_SYNACK);
+				if (sysctl_vsock_rst_bad_synack > 1) {
+					send_reset = 1;
+				}
+			}
+		} else if (sk->sk_state == TCP_FIN_WAIT1) {
+			bh_lock_sock(sk);
+			if (sock_owned_by_user(sk)) {
+				/* should not happen, since SLB has called close(),
+				 * skip and send the packet to kernel stack.
+				 */
+				SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_SK_LOCKED);
+			} else if (sysctl_vsock_rst_on_data1) {
+				ret = vsock_tcp_rcv_state_process_fin_wait(sk, skb, inner_th);
+				if (ret > 0) {
+					SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_RST_ON_DATA1);
+					if (sysctl_vsock_rst_on_data1 > 1) {
+						send_reset = 1;
+						if (ret > 1) {
+							sk->sk_err = ECONNRESET;
+						}
+						tcp_done(sk);
+					}
+				}
+			}
+			bh_unlock_sock(sk);
+		} else if (sk->sk_state == TCP_FIN_WAIT2) {
+			bh_lock_sock(sk);
+			if (sock_owned_by_user(sk)) {
+				/* should not happen, since SLB has called close(),
+				 * skip and send the packet to kernel stack.
+				 */
+				SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_SK_LOCKED);
+			} else if (sysctl_vsock_rst_on_data2) {
+				ret = vsock_tcp_rcv_state_process_fin_wait(sk, skb, inner_th);
+				if (ret > 0) {
+					SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_RST_ON_DATA2);
+					if (sysctl_vsock_rst_on_data2 > 1) {
+						send_reset = 1;
+						if (ret > 1) {
+							sk->sk_err = ECONNRESET;
+						}
+						tcp_done(sk);
+					}
+				}
+			}
+			bh_unlock_sock(sk);
+		}
+
+		if (refcounted)
+			sock_put(sk);
+	}
+
+	if (send_reset) {
+		/* swap the saddr and daddr. */
+		send_rst_reuse_skb(skb, outer_daddr, outer_saddr, vid);
+		return NF_STOLEN;
+	}
+
+ok:
+	SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_OK);
+	return NF_ACCEPT;
+
+inhdr_error:
+	SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_ERR);
+drop:
+	return NF_DROP;
+
+}
+#endif 
+/* support UDP/TCP */
+static inline void
+vxlan_inner_send_check(struct sk_buff *skb, int is_inet6)
+{
+	struct iphdr *iph;
+	struct udphdr *uh;
+	struct tcphdr *th;
+	int offset;
+	__wsum csum;
+
+	if (!is_inet6) { /* ipv4 */
+		struct iphdr *ip4h;
+		ip4h = (struct iphdr *)skb_network_header(skb);
+		offset = ip4h->ihl << 2;
+
+		switch (ip4h->protocol) {
+		case IPPROTO_TCP:
+			th = (struct tcphdr*)(skb_network_header(skb) + offset);
+			th->check = 0;
+			csum = skb_checksum(skb, offset, skb->len - offset, 0);
+			th->check = csum_tcpudp_magic(ip4h->saddr, ip4h->daddr,
+					skb->len - offset, IPPROTO_TCP, csum);
+			break;
+
+		case IPPROTO_UDP:
+			uh = (struct udphdr*)(skb_network_header(skb) + offset);
+			uh->check = 0;
+			csum = skb_checksum(skb, offset, skb->len - offset, 0);
+			uh->check = csum_tcpudp_magic(ip4h->saddr, ip4h->daddr,
+					skb->len - offset, IPPROTO_UDP, csum);
+			break;
+
+		default:
+			break;
+		}
+	} else { /* ipv6 */
+		struct ipv6hdr *ip6h;
+		ip6h = (struct ipv6hdr *)skb_network_header(skb);
+		offset = sizeof(struct ipv6hdr);
+
+		switch (ip6h->nexthdr) {
+		case IPPROTO_TCP:
+			th = (struct tcphdr*)(skb_network_header(skb) + offset);
+			th->check = 0;
+			csum = skb_checksum(skb, offset, skb->len - offset, 0);
+			th->check = csum_ipv6_magic(&ip6h->saddr, &ip6h->daddr,
+					skb->len - offset, IPPROTO_TCP, csum);
+			break;
+
+		case IPPROTO_UDP:
+			uh = (struct udphdr*)(skb_network_header(skb) + offset);
+			uh->check = 0;
+			csum = skb_checksum(skb, offset, skb->len - offset, 0);
+			uh->check = csum_ipv6_magic(&ip6h->saddr, &ip6h->daddr,
+					skb->len - offset, IPPROTO_UDP, csum);
+			break;
+
+		default:
+			break;
+		}
+ 	}
+}
+
+/* encapsulate the vxlan packet */
+static unsigned int
+slb_vsock_out(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
+{
+	struct vxlanhdr *vxh;
+	struct udphdr *uh;
+	union vxlan_data *vsock;
+	struct iphdr *iph;
+	struct iphdr *inner_iph;
+	struct tcphdr *tcph;
+	__be16 *port, *toa_port_ptr;
+	__be32 *toa_ip_ptr;
+	u32 rtos;
+	int min_headroom, err, udphoff, tcph_off, toa_off;
+	char buf[80];
+
+	if (unlikely (!skb->sk)) {
+		SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_OUT_NO_SOCK);
+		return NF_ACCEPT;
+	}
+
+	if (!sk_fullsock(skb->sk)) {
+		SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_OUT_NOT_FULLSK);
+		return NF_ACCEPT;
+	}
+
+	vsock = (union vxlan_data *)skb->sk->sk_toa_data;
+
+	if (((vsock->flags & VSOCK_TOA_FLAGS) != VSOCK_TOA_FLAGS) || (!vsock->vx.vid)) {
+		return NF_ACCEPT;
+	}
+	SLB_VSOCK_DBG("%s: vsock flags=0x%x, vid=%u\n",
+			__func__, vsock->flags, vsock->vx.vid);
+
+	SLB_VSOCK_DBG("sk_route_caps=0x%x\n", skb->sk->sk_route_caps);
+	/* clean the tso/gso feature, it's important to VXLAN*/
+	skb->sk->sk_route_caps &= ~NETIF_F_GSO_MASK;
+
+	inner_iph = ip_hdr(skb);
+        if (inner_iph->protocol != IPPROTO_TCP || vsock->flags != VSOCK_TOA_FLAGS) {
+		goto skip_toa_insert;
+	}
+	tcph = (struct tcphdr *) skb_transport_header(skb);
+	if (tcph->syn == 0 || tcph->ack == 1 || tcph->doff > 13) {
+		goto skip_toa_insert;
+	}
+
+	tcph_off = skb_transport_offset(skb);
+	toa_off = tcph_off + sizeof(struct tcphdr);
+	inner_iph->tot_len = htons(ntohs(inner_iph->tot_len) + 8);
+	inner_iph->check = 0;
+	inner_iph->check = ip_fast_csum(inner_iph, inner_iph->ihl);
+	tcph->doff += 2;
+	memcpy(buf, skb->data, toa_off);
+	skb_pull(skb, toa_off);
+	skb_cow_head(skb, toa_off + 8);
+	skb_push(skb, toa_off + 8);
+	memcpy(skb->data, buf, toa_off);
+	skb->data[toa_off] = 0xfe; /* opcode */
+	skb->data[toa_off + 1] = 8; /* opsize */
+	toa_port_ptr = (__be16 *)(skb->data + toa_off + 2);
+	*toa_port_ptr = vsock->toa.toa_port;
+	toa_ip_ptr = (__be32 *)(skb->data + toa_off + 4);
+	*toa_ip_ptr = vsock->toa.toa_ip;
+	skb_reset_network_header(skb);
+	skb_set_transport_header(skb, tcph_off);
+
+skip_toa_insert:
+	if ((skb->ip_summed == CHECKSUM_PARTIAL) && likely(skb_dst(skb))) {
+		if (skb->len <= dst_mtu(skb_dst(skb)) ) {
+			SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_OUT_INNER_CSUM);
+			vxlan_inner_send_check(skb, 0);
+		} else {
+			SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_OUT_EXCEED_MTU);
+			SLB_VSOCK_DBG("bigger than MTU, turn off tso/gso\n");
+		}
+	}
+
+	SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_OUT_INFO_OK);
+
+	/* rt=skb_rtable(skb), LL_RESERVED_SPACE(rt->u.dst.dev)
+	 * LL_RESERVED_SPACE always get 16, but dev may lost.
+	 * so set SMP_CACHE_BYTES here
+	 */
+	min_headroom = SMP_CACHE_BYTES + sizeof(struct iphdr) + VXLAN_HLEN;
+	err = skb_cow_head(skb, min_headroom);
+	if (unlikely(err))
+		return NF_ACCEPT;
+
+	/* transport_header should be OK at local_out hook*/
+	port = (__be16 *)skb_transport_header(skb);
+
+	vxh = (struct vxlanhdr *)skb_push(skb, sizeof(struct vxlanhdr));
+	memset(vxh, 0, sizeof(struct vxlanhdr));
+
+	if (sysctl_vsock_vxlan_use_gpe_ipv4) {
+		vxh->flags = VXLAN_GPE_FLAGS;
+		vxh->res3 = GPE_NXTPROTO_IPv4;
+	} else {
+		vxh->flags = VXLAN_FLAGS;
+	}
+	vxh->version = 1;
+	vxh->slb_type = sysctl_vsock_healthcheck ? VX_SLB_HC : VX_SLB_L7;
+	vxh->vid = htonl((vsock->vx.vid) << 8);
+
+	uh = (struct udphdr *)skb_push(skb, sizeof(struct udphdr));
+	uh->source = *port; /* the inner source port, todo: */
+	uh->dest = sysctl_vsock_vxlan_use_another_dport && sysctl_vsock_vxlan_another_dport ?
+		htons(sysctl_vsock_vxlan_another_dport) : VXLAN_LISTEN_PORT;
+	uh->len = htons(skb->len);
+	skb_reset_transport_header(skb);
+
+	/* save the inner tos */
+	iph = ip_hdr(skb);
+	rtos = RT_TOS(iph->tos);
+
+	iph = (struct iphdr *)skb_push(skb, sizeof(struct iphdr));
+
+	udphoff = sizeof(struct iphdr);
+	skb_reset_network_header(skb);
+	*((__u16 *) iph) = htons((4 << 12) | (5 << 8) | (rtos & 0xff));
+	iph->tot_len = htons(skb->len);
+	iph->frag_off = htons(IP_DF);
+	/* FIX_ME: what ttl shoule we use */
+	iph->ttl = IPDEFTTL;
+	iph->protocol = IPPROTO_UDP;
+	iph->saddr = vxlan_saddr;
+	iph->daddr = vsock->vx.vx_daddr;
+
+	ip_send_check(iph);
+
+	uh->check = 0;
+	if (sysctl_vxlan_hdr_csum) {
+		skb->csum =
+			skb_checksum(skb, udphoff, skb->len - udphoff, 0);
+		uh->check =
+			csum_tcpudp_magic(iph->saddr, iph->daddr,
+				skb->len - udphoff, IPPROTO_UDP, skb->csum);
+	}
+
+	// update the route
+	slb_vsock_update_rt(skb, iph);
+
+	skb->ip_summed = CHECKSUM_UNNECESSARY;
+
+	return NF_ACCEPT;
+}
+
+/* decapsulate the vxlan packet */
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,32)
+static unsigned int
+slb_vsock_gpe_in(unsigned int hooknum, struct sk_buff *skb,
+		const struct net_device *in, const struct net_device *out,
+		int (*okfn) (struct sk_buff *))
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0)
+static unsigned int
+slb_vsock_gpe_in(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
+#else
+static unsigned int
+slb_vsock_gpe_in(const struct nf_hook_ops *ops, struct sk_buff *skb,
+		const struct net_device *in, const struct net_device *out,
+#ifndef __GENKSYMS__
+		const struct nf_hook_state *state
+#else
+		int (*okfn) (struct sk_buff *)
+#endif
+		)
+#endif
+{
+	struct sk_buff *skb_dup;
+	struct ethhdr *eth;
+	struct iphdr *inner_iph, *iph;
+        struct tcphdr *inner_th;
+	struct ipv6hdr *inner_ip6h;
+	struct udphdr *uh;
+	struct vxlanhdr *vxh;
+        struct sock *sk;
+	int len;
+        int inner_iph_len;
+	u32 vid;
+	__be32 addr;
+        __be32 outer_saddr;
+        __be32 outer_daddr;
+        int send_reset;
+        bool refcounted;
+        union vxlan_data *vsock;
+        int ret;
+
+        if (unlikely(!skb->dev))
+                return NF_ACCEPT;
+
+        /* only PACKET_HOST */
+        if (unlikely(skb->pkt_type != PACKET_HOST))
+                return NF_ACCEPT;
+
+	iph = ip_hdr(skb);
+	len = iph->ihl * 4;
+	/* only care udp packets */
+	if (iph->protocol != IPPROTO_UDP)
+		return NF_ACCEPT;
+
+	/* only PACKET_HOST */
+	if (unlikely(skb->pkt_type != PACKET_HOST))
+		return NF_ACCEPT;
+
+	/* Need Udp and inner Vxlan hdr */
+	if (!pskb_may_pull(skb, len + VXLAN_HLEN + sizeof(struct iphdr)))
+		return NF_ACCEPT;
+
+	 /* may be used by update_vxlan_daddr later */
+	addr = iph->saddr;
+	uh = (struct udphdr*)(skb_network_header(skb) + len);
+	/* only care packets to vxlan listen port */
+	if (!sysctl_vsock_vxlan_another_dport) {
+		if (uh->dest != VXLAN_LISTEN_PORT)
+			return NF_ACCEPT;
+	} else {
+		if (uh->dest != VXLAN_LISTEN_PORT &&
+			uh->dest != htons(sysctl_vsock_vxlan_another_dport))
+			return NF_ACCEPT;
+	}
+
+	/* vxlan header check */
+	vxh = (struct vxlanhdr *)(uh + 1);
+	if ((vxh->flags != VXLAN_FLAGS
+			&& (vxh->flags != VXLAN_GPE_FLAGS || (vxh->res3 != GPE_NXTPROTO_IPv6 && vxh->res3 != GPE_NXTPROTO_IPv4)))
+		|| vxh->version != 1
+		|| (vxh->vid & htonl(0xff)))
+		goto inhdr_error;
+
+	/* check the daddr */
+        if (sysctl_vsock_vtep_check && !ipv4_prefix_equal(iph->daddr,
+                                vxlan_saddr, sysctl_vsock_vtep_cidr_v4)) {
+                SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_DST_UNMATCH);
+                goto drop;
+        }
+
+	SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_CNT);
+        /* get vpc id, vid will be used below */
+	vid = vxlan_id(vxh);
+
+        outer_saddr = iph->saddr;
+        outer_daddr = iph->daddr;
+
+	/* pull the outer ip hdr ,udp and inner vxlan hdr */
+	skb_pull_rcsum(skb, len + VXLAN_HLEN);
+	skb_reset_network_header(skb);
+
+	/* Note, we do not support ipv6 in vxlan so far
+ 	 * do inner iphdr check, copied from ip_rcv.
+	 */
+	if (vxh->flags == VXLAN_GPE_FLAGS && vxh->res3 == GPE_NXTPROTO_IPv6)
+		goto inhdr_ipv6; /* The following is inner ipv4 path */
+
+	inner_iph = ip_hdr(skb);
+	if (inner_iph->ihl < 5 || inner_iph->version != 4)
+		goto inhdr_error;
+
+	inner_iph_len = inner_iph->ihl * 4;
+	if (!pskb_may_pull(skb, inner_iph_len))
+		goto inhdr_error;
+
+	inner_iph = ip_hdr(skb);
+
+	if (unlikely(ip_fast_csum((u8 *)inner_iph, inner_iph->ihl)))
+		goto inhdr_error;
+
+	len = ntohs(inner_iph->tot_len);
+	if (skb->len < len) {
+		SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_TRUNCATED);
+		goto drop;
+	} else if (len < (inner_iph_len))
+		goto inhdr_error;
+
+	/* Our transport medium may have padded the buffer out. Now we know it
+	 * is IP we can trim to the true length of the frame.
+	 * Note this now means skb->len holds ntohs(iph->tot_len).
+ 	 */
+	if (pskb_trim_rcsum(skb, len)) {
+		SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_DISCARD);
+		goto drop;
+	}
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,32)
+	/* skb->transport_header has been set in ip_rcv before PRE_ROUTING
+	 * Reset transport_header here
+	 */
+	skb->transport_header = skb->network_header + inner_iph->ihl*4;
+#endif
+        if (inner_iph->protocol != IPPROTO_TCP)
+                goto ok;
+
+        /* IPPROTO_TCP */
+        if (!pskb_may_pull(skb, inner_iph_len + sizeof(struct tcphdr)))
+                goto inhdr_error;
+
+        inner_th = tcp_hdr(skb);
+
+        if (unlikely(inner_th->doff < sizeof(struct tcphdr) / 4))
+                goto inhdr_error;
+
+        if (!pskb_may_pull(skb, inner_iph_len + inner_th->doff * 4))
+                goto inhdr_error;
+
+        inner_iph = ip_hdr(skb);
+        inner_th = tcp_hdr(skb);
+
+        if (unlikely(skb_dst(skb)))
+                skb_dst_drop(skb);
+
+        if (unlikely(ip_route_input(skb, inner_iph->daddr, inner_iph->saddr,
+                                    inner_iph->tos, skb->dev)))
+                goto drop;
+
+        send_reset = 0;
+        sk = __inet_lookup_skb(&tcp_hashinfo, skb, tcp_hdrlen(skb),
+                               inner_th->source, inner_th->dest, &refcounted);
+        if (sk == NULL) {
+                if (sysctl_vsock_rst_no_sk) {
+                        SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_FIND_NO_SK);
+                        if (sysctl_vsock_rst_no_sk > 1) {
+                                send_reset = 1;
+                        }
+                }
+        } else if (sk->sk_state == TCP_CLOSE) {
+                /* __inet_lookup_skb inc the refcnt */
+                if (refcounted)
+                        sock_put(sk);
+        } else if ((sk->sk_state == TCP_NEW_SYN_RECV) || (sk->sk_state == TCP_SYN_RECV)) {
+                SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_SYN_RECV);
+                if (refcounted)
+                        reqsk_put(inet_reqsk(sk));
+        } else if (sk->sk_state == TCP_TIME_WAIT) {
+                if (sysctl_vsock_rst_on_data2 &&
+                    vsock_tcp_timewait_state_process(sk, skb, inner_th)) {
+                        SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_RST_ON_DATA2);
+                        if (sysctl_vsock_rst_on_data2 > 1) {
+                                inet_twsk_deschedule_put(inet_twsk(sk));
+                                send_reset = 1;
+                        } else {
+                                inet_twsk_put(inet_twsk(sk));
+                        }
+                } else {
+                        inet_twsk_put(inet_twsk(sk));
+                }
+        } else {
+                bh_lock_sock(sk);
+                vsock = (union vxlan_data *)sk->sk_toa_data;
+                if (vsock->flags == VSOCK_FLAGS && vsock->vx.vid == vid && vid != 0) {
+                        if (sysctl_vxlan_daddr_update && vsock->vx.vx_daddr != addr) {
+                                vsock->vx.vx_daddr = addr;      /* update the daddr */
+                                SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_UPDATE);
+                        }
+                } else if (sysctl_vsock_rst_bad_sk) {
+                        /* invalid packets with invalid vid */
+                        SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_RST_BAD_SK);
+                        if (sysctl_vsock_rst_bad_sk > 1) {
+                                send_reset = 1;
+                        }
+                }
+                bh_unlock_sock(sk);
+
+                if (send_reset) {
+                        /* do nothing, skip sk_state checking */
+                } else if (sk->sk_state == TCP_SYN_SENT) {
+                        if (sysctl_vsock_rst_bad_synack &&
+                            vsock_tcp_rcv_synsent_state_process(sk, skb, inner_th)) {
+                                SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_BAD_SYNACK);
+                                if (sysctl_vsock_rst_bad_synack > 1) {
+                                        send_reset = 1;
+                                }
+                        }
+                } else if (sk->sk_state == TCP_FIN_WAIT1) {
+                        bh_lock_sock(sk);
+                        if (sock_owned_by_user(sk)) {
+                                /* should not happen, since SLB has called close(),
+ *                                  * skip and send the packet to kernel stack.
+ *                                                                   */
+                                SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_SK_LOCKED);
+                        } else if (sysctl_vsock_rst_on_data1) {
+                                ret = vsock_tcp_rcv_state_process_fin_wait(sk, skb, inner_th);
+                                if (ret > 0) {
+                                        SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_RST_ON_DATA1);
+                                        if (sysctl_vsock_rst_on_data1 > 1) {
+                                                send_reset = 1;
+                                                if (ret > 1) {
+                                                        sk->sk_err = ECONNRESET;
+                                                }
+                                                tcp_done(sk);
+                                        }
+                                }
+                        }
+                        bh_unlock_sock(sk);
+                } else if (sk->sk_state == TCP_FIN_WAIT2) {
+                        bh_lock_sock(sk);
+                        if (sock_owned_by_user(sk)) {
+                                /* should not happen, since SLB has called close(),
+ *                                  * skip and send the packet to kernel stack.
+ *                                                                   */
+                                SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_SK_LOCKED);
+                        } else if (sysctl_vsock_rst_on_data2) {
+                                ret = vsock_tcp_rcv_state_process_fin_wait(sk, skb, inner_th);
+                                if (ret > 0) {
+                                        SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_RST_ON_DATA2);
+                                        if (sysctl_vsock_rst_on_data2 > 1) {
+                                                send_reset = 1;
+                                                if (ret > 1) {
+                                                        sk->sk_err = ECONNRESET;
+                                                }
+                                                tcp_done(sk);
+                                        }
+                                }
+                        }
+                        bh_unlock_sock(sk);
+                }
+
+                if (refcounted)
+                        sock_put(sk);
+        }
+
+        if (send_reset) {
+                /* swap the saddr and daddr. */
+                send_rst_reuse_skb(skb, outer_daddr, outer_saddr, vid);
+                return NF_STOLEN;
+        }
+
+ok:
+	SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_OK);
+	return NF_ACCEPT;
+
+inhdr_ipv6:
+	inner_ip6h = ipv6_hdr(skb);
+	if (unlikely(!pskb_may_pull(skb, sizeof(*inner_ip6h))))
+		goto inhdr_error;
+
+	if (inner_ip6h->version != 6)
+		goto inhdr_error;
+
+	len = ntohs(inner_ip6h->payload_len);
+
+	/* pkt_len may be zero if Jumbo payload option is present */
+	if (len + sizeof(struct ipv6hdr) > skb->len) {
+		SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_TRUNCATED);
+		goto drop;
+	}
+	if (pskb_trim_rcsum(skb, len + sizeof(struct ipv6hdr))) {
+		SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_DISCARD);
+		goto drop;
+	}
+
+	if(skb->len > PKT_DATA_LEN - 16){
+		SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_SKB_TOOBIG);
+		goto drop;
+	}
+
+	skb_dup = dev_alloc_skb(PKT_DATA_LEN);
+	if(skb_dup == NULL){
+		SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_ALLOC_SKB_FAIL);
+		goto drop;
+	}
+
+	skb_reserve(skb_dup, 2);
+	skb_reset_mac_header(skb_dup);
+	eth = eth_hdr(skb_dup);
+	eth->h_proto = htons(ETH_P_IPV6);
+	memcpy(eth, skb_mac_header(skb), 12);
+	skb_put(skb_dup, 14);
+	skb_set_network_header(skb_dup, 14);
+	if (unlikely(skb_linearize(skb))) {
+		SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_LINEARIZE_SKB_FAIL);
+		goto drop;
+	}
+	memcpy(skb_put(skb_dup, skb->len), skb_network_header(skb), skb->len);
+	skb_dup->dev = skb->dev;
+	skb_dup->protocol = eth_type_trans(skb_dup, skb_dup->dev);
+	skb_dup->pkt_type = PACKET_HOST;
+	skb_dup->ip_summed = CHECKSUM_UNNECESSARY;
+	SLB_VSOCK_DBG("dev:%s, rcv sk_buff protocol: 0x%x, eth: 0x%x, len:%d, skb:%d, %d, %d, %d\n",
+		       skb_dup->dev->name, skb_dup->protocol, eth->h_proto, skb_dup->len, len, skb->len, skb->mac_header, skb->network_header);
+	/* update the vxlan info of sock */
+	if (inner_ip6h->nexthdr == IPPROTO_TCP)
+		update_vxlan_daddr_ipv6(skb_dup, inner_ip6h, vid, addr);
+	netif_rx(skb_dup);
+	SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_OK);
+	return NF_DROP;
+
+inhdr_error:
+	SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_IN_ERR);
+drop:
+	return NF_DROP;
+
+}
+
+
+/* encapsulate the vxlan packet */
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,32)
+static unsigned int
+slb_vsock_gpe_out(unsigned int hooknum, struct sk_buff *skb,
+		const struct net_device *in, const struct net_device *out,
+		int (*okfn) (struct sk_buff *))
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0)
+static unsigned int
+slb_vsock_gpe_out(void *priv, struct sk_buff *skb, const struct nf_hook_state *state)
+#else
+static unsigned int
+slb_vsock_gpe_out(const struct nf_hook_ops *ops, struct sk_buff *skb,
+		const struct net_device *in, const struct net_device *out,
+#ifndef __GENKSYMS__
+		const struct nf_hook_state *state
+#else
+		int (*okfn) (struct sk_buff *)
+#endif
+		)
+#endif
+{
+	struct vxlanhdr *vxh;
+	struct udphdr *uh;
+	union vxlan_data *vsock;
+	struct iphdr *iph;
+	__be16 *port;
+	u32 rtos;
+	int min_headroom, err, udphoff;
+
+	if (unlikely (!skb->sk)) {
+		SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_OUT_NO_SOCK);
+		return NF_ACCEPT;
+	}
+	vsock = (union vxlan_data *)skb->sk->sk_toa_data;
+
+	if ((vsock->flags != VSOCK_FLAGS) || (!vsock->vx.vid)) {
+		return NF_ACCEPT;
+	}
+
+	SLB_VSOCK_DBG("%s: vsock flags=0x%x, vid=%u\n",
+			__func__, vsock->flags, vsock->vx.vid);
+
+	SLB_VSOCK_DBG("sk_route_caps=0x%x\n", skb->sk->sk_route_caps);
+	/* clean the tso/gso feature, it's important to VXLAN*/
+	skb->sk->sk_route_caps &= ~NETIF_F_GSO_MASK;
+
+	if ((skb->ip_summed == CHECKSUM_PARTIAL) && likely(skb_dst(skb))) {
+		if (skb->len <= dst_mtu(skb_dst(skb)) ) {
+			SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_OUT_INNER_CSUM);
+			vxlan_inner_send_check(skb, 1);
+		} else {
+			SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_OUT_EXCEED_MTU);
+			SLB_VSOCK_DBG("bigger than MTU, turn off tso/gso\n");
+		}
+	}
+
+	SLB_VSOCK_INC_STATS(vsock_stats, VXLAN_OUT_INFO_OK);
+
+	/* rt=skb_rtable(skb), LL_RESERVED_SPACE(rt->u.dst.dev)
+	 * LL_RESERVED_SPACE always get 16, but dev may lost.
+	 * so set SMP_CACHE_BYTES here
+	 */
+	min_headroom = SMP_CACHE_BYTES + sizeof(struct iphdr) + VXLAN_HLEN;
+	err = skb_cow_head(skb, min_headroom);
+	if (unlikely(err))
+		return NF_ACCEPT;
+
+	/* transport_header should be OK at local_out hook*/
+	port = (__be16 *)skb_transport_header(skb);
+
+	vxh = (struct vxlanhdr *)skb_push(skb, sizeof(struct vxlanhdr));
+	memset(vxh, 0, sizeof(struct vxlanhdr));
+	vxh->flags = VXLAN_GPE_FLAGS;
+	vxh->res3 = GPE_NXTPROTO_IPv6;
+	vxh->version = 1;
+	vxh->slb_type = sysctl_vsock_healthcheck ? VX_SLB_HC : VX_SLB_L7;
+	vxh->vid = htonl((vsock->vx.vid) << 8);
+
+	uh = (struct udphdr *)skb_push(skb, sizeof(struct udphdr));
+	uh->source = *port; /* the inner source port, todo: */
+	uh->dest = sysctl_vsock_vxlan_use_another_dport && sysctl_vsock_vxlan_another_dport ?
+		htons(sysctl_vsock_vxlan_another_dport) : VXLAN_LISTEN_PORT;
+	uh->len = htons(skb->len);
+	skb_reset_transport_header(skb);
+
+	/* save the inner tos */
+	iph = ip_hdr(skb);
+	rtos = RT_TOS(iph->tos);
+
+	iph = (struct iphdr *)skb_push(skb, sizeof(struct iphdr));
+
+	udphoff = sizeof(struct iphdr);
+	skb_reset_network_header(skb);
+	*((__u16 *) iph) = htons((4 << 12) | (5 << 8) | (rtos & 0xff));
+	iph->tot_len = htons(skb->len);
+	iph->frag_off = htons(IP_DF);
+	/* FIX_ME: what ttl shoule we use */
+	iph->ttl = IPDEFTTL;
+	iph->protocol = IPPROTO_UDP;
+	iph->saddr = vxlan_saddr;
+	iph->daddr = vsock->vx.vx_daddr;
+
+	ip_send_check(iph);
+
+	uh->check = 0;
+	if (sysctl_vxlan_hdr_csum) {
+		skb->csum =
+			skb_checksum(skb, udphoff, skb->len - udphoff, 0);
+		uh->check =
+			csum_tcpudp_magic(iph->saddr, iph->daddr,
+				skb->len - udphoff, IPPROTO_UDP, skb->csum);
+	}
+
+	// update the route
+	slb_vsock_update_rt(skb, iph);
+
+	skb->ip_summed = CHECKSUM_UNNECESSARY;
+
+	return NF_ACCEPT;
+}
+
+
+static struct nf_hook_ops slb_vsock_ops[] __read_mostly = {
+	{
+	 .hook = slb_vsock_gpe_in,
+	 .pf = PF_INET,
+	 .hooknum = NF_INET_PRE_ROUTING,
+	 .priority = NF_IP_PRI_CONNTRACK + 1,
+	 },
+	/* After packet filtering, encapsulate the vxlan packet */
+	{
+	 .hook = slb_vsock_out,
+	 .pf = PF_INET,
+	 .hooknum = NF_INET_LOCAL_OUT,
+	 .priority = 101,
+	 },
+};
+
+static struct nf_hook_ops slb_vsock_ip6_ops[] __read_mostly = {
+	/* After packet filtering, encapsulate the vxlan packet */
+	{
+	 .hook = slb_vsock_gpe_out,
+	 .pf = PF_INET6,
+	 .hooknum = NF_INET_LOCAL_OUT,
+	 .priority = 101,
+	 },
+};
+
+
+/*
+ * Statistics of slb_vsock in proc /proc/net/slb_vsock_stats
+ */
+static int slb_vsock_stats_show(struct seq_file *seq, void *v)
+{
+	int i, j, cpu_nr;
+
+	/* print CPU first */
+	seq_printf(seq, "                                  ");
+	cpu_nr = num_possible_cpus();
+	for (i = 0; i < cpu_nr; i++)
+		if (cpu_online(i))
+			seq_printf(seq, "CPU%d       ", i);
+	seq_putc(seq, '\n');
+
+	i = 0;
+	while (NULL != slb_vsock_stats[i].name) {
+		seq_printf(seq, "%-25s:", slb_vsock_stats[i].name);
+		for (j = 0; j < cpu_nr; j++) {
+			if (cpu_online(j)) {
+				seq_printf(seq, "%10lu ",
+					*(((unsigned long *) per_cpu_ptr(
+					vsock_stats, j)) +
+					slb_vsock_stats[i].entry));
+			}
+		}
+		seq_putc(seq, '\n');
+		i++;
+	}
+	return 0;
+}
+
+static int slb_vsock_stats_seq_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, slb_vsock_stats_show, NULL);
+}
+
+static const struct file_operations slb_vsock_stats_fops = {
+	.owner = THIS_MODULE,
+	.open = slb_vsock_stats_seq_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
+static int __init slb_vsock_init(void)
+{
+	int ret = 0;
+
+	slb_vsock_ctl_init();
+
+	/* alloc statistics array for slb_vsock */
+	vsock_stats = alloc_percpu(struct slb_vsock_stat_mib);
+	if (!vsock_stats) {
+		ret = -ENOMEM;
+		goto out_err;
+	}
+
+	if (!proc_create("slb_vsock_stats", 0,
+			init_net.proc_net, &slb_vsock_stats_fops)) {
+		SLB_VSOCK_INFO("can't create /proc/net/slb_vsock_stats.\n");
+		goto cleanup_stats;
+	}
+
+	ret = nf_register_sockopt(&slb_vsock_sockopts);
+	if (ret) {
+		SLB_VSOCK_INFO("can't register slb_vsock slb_vsock_sockopts.\n");
+		goto cleanup_proc;
+	}
+
+	ret = nf_register_sockopt(&slb_vsock_sockopts_ip6);
+	if (ret) {
+		SLB_VSOCK_INFO("can't register slb_vsock slb_vsock_sockopts_ip6.\n");
+		goto cleanup_sockopt;
+	}
+
+	ret = nf_register_hooks(slb_vsock_ops, ARRAY_SIZE(slb_vsock_ops));
+	if (ret < 0) {
+		SLB_VSOCK_INFO("can't register hooks slb_vsock_ops.\n");
+		goto cleanup_sockopt_ip6;
+	}
+
+	ret = nf_register_hooks(slb_vsock_ip6_ops, ARRAY_SIZE(slb_vsock_ip6_ops));
+	if (ret < 0) {
+		SLB_VSOCK_INFO("can't register hooks slb_vsock_ip6_ops.\n");
+		goto cleanup_hooks;
+ 	}
+
+	SLB_VSOCK_INFO("slb-vsock-%s loaded.\n", SLB_VSOCK_VERSION);
+	return ret;
+
+cleanup_hooks:
+	nf_unregister_hooks(slb_vsock_ops, ARRAY_SIZE(slb_vsock_ops));
+cleanup_sockopt_ip6:
+	nf_unregister_sockopt(&slb_vsock_sockopts_ip6);
+cleanup_sockopt:
+	nf_unregister_sockopt(&slb_vsock_sockopts);
+cleanup_proc:
+	remove_proc_entry("slb_vsock_stats", init_net.proc_net);
+cleanup_stats:
+	free_percpu(vsock_stats);
+out_err:
+        slb_vsock_ctl_cleanup();
+	return ret;
+}
+
+static void __exit slb_vsock_cleanup(void)
+{
+        nf_unregister_hooks(slb_vsock_ip6_ops, ARRAY_SIZE(slb_vsock_ip6_ops));
+	nf_unregister_hooks(slb_vsock_ops, ARRAY_SIZE(slb_vsock_ops));
+        nf_unregister_sockopt(&slb_vsock_sockopts_ip6);
+	nf_unregister_sockopt(&slb_vsock_sockopts);
+	remove_proc_entry("slb_vsock_stats", init_net.proc_net);
+	free_percpu(vsock_stats);
+	slb_vsock_ctl_cleanup();
+
+	SLB_VSOCK_INFO("slb-vsock-%s unloaded.\n", SLB_VSOCK_VERSION);
+}
+
+module_init(slb_vsock_init);
+module_exit(slb_vsock_cleanup);
+
+#ifdef VSOCK_GIT_COMMIT
+MODULE_INFO(commitid, VSOCK_GIT_COMMIT);
+#endif
+MODULE_VERSION(SLB_VSOCK_VERSION);
+MODULE_LICENSE("GPL");

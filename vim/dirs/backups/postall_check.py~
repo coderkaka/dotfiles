@@ -1,0 +1,112 @@
+#!/home/tops/bin/python
+# -*- coding: utf-8 -*-
+import os
+import re
+import sys
+import yaml
+import json
+from common.command import *
+
+def postall_check(fdir, pillar_file):
+    '''
+    1. numaht check
+    2. kmod_check
+    3. rpm_check
+    4. sysctl_check
+    5. service_check
+    6. process_check
+    7. route_check
+    8. other_check
+    '''
+    flag = 0
+
+    print '[1.numaht check]'
+    cmd = 'sudo python %s/numaht_check.py' % fdir
+    ret, out = exec_local_cmd(cmd)
+    print out
+    if ret:
+        flag = 1
+    print ''
+
+    print '[2.kmod status check]'
+    cmd = 'sudo python %s/kmod_check.py' % (fdir)
+    ret, out = exec_local_cmd(cmd)
+    print out
+    if ret:
+        flag = 1
+    print ''
+
+    #print '[3.rpms check]'
+    #cmd = 'sudo python %s/rpm_check.py %s' % (fdir, pillar_file)
+    #ret, out = exec_local_cmd(cmd)
+    #print out
+    #if ret:
+    #    flag = 1
+    #print ''
+
+    #print '[4.sysctl check]'
+    #temp_file = '/tmp/sysctl.conf.temp'
+    #cmd = 'cat /etc/sysctl.d/* > %s' % temp_file
+    #ret, out = exec_local_cmd(cmd)
+    #cmd = 'sudo python %s/sysctl_check.py %s' % (fdir, temp_file)
+    #ret, out = exec_local_cmd(cmd)
+    #print out
+    #if ret:
+    #    flag = 1
+    #print ''
+
+    print '[5.services check]'
+    cmd = 'sudo python %s/service_check.py' % (fdir)
+    ret, out = exec_local_cmd(cmd)
+    print out
+    if ret:
+        flag = 1
+    print ''
+
+    #print '[6.processes check]'
+    #cmd = 'sudo python %s/process_check.py' % (fdir)
+    #ret, out = exec_local_cmd(cmd)
+    #print out
+    #if ret:
+    #    flag = 1
+    #print ''
+
+    print '[7.route check]'
+    cmd = 'sudo python %s/route_check.py' % (fdir)
+    ret, out = exec_local_cmd(cmd)
+    print out
+    if ret:
+        flag = 1
+    print ''
+
+    print '[8.other check]'
+    cmd = 'sudo python %s/other_check.py' % (fdir)
+    ret, out = exec_local_cmd(cmd)
+    print out
+    if ret:
+        flag = 1
+    print ''
+
+    return flag
+
+if __name__ == '__main__':
+    if len(sys.argv) != 2:
+        logger.error("deploy_node.py: params error,need one param: node.sls path")
+        exit(1)
+
+    pillar_file = sys.argv[1].strip()
+    if not os.path.exists(pillar_file):
+        logger.error("deploy_node.py: node.sls not exists")
+        exit(2)
+
+    yaml_info = yaml.load(file(pillar_file))
+    version = yaml_info['taskinfo']['version']
+
+    fdir = '/home/slb/release/%s/proxy/scripts' % (version)
+    ret = postall_check(fdir, pillar_file)
+    if ret:
+        print '\npostall check failed'
+        exit(3)
+
+    print 'postall check succeed!'
+    exit(0)

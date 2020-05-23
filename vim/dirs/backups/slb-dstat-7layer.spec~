@@ -1,0 +1,99 @@
+# refer to http://gitlab.alibaba-inc.com/slb/slb-controller/raw/feature/3.5.0/rpm/slb-control-proxy.spec
+# http://blog.csdn.net/taiyang1987912/article/details/40145101
+#%define v_pack_name slb-sensor-service
+#%define v_home_url  http://gitlab.alibaba-inc.com/sysnet/slb-sensor-service
+
+Name: slb-dstat-7layer
+Version:1.1.1
+Release: %(echo $RELEASE)%{?dist}
+
+Vendor: Alibaba Inc.
+AutoReqProv:no
+Summary: Data collecter for CPU, network adapter, memory, lvs session, tengine qps etc.
+URL: http://docs.alibaba-inc.com/display/corptech/SLB
+Group: ali/slb
+License: Commercial
+
+%if %{?CALLER:1}%{!?CALLER:0}
+Packager:fenghui.zfh
+%endif
+
+AutoProv:none 
+%define __os_install_post %{nil} 
+
+Requires: slb-sensor-sysmetrics
+
+%description
+CodeUrl:git@gitlab.alibaba-inc.com:slb/slb-sensor.git
+CodeRev:fb930bf
+AoneLog:http://
+AoneUrl:https://aone.alibaba-inc.com/aone2/cr/rpm/608535/detail
+The slbdstat package contains the python program which was used to install your  
+system.  These files are used for collecting data for CPU, network adapter, memory, lvs session, tengine qps etc.
+
+%define _prefix /home/slb/slbdstat
+%define log_prefix /home/slb/logs/slbdstat
+
+%build
+cd $OLDPWD/..
+cd src/slbdstat
+
+%install
+mkdir -p .%{_prefix}
+mkdir -p .%{_prefix}/bin
+mkdir -p .%{_prefix}/conf
+mkdir -p .%{_prefix}/plugins
+mkdir -p .%{log_prefix} 
+mkdir -p ./etc/rc.d/init.d
+
+cp -f $OLDPWD/../src/slbdstat/bin/slb-dstat-monitor.sh ./etc/rc.d/init.d/slb-dstat-monitor
+cp -f $OLDPWD/../src/slbdstat/slbdstat.py .%{_prefix}/
+cp -f $OLDPWD/../src/slbdstat/slbdstat_globals.py .%{_prefix}/
+cp -f $OLDPWD/../src/slbdstat/slbdstat_config.py .%{_prefix}/
+cp -f $OLDPWD/../src/slbdstat/slbdstat_logging.py .%{_prefix}/
+cp -f $OLDPWD/../src/slbdstat/slbdstat_timer.py .%{_prefix}/
+cp -f $OLDPWD/../src/slbdstat/bin/*.sh .%{_prefix}/bin/
+
+cp -f $OLDPWD/../src/slbdstat/conf/slbdstat-7layer.conf .%{_prefix}/conf/slbdstat.conf
+cp -f $OLDPWD/../src/slbdstat/plugins/slbdstat_plugin_7layer*.py .%{_prefix}/plugins/
+cp -f $OLDPWD/../src/slbdstat/plugins/slbdstat_plugin_proxyhc.py .%{_prefix}/plugins/
+cp -f $OLDPWD/../src/slbdstat/plugins/slbdstat_plugin_proxyqps.py .%{_prefix}/plugins/
+cp -f $OLDPWD/../src/slbdstat/plugins/slbdstat_plugin_vipqps.py .%{_prefix}/plugins/
+cp -f $OLDPWD/../src/slbdstat/plugins/slbdstat_plugin_proxyreqstat.py .%{_prefix}/plugins/
+
+cp -f $OLDPWD/../src/slbdstat/plugins/slbdstat_plugin_keyserverqps.py .%{_prefix}/plugins/
+
+#find .%{_prefix} -name '.svn' -type d -print0|xargs -0 rm -rf
+
+%files
+%defattr(644,admin,admin,755)
+%attr(755,admin,admin) %{_prefix}/*.py
+%attr(755,admin,admin) %{_prefix}/plugins/*.py
+%attr(755,admin,admin) %{_prefix}/bin/*.sh
+%{_prefix}
+%{log_prefix}
+#%config(noreplace) %{_prefix}/conf/slbdstat.conf
+%config %{_prefix}/conf/slbdstat.conf
+/etc/rc.d/init.d/slb-dstat-monitor
+
+%post
+
+chmod +x /etc/rc.d/init.d/slb-dstat-monitor
+chkconfig --add slb-dstat-monitor
+chkconfig --level 35 slb-dstat-monitor on
+
+%preun
+if [ "$1" = 1 ] ; then
+    # install
+    :
+elif [ "$1" = 2 ] ; then
+    # update
+    if [ -f /etc/rc.d/init.d/slb-dstat-monitor ] ; then
+         chkconfig --del slb-dstat-monitor
+    fi
+fi
+
+
+%changelog
+* Thu Apr 05 2016 fenghui.zfh
+- init

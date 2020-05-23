@@ -1,0 +1,260 @@
+#!/home/tops/bin/python2.7
+# -*- coding: utf-8 -*-
+
+import os
+import sys
+import json
+import yaml
+import time
+import argparse
+
+from common.command import *
+from lib_cmdb_slb import LibCmdbSlb
+
+
+def load_appclication_conf():
+    f_path = './conf.local/application-conf.json'
+    with open(f_path) as f:
+        data = f.read()
+
+    json_data = json.loads(data)
+    return json_data
+
+
+def clean_slb_cmdb_data():
+    app_conf = load_appclication_conf()
+    assert app_conf != None
+    region_name = app_conf['configurationRequired']['region_list']
+    cluster_name = app_conf['configurationRequired']['cluster_name']
+    cmdb = LibCmdbSlb()
+    path = '/slb/%s/%s' % (region_name, cluster_name)
+    ret = cmdb.cmdb_base.cmdb_delete_node(path)
+    if not json.loads(ret)['success']:
+        print 'delete cmdb node %s failed: %s' % (path, json.loads(ret))
+        return 1
+
+    return 0
+
+
+def rollback_slb_cmdb_data(f_path):
+    app_conf = load_appclication_conf()
+    assert app_conf != None
+    region_name = app_conf['configurationRequired']['region_list']
+
+    with open(f_path) as f:
+        data = f.read()
+
+    path = '/slb/%s' % region_name
+    json_data = json.loads(data)
+    cmdb = LibCmdbSlb()
+    ret = cmdb.cmdb_base.cmdb_add_node(
+        path, json.dumps(json_data[region_name]))
+    if not json.loads(ret)['success']:
+        print 'add cmdb node %s failed: %s' % (path, json.loads(ret))
+        return 1
+
+    return 0
+
+
+def backup_slb_cmdb_data(slb_cmdb_data):
+    ts = time.strftime('%Y%m%d.%H.%M.%S')
+    f_path = '/home/slb/%s.cmdb.bak.json' % (ts)
+    with open(f_path, 'a+') as f:
+        f.write(json.dumps(slb_cmdb_data, indent=2))
+
+
+def get_slb_cmdb_data():
+    cmdb = LibCmdbSlb()
+    cmdb.reload_all_region_info()
+    try:
+        response = cmdb.cmdb_base.cmdb_get_node('/slb')
+    except Exception as e:
+        print 'get slb node from cmdb failed: %s' % (str(e))
+        return None
+
+    json_data = json.loads(response)
+    if json_data['success'] != True:
+        print 'get slb cmdb data failed'
+        return None
+
+    return json_data['data']
+
+
+def construct_new_data(slb_cmdb_data):
+    app_conf = load_appclication_conf()
+    assert app_conf != None
+    # 'cn-qingdao-env8c-d01'
+    region_name = app_conf['configurationRequired']['region_list']
+
+    assert len(slb_cmdb_data) == 1
+    new_data = {}
+    region_no, region_data = slb_cmdb_data.items()[0]
+    new_data[region_no] = {}
+    # "slbCluster-cn-qingdao-env8c-d01"
+    new_cluster_name = 'slbCluster-' + region_name
+    new_data[region_no][new_cluster_name] = {}
+
+    # construct proxy pool
+    assert (len(region_data) >= 1 and len(region_data) <= 2)
+    lvs_group_dict = {}
+    for old_cluster_name, old_cluster_data in region_data.items():
+        if not old_cluster_data.has_key('lvs_group') or not old_cluster_data['lvs_group']:
+            continue
+        # 'lvs_group1'
+        old_group_data = old_cluster_data['lvs_group'].values()[0]
+        if not old_group_data:
+            continue
+        # 'site_list'
+        old_site_data = old_group_data.values()[0]
+        # 'amtest70'
+        site_name = old_site_data.keys()[0]
+        new_group_name = 'lvs_group1_' + site_name
+        lvs_group_dict[new_group_name] = old_group_data
+        old_server_list = lvs_group_dict[new_group_name]['site_list'][site_name]['server_list']
+        new_server_list = {}
+        for server_name, server_data in old_server_list.items():
+            if server_data.has_key('laddr_ip_hc'):
+                server_data.pop('laddr_ip_hc')
+            # 0.0.0.x => x
+            if len(str(server_data['area_id']).split('.')) == 4:
+                server_data['area_id'] = str(server_data['area_id']).split('.')[3]
+            server_data['lvs_group'] = new_group_name
+            new_server_data = server_data
+            new_server_list[server_name] = new_server_data
+        lvs_group_dict[new_group_name]['site_list'][site_name]['server_list'] = new_server_list
+
+    #proxy process
+    proxy_pool_dict = {}
+    for old_cluster_name, old_cluster_data in region_data.items():
+        if not old_cluster_data.has_key('proxy_pool') or not old_cluster_data['proxy_pool']:
+            continue
+        # 'proxy_pool1'
+        old_pool_data = old_cluster_data['proxy_pool'].values()[0]
+        if not old_pool_data:
+            continue
+        # 'site_list'
+        old_site_data = old_pool_data.values()[0]
+        # 'amtest70'
+        site_name = old_site_data.keys()[0]
+        new_pool_name = 'proxy_pool_1_' + site_name
+        proxy_pool_dict[new_pool_name] = old_pool_data
+        old_server_list = proxy_pool_dict[new_pool_name]['site_list'][site_name]['server_list']
+        new_server_list = {}
+        for server_name, server_data in old_server_list.items():
+            if server_data.has_key('laddr_ip_hc'):
+                server_data.pop('laddr_ip_hc')
+            # 0.0.0.x => x
+            if len(str(server_data['area_id']).split('.')) == 4:
+                server_data['area_id'] = str(server_data['area_id']).split('.')[3]
+            server_data['proxy_pool'] = new_pool_name
+            new_server_data = server_data
+            new_server_list[server_name] = new_server_data
+        proxy_pool_dict[new_pool_name]['site_list'][site_name]['server_list'] = new_server_list
+
+    # keyserver process
+    keyserver_dict = {}
+    for old_cluster_name, old_cluster_data in region_data.items():
+        for keyserver_name, keyserver_data in old_cluster_data['key_server'].items():
+            if keyserver_dict.has_key(keyserver_name):
+                continue
+            keyserver_dict[keyserver_name] = keyserver_data
+
+    # master process
+    master_dict = {}
+    for old_cluster_name, old_cluster_data in region_data.items():
+        for key_name, key_data in old_cluster_data['master'].items():
+            if master_dict.has_key(key_name):
+                continue
+
+            master_dict[key_name] = key_data
+
+    # cluster process
+    new_cluster_dict = {}
+    new_cluster_dict['name'] = new_cluster_name
+    new_cluster_dict['lvs_group'] = lvs_group_dict
+    new_cluster_dict['proxy_pool'] = proxy_pool_dict
+    new_cluster_dict['key_server'] = keyserver_dict
+    new_cluster_dict['master'] = master_dict
+    new_cluster_dict['biz_type'] = 'slb'
+    new_cluster_dict['is_oms_upload'] = 'false'
+    for old_cluster_name, old_cluster_data in region_data.items():
+        for key_name, key_data in old_cluster_data.items():
+            if new_cluster_dict.has_key(key_name):
+                continue
+            if key_name in ['lvs_group', 'proxy_pool', 'key_server', 'master', 'biz_type', 'is_oms_upload', 'name', 'vip_networks', 'tmd_server', 'unused_laddr_resource', 'loopback_resource','gw_ip_resource']:
+                continue
+            new_cluster_dict[key_name] = key_data
+
+    new_data[region_no][new_cluster_name] = new_cluster_dict
+    return new_data
+
+
+def parser():
+    _parser = argparse.ArgumentParser()
+    #group = _parser.add_mutually_exclusive_group()
+    _parser.add_argument('-c', '--action', action='store', choices=['clean', 'rollback', 'migrate'],
+                         help='clean: clean /slb/<region_data> from cmdb;roolback: rollback /slb/<region_data> from <backup_cmdb_file> to cmdb; migrate: migrate cmdb from old to new')
+    _parser.add_argument('-f', '--backup_cmdb_file',
+                         action='store', help='backup file of slb cmdb data')
+    options = _parser.parse_args()
+    if not options.action:
+        print 'please input action'
+        return None
+
+    if options.action == 'rollback' and not options.backup_cmdb_file:
+        print 'please input backup file of slb cmdb data'
+        return None
+
+    return options
+
+
+def migrate_slb_cmdb_data(slb_cmdb_data):
+    app_conf = load_appclication_conf()
+    assert app_conf != None
+    region_name = app_conf['configurationRequired']['region_list']
+
+    new_slb_cmdb_data = construct_new_data(slb_cmdb_data)
+    new_cluster_name = 'slbCluster-' + region_name
+    path = '/slb/%s/%s' % (region_name, new_cluster_name)
+    cmdb = LibCmdbSlb()
+    ret = cmdb.cmdb_base.cmdb_add_node(
+        path, json.dumps(new_slb_cmdb_data[region_name][new_cluster_name]))
+    if not json.loads(ret)['success']:
+        print 'add cmdb node %s failed: %s' % (path, json.loads(ret))
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    options = parser()
+    if not options:
+       exit(1)
+
+    slb_cmdb_data = None
+    if options.action == 'clean' or options.action == 'migrate':
+        slb_cmdb_data = get_slb_cmdb_data()
+        if not slb_cmdb_data:
+            print 'get slb cmdb data failed'
+            exit(1)
+        backup_slb_cmdb_data(slb_cmdb_data)
+
+    if options.action == 'clean':
+        ret = clean_slb_cmdb_data()
+        if ret:
+           print 'clean slb cmdb data failed'
+           exit(1)
+    elif options.action == 'rollback':
+        ret = rollback_slb_cmdb_data(options.backup_cmdb_file)
+        if ret:
+           print 'rollback slb cmdb data failed'
+           exit(1)
+    elif options.action == 'migrate':
+        #ret = clean_slb_cmdb_data()
+        #if ret:
+        #    print 'clean slb cmdb data failed'
+        #    exit(1)
+        ret = migrate_slb_cmdb_data(slb_cmdb_data)
+        if ret:
+            print 'migrate slb cmdb data failed'
+            exit(1)

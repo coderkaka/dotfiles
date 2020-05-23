@@ -1,0 +1,920 @@
+# encoding: utf-8
+# owner: 苏骥
+# 转发规则2.0的基本测试例
+# 测试点：
+#   1. 基本测试
+#   2. 简单域名匹配
+#   3. 通配符域名匹配, i.e. *.domain.com
+#   4. 混合通配符域名匹配, i.e. *s.domain.com
+#   5. 通配符域名匹配顺序
+import json
+import string
+import random
+import slbqat
+import alitest
+import threading
+from slb_ops import *
+from slbqat import api
+from random import randint
+from slbqat.api import db as apidb
+from alitest import http_util, system_util
+from slbqat.master import db as masterdb
+
+slb_obj = slb_ops()
+
+__curl_timeout__ = 10
+__vport__ = 60080
+__bport__ = 80
+__in_vid__ = 0
+
+
+class TestFunctionCustomForward:
+    @classmethod
+    def setup_class(cls):
+        slb_obj.start_module(cls)
+
+        cls.client = slb_obj.get_physical_clients()[0]["ALI_IP"]
+        cls.servers = slb_obj.resty_server_list
+
+        # create rs pool
+        cls.empty_pool_name = 'empty_pool'
+        slb_obj.create_http_rs_pool(__bport__, cls.empty_pool_name)
+
+        cls.rs_pool_name = data_generator.gen_str('<l,10>')
+        slb_obj.create_http_rs_pool(__bport__, cls.rs_pool_name)
+        for vm in cls.servers:
+            slb_obj.add_classic_rs_to_rs_pool(
+                cls.rs_pool_name, vm["ALI_IP"], 100, vm["HTTP_PORT"])
+
+        # create lb_id and vip
+        (cls.lb_id, cls.eip) = slb_obj.create_classic_lb(app_rule=True)
+        slb_obj.create_vip(cls.lb_id, __vport__, __bport__,
+                           rs_pool_name=cls.empty_pool_name)
+        slb_obj.wait_lvs_config_ready(cls.eip, __vport__, __in_vid__)
+
+        # # backup /etc/hosts
+        # slb_obj.execute_remote_cmd(cls.client, "cp -f /etc/hosts /home/admin/hosts_bk_123456")
+
+    @classmethod
+    def teardown_class(cls):
+        try:
+            # slb_obj.execute_remote_cmd(cls.client, "cp -f /home/admin/hosts_bk_123456 /etc/hosts")
+            slb_obj.delete_lb(cls.lb_id)
+        finally:
+            slb_obj.delete_rs_pool(cls.rs_pool_name)
+            slb_obj.delete_rs_pool(cls.empty_pool_name)
+
+    def setup_method(self, method):
+        slb_obj.start_case()
+
+    def teardown_method(self, method):
+        slb_obj.end_case()
+
+    def print_proxy_vip_conf(self, port):
+        for proxy in slb_obj.proxy_hosts:
+            rsp = slb_obj.execute_remote_cmd(
+                proxy, "curl -s 127.0.0.1:6677/list")
+            assert rsp[0] == 0
+            logger.debug("\nall list: %s" % rsp[1])
+
+            rsp = slb_obj.execute_remote_cmd(
+                proxy, "cat /etc/proxy/conf/vip/%s" % port)
+            assert rsp[0] == 0
+            logger.debug("\nvip: %s" % rsp[1])
+
+    def print_curl_conf(self, port):
+        for proxy in slb_obj.proxy_hosts:
+            resp = slb_obj.execute_remote_cmd(
+                proxy, "curl -v 127.0.0.1:8089/config?vip=%s" % (port))
+            assert resp[0] == 0
+            logger.debug("\config: %s" % resp[1])
+
+    def print_conf(self, port):
+        self.print_proxy_vip_conf(port)
+        self.print_curl_conf(port)
+        pass
+
+    def generate_rule_global_id(self):
+        return data_generator.gen_str('<cd,10>') + "-rule-id"
+
+    def generate_unique_name(self, name=None):
+        if name is not None:
+            return data_generator.gen_str('<cd,15>') + "_" + name
+        else:
+            return data_generator.gen_str('<cd,15>')
+
+    @marker.function
+    @pytest.mark.test_way('''
+        创建一个简单的lb,启用app_rule,添加一个condition和一个redirect action,
+        验证condition的匹配逻辑
+    ''')
+    @pytest.mark.test_points(
+        "配置domain condition,指定domain访问http,命中返回302，不命中返回503"
+        "分别测试以下几种情形: "
+        "1)精确匹配"
+        "2)通配符匹配"
+        "3)字段多值or"
+    )
+    @pytest.mark.parametrize("domain_list", [
+        (["www.mytest.com"]),
+        (["www.my?e*.com"]),
+        (["www.testa.com", "www.mytest.com"])
+    ])
+    def test_custom_forward_condition_domain(self, domain_list):
+        # print proxy config
+        proxy_vip_port = slb_obj.get_lvs_config_port(
+            self.eip, __vport__, __in_vid__)
+        assert proxy_vip_port > 0
+        self.print_conf(proxy_vip_port)
+
+        # 1. add rule with domain
+        condition_list = [slb_obj.generate_domain_condition(domain_list)]
+        action_list = [slb_obj.generate_redirect_action(
+            port="8000", http_code="302", order=1)]
+        rule = slb_obj.generate_custom_forward_rule(
+            condition_list, action_list)
+        slb_obj.add_app_rules(self.lb_id, [rule], __vport__, 'http')
+
+        time.sleep(5)
+        self.print_conf(proxy_vip_port)
+
+        # match ok
+        request_domain = "www.mytest.com"
+        resp = slb_obj.execute_remote_cmd(
+            self.client, '''curl -s -v -H 'Host: %s' http://%s:%s''' % (request_domain, self.eip, __vport__))
+        logger.debug(resp[2])
+        assert resp[0] == 0
+        assert resp[2].find("HTTP/1.1 302 Found") > 0
+
+        # not match ok
+        request_domain = "www.xxxmytest.com"
+        resp = slb_obj.execute_remote_cmd(
+            self.client, '''curl -s -v -H 'Host: %s' http://%s:%s''' % (request_domain, self.eip, __vport__))
+        logger.debug(resp[2])
+        assert resp[0] == 0
+        assert resp[2].find("HTTP/1.1 503") > 0
+
+        #del rule
+        rule_global_ids = ["test_app_rule"]
+        resp = slb_obj.del_app_rules(
+            self.lb_id, rule_global_ids, __vport__, 'http')
+        self.print_conf(proxy_vip_port)
+
+    @marker.function
+    @pytest.mark.test_way('''
+        创建一个简单的lb,启用app_rule,添加一个condition和一个redirect action,
+        验证condition的匹配逻辑
+    ''')
+    @pytest.mark.test_points(
+        "配置url condition,指定domain访问http,命中返回302，不命中返回503"
+        "分别测试以下几种情形: "
+        "1)精确匹配"
+        "2)通配符匹配"
+        "3)字段多值or"
+    )
+    @pytest.mark.parametrize("url_list", [
+        (["/root/mytest"]),
+        (["/root/m?t*t"]),
+        (["/root/testa", "/root/mytest"]),
+    ])
+    def test_custom_forward_condition_url(self, url_list):
+        # print proxy config
+        proxy_vip_port = slb_obj.get_lvs_config_port(
+            self.eip, __vport__, __in_vid__)
+        assert proxy_vip_port > 0
+        self.print_conf(proxy_vip_port)
+
+        condition_list = [slb_obj.generate_url_condition(url_list)]
+        action_list = [slb_obj.generate_redirect_action(
+            port="8000", http_code="302", order=1)]
+        rule = slb_obj.generate_custom_forward_rule(
+            condition_list, action_list)
+        slb_obj.add_app_rules(self.lb_id, [rule], __vport__, 'http')
+        time.sleep(5)
+
+        self.print_conf(proxy_vip_port)
+
+        # match ok
+        request_url = "/root/mytest"
+        resp = slb_obj.execute_remote_cmd(
+            self.client, '''curl -s -v http://%s:%s/%s''' % (self.eip, __vport__, request_url))
+        logger.debug(resp[2])
+        assert resp[0] == 0
+        assert resp[2].find("HTTP/1.1 302 Found") > 0
+
+        # not match ok
+        request_url = "/root/xxxmytest"
+        resp = slb_obj.execute_remote_cmd(
+            self.client, '''curl -s -v http://%s:%s/%s''' % (self.eip, __vport__, request_url))
+        logger.debug(resp[2])
+        assert resp[0] == 0
+        assert resp[2].find("HTTP/1.1 503") > 0
+
+        #del rule
+        rule_global_ids = ["test_app_rule"]
+        resp = slb_obj.del_app_rules(
+            self.lb_id, rule_global_ids, __vport__, 'http')
+        self.print_conf(proxy_vip_port)
+
+    @marker.function
+    @pytest.mark.test_way('''
+        创建一个简单的lb,启用app_rule,添加一个condition和一个redirect action,
+        验证condition的匹配逻辑
+    ''')
+    @pytest.mark.test_points(
+        "配置配置header condition,指定domain访问http,命中返回302，不命中返回503"
+        "分别测试以下几种情形: "
+        "1)精确匹配"
+        "2)通配符匹配"
+        "3)字段多值or"
+    )
+    @pytest.mark.parametrize("header_key, header_value_list", [
+        ("my_header", ["my_value"]),
+        ("my_header", ["m?_va*e"]),
+        ("my_header", ["your_value", "my_value"]),
+    ])
+    def test_custom_forward_condition_header(self, header_key, header_value_list):
+        # print proxy config
+        proxy_vip_port = slb_obj.get_lvs_config_port(
+            self.eip, __vport__, __in_vid__)
+        assert proxy_vip_port > 0
+        self.print_conf(proxy_vip_port)
+
+        condition_list = [slb_obj.generate_header_condition(
+            header_key, header_value_list)]
+        action_list = [slb_obj.generate_redirect_action(
+            port="8000", http_code="302", order=1)]
+        rule = slb_obj.generate_custom_forward_rule(
+            condition_list, action_list)
+        slb_obj.add_app_rules(self.lb_id, [rule], __vport__, 'http')
+        time.sleep(5)
+
+        self.print_conf(proxy_vip_port)
+
+        # match ok
+        request_header_key = "my_header"
+        request_header_value = "my_value"
+        resp = slb_obj.execute_remote_cmd(
+            self.client, '''curl -s -H '%s:%s' -v http://%s:%s''' % (request_header_key, request_header_value, self.eip, __vport__))
+        logger.debug(resp[2])
+        assert resp[0] == 0
+        assert resp[2].find("HTTP/1.1 302 Found") > 0
+
+        # not match ok
+        request_header_key = "my_header"
+        request_header_value = "xxxmy_value"
+        resp = slb_obj.execute_remote_cmd(
+            self.client, '''curl -s -H '%s:%s' -v http://%s:%s''' % (request_header_key, request_header_value, self.eip, __vport__))
+        logger.debug(resp[2])
+        assert resp[0] == 0
+        assert resp[2].find("HTTP/1.1 503") > 0
+
+        #del rule
+        rule_global_ids = ["test_app_rule"]
+        resp = slb_obj.del_app_rules(
+            self.lb_id, rule_global_ids, __vport__, 'http')
+        self.print_conf(proxy_vip_port)
+
+    @marker.function
+    @pytest.mark.test_way('''
+        创建一个简单的lb,启用app_rule,添加一个condition和一个redirect action,
+        验证condition的匹配逻辑
+    ''')
+    @pytest.mark.test_points(
+        "配置配置method condition,指定domain访问http,命中返回302，不命中返回503"
+        "分别测试以下几种情形: "
+        "1)精确匹配"
+        "2)字段多值or"
+    )
+    @pytest.mark.parametrize("method_list", [
+        (["POST"]),
+        (["HEAD", "POST"]),
+    ])
+    def test_custom_forward_condition_method(self, method_list):
+        # print proxy config
+        proxy_vip_port = slb_obj.get_lvs_config_port(
+            self.eip, __vport__, __in_vid__)
+        assert proxy_vip_port > 0
+        self.print_conf(proxy_vip_port)
+
+        condition_list = [slb_obj.generate_method_condition(method_list)]
+        action_list = [slb_obj.generate_redirect_action(
+            port="8000", http_code="302", order=1)]
+        rule = slb_obj.generate_custom_forward_rule(
+            condition_list, action_list)
+        slb_obj.add_app_rules(self.lb_id, [rule], __vport__, 'http')
+        time.sleep(5)
+
+        self.print_conf(proxy_vip_port)
+
+        # match ok
+        request_method = "POST"
+        resp = slb_obj.execute_remote_cmd(
+            self.client, '''curl -s -X %s -v http://%s:%s''' % (request_method, self.eip, __vport__))
+        logger.debug(resp[2])
+        assert resp[0] == 0
+        assert resp[2].find("HTTP/1.1 302 Found") > 0
+
+        # not match ok
+        request_method = "GET"
+        resp = slb_obj.execute_remote_cmd(
+            self.client, '''curl -s -X %s -v http://%s:%s''' % (request_method, self.eip, __vport__))
+        logger.debug(resp[2])
+        assert resp[0] == 0
+        assert resp[2].find("HTTP/1.1 503") > 0
+
+        #del rule
+        rule_global_ids = ["test_app_rule"]
+        resp = slb_obj.del_app_rules(
+            self.lb_id, rule_global_ids, __vport__, 'http')
+        self.print_conf(proxy_vip_port)
+
+    @marker.function
+    @pytest.mark.test_way('''
+        创建一个简单的lb,启用app_rule,添加一个condition和一个redirect action,
+        验证condition的匹配逻辑
+    ''')
+    @pytest.mark.test_points(
+        "配置配置query_string condition,指定domain访问http,命中返回302，不命中返回503"
+        "分别测试以下几种情形: "
+        "1)精确匹配"
+        "2)通配符匹配"
+        "3)字段多值or"
+        "4)字段多值and"
+        "4)字段多值or和and"
+    )
+    @pytest.mark.parametrize("query_string_list", [
+        ([[{"key": "uuid", "value": "abc1234567890"}]]),
+        ([[{"key": "uuid", "value": "abc?23*890"}]]),
+        ([[{"key": "color", "value": "green"},
+           {"key": "uuid", "value": "abc?23*890"}]]),
+        ([[{"key": "types", "value": "apple"}],
+          [{"key": "uuid", "value": "abc?23*890"}]]),
+        ([[{"key": "color", "value": "green"},
+           {"key": "uuid", "value": "abc?23*890"}],
+          [{"key": "types", "value": "apple"}]]),
+    ])
+    def test_custom_forward_condition_query_string(self, query_string_list):
+        # print proxy config
+        proxy_vip_port = slb_obj.get_lvs_config_port(
+            self.eip, __vport__, __in_vid__)
+        assert proxy_vip_port > 0
+        self.print_conf(proxy_vip_port)
+
+        condition_list = [
+            slb_obj.generate_query_string_condition(x, unique_name=self.generate_unique_name()) for x in query_string_list
+        ]
+        action_list = [slb_obj.generate_redirect_action(
+            port="8000", http_code="302", order=1)]
+        rule = slb_obj.generate_custom_forward_rule(
+            condition_list, action_list)
+        slb_obj.add_app_rules(self.lb_id, [rule], __vport__, 'http')
+        time.sleep(5)
+
+        self.print_conf(proxy_vip_port)
+
+        # match ok
+        request_query_string = 'types=apple&uuid=abc1234567890'
+        resp = slb_obj.execute_remote_cmd(
+            self.client, '''curl -s -v 'http://%s:%s/test?%s' ''' % (self.eip, __vport__, request_query_string))
+        logger.debug(resp[2])
+        assert resp[0] == 0
+        assert resp[2].find("HTTP/1.1 302 Found") > 0
+
+        # not match ok
+        request_query_string = 'types=apple&uuid=xxxabc1234567890'
+        resp = slb_obj.execute_remote_cmd(
+            self.client, '''curl -s -v 'http://%s:%s/test?%s' ''' % (self.eip, __vport__, request_query_string))
+        logger.debug(resp[2])
+        assert resp[0] == 0
+        assert resp[2].find("HTTP/1.1 503") > 0
+
+        #del rule
+        rule_global_ids = ["test_app_rule"]
+        resp = slb_obj.del_app_rules(
+            self.lb_id, rule_global_ids, __vport__, 'http')
+        self.print_conf(proxy_vip_port)
+
+    @marker.function
+    @pytest.mark.test_way('''
+        创建一个简单的lb,启用app_rule,添加一个condition和一个redirect action,
+        验证condition的匹配逻辑
+    ''')
+    @pytest.mark.test_points(
+        "配置cookie condition,指定domain访问http,命中返回302，不命中返回503"
+        "分别测试以下几种情形: "
+        "1)精确匹配"
+        "2)通配符匹配"
+        "3)字段多值or"
+        "4)字段多值and"
+        "4)字段多值or和and"
+    )
+    @pytest.mark.parametrize("cookie_list", [
+        ([[{"key": "uuid", "value": "abc1234567890"}]]),
+        ([[{"key": "uuid", "value": "abc?23*890"}]]),
+        ([[{"key": "color", "value": "green"},
+           {"key": "uuid", "value": "abc?23*890"}]]),
+        ([[{"key": "types", "value": "apple"}],
+           [{"key": "uuid", "value": "abc?23*890"}]]),
+        ([[{"key": "color", "value": "green"},
+           {"key": "uuid", "value": "abc?23*890"}],
+          [{"key": "types", "value": "apple"}]]),
+    ])
+    def test_custom_forward_condition_cookie(self, cookie_list):
+        # print proxy config
+        proxy_vip_port = slb_obj.get_lvs_config_port(
+            self.eip, __vport__, __in_vid__)
+        assert proxy_vip_port > 0
+        self.print_conf(proxy_vip_port)
+
+        condition_list = [
+            slb_obj.generate_cookie_condition(x, unique_name=self.generate_unique_name()) for x in cookie_list
+        ]
+        action_list = [slb_obj.generate_redirect_action(
+            port="8000", http_code="302", order=1)]
+        rule = slb_obj.generate_custom_forward_rule(
+            condition_list, action_list)
+        slb_obj.add_app_rules(self.lb_id, [rule], __vport__, 'http')
+        time.sleep(5)
+
+        self.print_conf(proxy_vip_port)
+
+        # match ok
+        request_cookie = 'types=apple;uuid=abc1234567890'
+        resp = slb_obj.execute_remote_cmd(
+            self.client, '''curl -s -H 'Cookie:%s' -v http://%s:%s''' % (request_cookie, self.eip, __vport__))
+        logger.debug(resp[2])
+        assert resp[0] == 0
+        assert resp[2].find("HTTP/1.1 302 Found") > 0
+
+        # not match ok
+        request_cookie = 'types=apple;uuid=xxxabc1234567890'
+        resp = slb_obj.execute_remote_cmd(
+            self.client, '''curl -s -H 'Cookie:%s' -v http://%s:%s''' % (request_cookie, self.eip, __vport__))
+        logger.debug(resp[2])
+        assert resp[0] == 0
+        assert resp[2].find("HTTP/1.1 503") > 0
+
+        #del rule
+        rule_global_ids = ["test_app_rule"]
+        resp = slb_obj.del_app_rules(
+            self.lb_id, rule_global_ids, __vport__, 'http')
+        self.print_conf(proxy_vip_port)
+
+    @marker.function
+    @pytest.mark.test_way('''
+        创建一个简单的lb,启用app_rule,添加多种condition和一个redirect action,
+        验证condition的匹配逻辑
+    ''')
+    @pytest.mark.test_points(
+        "配置多种condition，验证条件之间的and逻辑"
+        "指定url访问http,命中返回302，不命中返回503"
+    )
+    def test_custom_forward_condition_all(self):
+        # print proxy config
+        proxy_vip_port = slb_obj.get_lvs_config_port(
+            self.eip, __vport__, __in_vid__)
+        assert proxy_vip_port > 0
+        self.print_conf(proxy_vip_port)
+
+        # 1. add rule with domain
+        condition_list = [
+            slb_obj.generate_domain_condition(["www.mytest.com"]),
+            slb_obj.generate_url_condition(["/root/mytest"]),
+            slb_obj.generate_header_condition("my_header", ["my_value"]),
+            slb_obj.generate_header_condition("your_header", ["your_value"]),
+            slb_obj.generate_method_condition(["POST"]),
+            slb_obj.generate_query_string_condition(
+                [{"key": "uuid", "value": "abc1234567890"}], unique_name=self.generate_unique_name()),
+            slb_obj.generate_cookie_condition(
+                [{"key": "uuid", "value": "abc1234567890"}], unique_name=self.generate_unique_name()),
+        ]
+
+        action_list = [
+            #slb_obj.generate_forward_action(self.rs_pool_name, order=50000),
+            #slb_obj.generate_rewrite_action("www.mytest.com", "", "", order=7),
+            #slb_obj.generate_fixed_response_action("200", "text/plain", "abc123456", order=5),
+            #slb_obj.generate_insert_header_action(
+            #    "my_header", "my_value123", cover_type=True, value_type="user_defined", order=4),
+            slb_obj.generate_redirect_action(
+                port="8000", http_code=302, order=3),
+            #slb_obj.generate_remove_header_action("your_header", order=6)
+        ]
+        rule = slb_obj.generate_custom_forward_rule(
+            condition_list, action_list)
+        slb_obj.add_app_rules(self.lb_id, [rule], __vport__, 'http')
+
+        time.sleep(5)
+        self.print_conf(proxy_vip_port)
+
+        # match ok
+        request_host = "www.mytest.com"
+        request_uri = "/root/mytest"
+        request_header_key = "my_header"
+        request_header_value = "my_value"
+        request_header_key2 = "your_header"
+        request_header_value2 = "your_value"
+        request_method = 'POST'
+        request_query_string = 'types=apple&uuid=abc1234567890'
+        request_cookie = 'types=apple;uuid=abc1234567890'
+        cmd = 'curl -s -v -X \'%s\' -H \'host:%s\' -H \'%s:%s\' -H \'%s:%s\' -H \'Cookie:%s\' \'http://%s:%s/%s?%s\'' % (
+            request_method, request_host, request_header_key, request_header_value, request_header_key2, request_header_value2, request_cookie, self.eip, __vport__, request_uri, request_query_string)
+        resp = slb_obj.execute_remote_cmd(self.client, cmd)
+        logger.debug(resp[2])
+        assert resp[0] == 0
+        assert resp[2].find("HTTP/1.1 302 Found") > 0
+
+        # not match ok
+        request_cookie = 'types=apple&uuid=xxxabc1234567890'
+        cmd = 'curl -s -v -H \'Cookie:%s\' \'http://%s:%s\'' % (
+            request_cookie, self.eip, __vport__)
+        resp = slb_obj.execute_remote_cmd(self.client, cmd)
+        assert resp[0] == 0
+        assert resp[2].find("HTTP/1.1 503") > 0
+
+        #del rule
+        rule_global_ids = ["test_app_rule"]
+        resp = slb_obj.del_app_rules(
+            self.lb_id, rule_global_ids, __vport__, 'http')
+        self.print_conf(proxy_vip_port)
+
+    @marker.function
+    @pytest.mark.test_way('''
+            增加自定义转发action redirect测试，含配置和转发
+        ''')
+    @pytest.mark.test_points(
+        "test redirect action",
+        "1. 配置ok;",
+        "2. redirect url ok;",
+    )
+    @pytest.mark.parametrize("protocol, host, port, path, query, status", [
+        ("https", "www.mytest.com", "8088",
+         "/mytest", "types=apple&uuid=abc123", "301"),
+        ("${protocol}", "${host}", "8088", "${path}",
+         "${query}", "302"),
+        ("${protocol}", "www.mytest.com", "${port}", "${path}",
+        "${query}", "303"),
+        ("http", "${host}", "80", "${path}",
+         "${query}", "307"),
+        ("https", "${host}", "443", "${path}",
+         "${query}", "308"),
+        ("https", "${host}", "443", "${path}/testa",
+         "${query}&my_key=my_value", "308"),
+        ("${protocol}", "${host}", "${port}",
+         "${path}/${host}/${port}", "${query}", "303"),
+        ("${protocol}", "${host}", "${port}",
+        "${path}", "var=${query}-${path}-${protocol}-${host}-${port}", "303"),
+    ])
+    def test_custom_forward_action_redirect(self, protocol, host, port, path, query, status):
+        # print proxy config
+        proxy_vip_port = slb_obj.get_lvs_config_port(
+            self.eip, __vport__, __in_vid__)
+        assert proxy_vip_port > 0
+        self.print_conf(proxy_vip_port)
+
+        condition_list = [slb_obj.generate_url_condition(["/"])]
+        action_list = [
+            slb_obj.generate_redirect_action(
+                protocol, host, port, path, query, status, order=1)
+        ]
+        rule = slb_obj.generate_custom_forward_rule(
+            condition_list, action_list)
+        slb_obj.add_app_rules(self.lb_id, [rule], __vport__, 'http')
+        time.sleep(5)
+
+        self.print_conf(proxy_vip_port)
+
+        # match ok
+        origin_protocal = "http"
+        origin_host = self.eip
+        origin_port = str(__vport__)
+        origin_path = "/"
+        origin_query_string = "uuid=my123456"
+        cmd = "curl -s -v %s://%s:%s%s?%s" % (origin_protocal, origin_host, origin_port, origin_path, origin_query_string)
+        resp = slb_obj.execute_remote_cmd(self.client, cmd)
+        logger.debug(resp[2])
+        assert resp[0] == 0
+        assert resp[1].find(status) >= 0
+
+        redirect_url = ""
+        use_protocal = ""
+        if protocol == "${protocol}" or not protocol:
+            use_protocal = origin_protocal
+        else:
+            use_protocal = protocol
+
+        redirect_url += use_protocal + "://"
+
+        if host == "${host}" or not host:
+            redirect_url += origin_host
+        else:
+            redirect_url += host
+
+        if port == "${port}" or not port:
+            use_port = origin_port
+        else:
+            use_port = port
+
+        if (use_protocal == "https" and use_port == "443") or \
+                (use_protocal == "http" and use_port == "80"):
+            pass
+        else:
+            redirect_url += ":" + use_port
+
+        if path == "${path}" or not path:
+            redirect_url += origin_path
+        else:
+            redirect_url += path.replace("${protocol}", origin_protocal).\
+                replace("${host}", origin_host).\
+                replace("${port}", origin_port).\
+                replace("${path}", origin_path).\
+                replace("${query}", origin_query_string)
+
+        if query == "${query}" or not query:
+            if not origin_query_string:
+                redirect_url += "?" + origin_query_string
+        else:
+            redirect_url += "?" + query.replace("${protocol}", origin_protocal).\
+                replace("${host}", origin_host).\
+                replace("${port}", origin_port).\
+                replace("${path}", origin_path).\
+                replace("${query}", origin_query_string)
+
+        logger.debug("target redirect_url: %s" % redirect_url)
+        assert resp[2].find(redirect_url) >= 0
+
+        #del rule
+        rule_global_ids = ["test_app_rule"]
+        resp = slb_obj.del_app_rules(
+            self.lb_id, rule_global_ids, __vport__, 'http')
+        self.print_conf(proxy_vip_port)
+
+    @marker.function
+    @pytest.mark.test_way('''
+            增加自定义转发action rewrite测试，含配置和转发
+        ''')
+    @pytest.mark.test_points(
+        "test rewrite action",
+        "1. 配置ok;",
+        "2. rewrite url ok;",
+    )
+    @pytest.mark.parametrize("host, path, query", [
+        ("www.mytest.com", "/mytest", "types=apple&uuid=abc123"),
+        ("www.mytest.com", "${path}", "${query}"),
+        ("${host}", "/mytest", "${query}"),
+        ("www.mytest.com", "${path}/testa",
+         "${query}&my_key=my_value"),
+    ])
+    def test_custom_forward_action_rewrite(self, host, path, query):
+        # print proxy config
+        proxy_vip_port = slb_obj.get_lvs_config_port(
+            self.eip, __vport__, __in_vid__)
+        assert proxy_vip_port > 0
+        self.print_conf(proxy_vip_port)
+
+        condition_list = [slb_obj.generate_url_condition(["/"])]
+        action_list = [
+            slb_obj.generate_rewrite_action(host, path, query, order=10),
+            slb_obj.generate_forward_action(self.rs_pool_name, order=50000),
+        ]
+        rule = slb_obj.generate_custom_forward_rule(
+            condition_list, action_list)
+        slb_obj.add_app_rules(self.lb_id, [rule], __vport__, 'http')
+        time.sleep(5)
+
+        self.print_conf(proxy_vip_port)
+
+        origin_host = self.eip
+        origin_path = "/"
+        origin_query_string = "uuid=my123456"
+        cmd = "curl -s -v http://%s:%s%s?%s" % (
+            origin_host, __vport__, origin_path, origin_query_string)
+        resp = slb_obj.execute_remote_cmd(self.client, cmd)
+        assert resp[0] == 0
+        assert resp[2].find("HTTP/1.1 200 OK") >= 0 or resp[2].find(
+            "HTTP/1.1 404 Not Found") > 0
+
+        use_host = ""
+        if host == "${host}" or not host:
+            use_host = origin_host
+        else:
+            use_host = host
+
+        use_path = ""
+        if path == "${path}" or not path:
+            use_path = origin_path
+        else:
+            use_path = path.replace("${path}", origin_path)
+
+        use_query_string = ""
+        if query == "${query}" or not query:
+            use_query_string = origin_query_string
+        else:
+            use_query_string = query.replace(
+                "${query}", origin_query_string)
+
+        assert resp[1].find(use_host) >= 0
+        assert resp[1].find(use_path) >= 0
+        if use_query_string:
+            assert resp[1].find(use_query_string) >= 0
+
+        #del rule
+        rule_global_ids = ["test_app_rule"]
+        resp = slb_obj.del_app_rules(
+            self.lb_id, rule_global_ids, __vport__, 'http')
+        self.print_conf(proxy_vip_port)
+        pass
+
+    @marker.function
+    @pytest.mark.test_way('''
+            增加自定义转发action fixed_response测试，含配置和转发
+        ''')
+    @pytest.mark.test_points(
+        "test fixed_response action",
+        "1. 配置ok;",
+        "2. check response ok;",
+    )
+    @pytest.mark.parametrize("status, content_type, content", [
+        ("200", "text/plain", "abc123456"),
+        ("400", "text/css", "abc123456"),
+        ("404", "text/html", "abc123456"),
+        ("500", "application/javascript", "abc123456"),
+        ("504", "application/json", "abc123456"),
+        ("502", None, None),
+    ])
+    def test_custom_forward_action_fixed_response(self, status, content_type, content):
+        # print proxy config
+        proxy_vip_port = slb_obj.get_lvs_config_port(
+            self.eip, __vport__, __in_vid__)
+        assert proxy_vip_port > 0
+        self.print_conf(proxy_vip_port)
+
+        condition_list = [slb_obj.generate_url_condition(["/"])]
+        action_list = [
+            slb_obj.generate_fixed_response_action(
+                status, content_type, content, order=5),
+        ]
+        rule = slb_obj.generate_custom_forward_rule(
+            condition_list, action_list)
+        slb_obj.add_app_rules(self.lb_id, [rule], __vport__, 'http')
+        time.sleep(5)
+
+        self.print_conf(proxy_vip_port)
+
+        cmd = 'curl -v \'http://%s:%s/\'' % (self.eip, __vport__)
+        resp = slb_obj.execute_remote_cmd(self.client, cmd)
+        logger.debug(resp)
+        assert resp[0] == 0
+        assert resp[2].find(status) >= 0
+        if content_type != None:
+            assert resp[2].find(content_type) >= 0
+        if content != None:
+            assert resp[1] == content
+
+        #del rule
+        rule_global_ids = ["test_app_rule"]
+        resp = slb_obj.del_app_rules(
+            self.lb_id, rule_global_ids, __vport__, 'http')
+        self.print_conf(proxy_vip_port)
+
+    @marker.function
+    @pytest.mark.test_way('''
+            增加自定义转发action insert header测试，含配置和转发
+        ''')
+    @pytest.mark.test_points(
+        "test insert header action",
+        "1. 配置ok;",
+        "2. check response ok;",
+    )
+    @pytest.mark.parametrize("header_key, header_value, value_type, cover_type", [
+        ("my_header", "my_value123", "user_defined", False),
+        ("my_header", "my_value123", "user_defined", True),
+        ("Host", "www.xxxx.com", "user_defined", False),
+        ("Content-Length", "50000", "user_defined", True),
+        ("my_content_type", "Content-Type", "reference_header", True),
+        ("X-Forwarded-For", "remote_addr", "system_defined", True),
+        ("X-Forwarded-Proto", "scheme", "system_defined", True),
+        ("SLB-ID", "slbid", "system_defined", True),
+        ("SLB-IP", "vip_addr", "system_defined", True),
+        ("SLB-PORT", "slb_vport", "system_defined", True),
+        ("X-Forwarded-Client-srcport", "remote_port", "system_defined", True),
+    ])
+    def test_custom_forward_action_insert_header(self, header_key, header_value, value_type, cover_type):
+                # print proxy config
+        proxy_vip_port = slb_obj.get_lvs_config_port(
+            self.eip, __vport__, __in_vid__)
+        assert proxy_vip_port > 0
+        self.print_conf(proxy_vip_port)
+
+        condition_list = [slb_obj.generate_url_condition(["/"])]
+        action_list = [
+            slb_obj.generate_insert_header_action(
+                header_key, header_value, value_type, cover_type, order=10),
+            slb_obj.generate_forward_action(self.rs_pool_name, order=50000),
+        ]
+        rule = slb_obj.generate_custom_forward_rule(
+            condition_list, action_list)
+        slb_obj.add_app_rules(self.lb_id, [rule], __vport__, 'http')
+        time.sleep(5)
+
+        self.print_conf(proxy_vip_port)
+
+        origin_scheme = "http"
+        origin_content_type = "application/json"
+        request_host = "www.mytest.com"
+        request_header_key = "my_header"
+        request_header_value = "my_value"
+        cmd = 'curl -X POST --connect-timeout 3 -H \'Content-Type:%s\' -H \'host: %s\' -H \'%s:%s\' -v \'%s://%s:%s/\' -d \'abc1234567890\'' % (
+            origin_content_type, request_host, request_header_key, request_header_value, origin_scheme, self.eip, __vport__)
+
+        if header_value == "scheme":
+            header_value = origin_scheme
+
+        if header_value == "Content-Type":
+            header_value = origin_content_type
+
+        resp = slb_obj.execute_remote_cmd(self.client, cmd)
+        logger.debug(resp)
+        # if Content-Length be modified, curl will wait to timeout
+        if header_key == "Content-Length":
+            assert resp[0] != 0
+            #del rule
+            rule_global_ids = ["test_app_rule"]
+            resp = slb_obj.del_app_rules(
+                self.lb_id, rule_global_ids, __vport__, 'http')
+            self.print_conf(proxy_vip_port)
+            return
+
+        assert resp[0] == 0
+        logger.debug("resp=%s" % str(resp))
+        assert resp[1].find("200") >= 0
+        if value_type == "system_defined":
+            assert resp[1].find(header_key) >= 0
+        else:
+            assert resp[1].find(header_key+": " + header_value) >= 0
+
+        # host can't be appended
+        if cover_type == False and header_key == "my_header" and value_type != "system_defined":
+            assert resp[1].find(request_header_key+": " +
+                                request_header_value) >= 0
+
+        #del rule
+        rule_global_ids = ["test_app_rule"]
+        resp = slb_obj.del_app_rules(
+            self.lb_id, rule_global_ids, __vport__, 'http')
+        self.print_conf(proxy_vip_port)
+
+
+    @marker.function
+    @pytest.mark.test_way('''
+            增加自定义转发action remove header测试，含配置和转发
+        ''')
+    @pytest.mark.test_points(
+        "test remove header action",
+        "1. 配置ok;",
+        "2. check response ok;",
+    )
+    @pytest.mark.parametrize("header_key, status", [
+        ("my_header", "200"),
+        ("Content-Length", "200"),
+        ("User-Agent", "200"),
+        ("host", "400"),
+        ("Accept", "200"),
+        ("your_header", "200"),
+    ])
+    def test_custom_forward_action_remove_header(self, header_key, status):
+        # print proxy config
+        proxy_vip_port = slb_obj.get_lvs_config_port(
+            self.eip, __vport__, __in_vid__)
+        assert proxy_vip_port > 0
+        self.print_conf(proxy_vip_port)
+
+        condition_list = [slb_obj.generate_url_condition(["/"])]
+        action_list = [
+            slb_obj.generate_remove_header_action(header_key, order=10),
+            slb_obj.generate_forward_action(self.rs_pool_name, order=50000),
+        ]
+        rule = slb_obj.generate_custom_forward_rule(
+            condition_list, action_list)
+        slb_obj.add_app_rules(self.lb_id, [rule], __vport__, 'http')
+        time.sleep(5)
+
+        self.print_conf(proxy_vip_port)
+
+        request_header_key = "my_header"
+        request_header_value = "my_value"
+        cmd = 'curl -X POST -H \'%s:%s\' -v \'http://%s:%s/\' -d \'abc1234567890\'' % (
+            request_header_key, request_header_value, self.eip, __vport__)
+        resp = slb_obj.execute_remote_cmd(self.client, cmd)
+        logger.debug(resp)
+        assert resp[0] == 0
+        assert resp[1].find(status) >= 0
+        assert resp[1].find(header_key) < 0 or resp[1].find(
+            header_key+": \r\n") >= 0
+
+        #del rule
+        rule_global_ids = ["test_app_rule"]
+        resp = slb_obj.del_app_rules(
+            self.lb_id, rule_global_ids, __vport__, 'http')
+        self.print_conf(proxy_vip_port)
+

@@ -1,0 +1,334 @@
+#%define __arch_install_post %{nil}
+
+%define nginx_name              t-coresystem-tengine-jushita
+%define nginx_user              admin
+%define nginx_group             %{nginx_user}
+%define nginx_home              /home/%{nginx_user}
+%define nginx_datadir           %{nginx_home}/tengine
+%define nginx_sbindir           %{nginx_datadir}/bin
+%define nginx_logdir            %{nginx_datadir}/logs
+%define nginx_confdir           %{nginx_datadir}/conf
+%define nginx_home_tmp          %{nginx_datadir}/data
+%define nginx_libdir            %{nginx_datadir}/lib
+%define nginx_moddir            %{nginx_datadir}/modules
+
+Name:           %{nginx_name}
+Version: 2.1.1
+Release: 100.el6u2
+Packager:       wenjing <wenjing.ywb@taobao.com>
+Summary:        Robust, small and high performance http and reverse proxy server
+Group:          System Environment/Daemons
+Source:         %{name}-%{version}.tar.gz
+
+# BSD License (two clause)
+License:        BSD
+URL:            git@gitlab.alibaba-inc.com:nginx-cooperation/tengine.git
+BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
+
+BuildRequires:      pcre-devel,zlib-devel,openssl-devel,libxml2-devel,expat-devel,ali-openssl
+Requires:           pcre,zlib,openssl
+
+# for /usr/sbin/useradd
+Requires(pre):      shadow-utils
+# for /sbin/service
+Requires(preun):    initscripts
+Requires(postun):   initscripts
+
+Source1:    %{name}.sysconfig
+Source2:    %{name}.conf
+Source3:    %{name}-ctl
+#tmd
+Source4:    tmd4_main.conf
+Source5:    tmd4_http.conf
+Source6:    tmd4_domain.conf
+Source7:    tmd4_loc.conf
+Source8:    tmd4_loc.lua
+Source9:    tmd_check.lua
+Source10:   tmd_head
+Source11:   tmd_foot
+Source12:   tair_white.lua
+
+Source13:   taobao-wait-head.html
+Source14:   taobao-wait-footer.html
+Source15:   tmall-wait-head.html
+Source16:   tmall-wait-footer.html
+Source17:   tmd_doc
+
+
+# removes -Werror in upstream build scripts.  -Werror conflicts with
+# -D_FORTIFY_SOURCE=2 causing warnings to turn into errors.
+#Patch0:     %{name}-auto-cc-gcc.patch
+#Patch1:     recognize_local_addr.patch
+#Patch2:     dynamic-upstream-check.patch
+#Patch2:     dynamic_upstream_check_vpc_tunnelid_c.patch 
+#Patch3:     tengine-proxy-dso.patch
+#Patch4:     dynamic_upstream_check_vpc_tunnelid_h.patch 
+
+%description
+Tengine[Taobao engine] is an HTTP(S) server, HTTP(S) reverse proxy and IMAP/POP3
+proxy server envolved from nginx by server-platform team of Taobao.
+
+%prep
+%setup -q
+
+#%patch0 -p0
+#%patch1 -p0
+#%patch2 -p1
+#%patch3 -p0
+#%patch4 -p1
+
+%build
+# nginx does not utilize a standard configure script.  It has its own
+# and the standard configure options cause the nginx configure script
+# to error out.  This is is also the reason for the DESTDIR environment
+# variable.  The configure script(s) have been patched (Patch1 and
+# Patch2) in order to support installing into a build environment.
+
+# build and install jansson
+cd libs/jansson-2.6
+./configure --prefix=%{buildroot}/jansson
+make
+make install
+cd ..
+
+# build and install lua
+cd luajit
+cd src
+touch buildvm_*.h
+cd ..
+make
+make install PREFIX=%{buildroot}/luajit
+export LUAJIT_LIB=%{buildroot}/luajit/lib
+export LUAJIT_INC=%{buildroot}/luajit/include/luajit-2.0
+
+export DESTDIR=%{buildroot}
+export WITH_TAIR_LUA=1
+
+# return to nginx directory
+cd ../../
+
+./configure \
+    --user=%{nginx_user} \
+    --group=%{nginx_group} \
+    --prefix=%{nginx_home_tmp} \
+    --sbin-path=%{nginx_sbindir}/%{name} \
+    --conf-path=%{nginx_confdir}/%{name}.conf \
+    --dso-tool-path=%{nginx_sbindir}/dso-tool \
+    --error-log-path=%{nginx_logdir}/error.log \
+    --pid-path=%{nginx_logdir}/%{name}.pid \
+    --lock-path=%{nginx_logdir}/%{name}.lock \
+    --http-log-path=%{nginx_logdir}/access.log \
+    --http-client-body-temp-path=%{nginx_home_tmp}/client_body \
+    --http-proxy-temp-path=%{nginx_home_tmp}/proxy \
+    --http-fastcgi-temp-path=%{nginx_home_tmp}/fastcgi \
+    --with-ipv6 \
+    --without-select_module \
+    --without-poll_module \
+    --without-http_userid_module \
+    --without-http_auth_basic_module \
+    --without-http_autoindex_module \
+    --without-http_memcached_module \
+    --without-http_empty_gif_module \
+    --with-http_ssl_module \
+    --with-http_upstream_check_module \
+    --with-luajit-inc=%{buildroot}/luajit/include/luajit-2.0 \
+    --with-luajit-lib=%{buildroot}/luajit/lib \
+    --add-module=modules/lua-nginx-module-0.9.16-ssl \
+    --add-module=modules/mod_vpcopt \
+    --add-module=modules/mod_hat/nginx \
+    --add-module=modules/ngx_devel_kit \
+    --add-module=modules/mod_cache_purge \
+    --add-module=modules/mod_waf/nginx \
+    --add-module=modules/mod_dyups \
+    --add-module=modules/ngx_tcp_proxy_module \
+    --add-module=modules/mod_backend \
+    --add-module=modules/mod_sinfo \
+    --add-module=modules/mod_beacon \
+    --add-module=modules/mod_subs \
+    --add-module=modules/mod_gunzip \
+    --add-module=modules/mod_bucket_id \
+    --add-module=modules/mod_scroll_log \
+    --add-module=modules/mod_cdn_variables \
+    --add-module=modules/mod_substitutions \
+    --add-module=modules/ngx_slight_ssl_module \
+    --add-module=modules/mod_hourglass \
+    --add-module=modules/mod_slb_http_limit_req \
+    --add-module=modules/mod_slb_reqstat \
+    --add-module=modules/mod_debug_pool \
+    --with-http_sysguard_module \
+    --with-syslog \
+    --with-pcre \
+    --with-ipv6 \
+    --with-http_spdy_module \
+    --with-http_v2_module \
+    --with-slb \
+    --with-openssl=/usr/local/ali-openssl \
+    --with-openssl-bin \
+    --with-openssl-keyless \
+    --with-openssl-opt=--keyless-ssl \
+    --with-keyless-server \
+    --with-cc-opt="-fPIC %{optflags} $(pcre-config --cflags) -DTMD_SSL_PROTECT -I%{buildroot}/jansson/include -I modules/lua-nginx-module-0.9.16-ssl/src" \
+    --with-ld-opt="-L%{buildroot}/jansson/lib -Wl,-Bstatic -ljansson -Wl,-Bdynamic"
+
+    #--add-module=modules/mod_tmd/tmd_4.0.0 \
+    #--add-module=modules/mod_tair/tair_2 \
+    #--add-module=modules/mod_diamond \
+    #--add-module=modules/ngx_http_vipserver_module \
+make %{?_smp_mflags}
+
+%install
+rm -rf %{buildroot}
+
+make install DESTDIR=%{buildroot} INSTALLDIRS=vendor
+
+cp -r /usr/local/ali-openssl/include/* %{buildroot}%{nginx_datadir}/data/include/
+# hotconf
+%{__install} -p -d -m 0755 %{buildroot}%{nginx_moddir}
+tar czf dyconf.tgz ./modules/mod_dyconf
+tar czf dycert.tgz ./modules/mod_dycert
+%{__install} -p -D -m 0644 dyconf.tgz  %{buildroot}%{nginx_moddir}/dyconf.tgz
+%{__install} -p -D -m 0644 dycert.tgz  %{buildroot}%{nginx_moddir}/dycert.tgz
+
+find %{buildroot} -type f -name .packlist -exec rm -f {} \;
+find %{buildroot} -type f -name perllocal.pod -exec rm -f {} \;
+find %{buildroot} -type f -empty -exec rm -f {} \;
+find %{buildroot} -type d -name html -print | xargs rm -rf
+find %{buildroot} -type f -exec chmod 0644 {} \;
+find %{buildroot} -type f -name '*.so' -exec chmod 0755 {} \;
+chmod 0755 %{buildroot}%{nginx_sbindir}/%{name}
+%{__install} -p -D -m 0644 %{SOURCE1} %{buildroot}%{_sysconfdir}/sysconfig/%{name}
+%{__install} -p -D -m 0644 %{SOURCE2} %{buildroot}%{nginx_confdir}/%{name}.conf
+%{__install} -p -D -m 0755 %{SOURCE3} %{buildroot}%{nginx_sbindir}/%{name}-ctl
+
+%{__install} -p -D -m 0644 %{SOURCE4} %{buildroot}%{nginx_confdir}/tmd4_main.conf
+%{__install} -p -D -m 0644 %{SOURCE5} %{buildroot}%{nginx_confdir}/tmd4_http.conf
+echo "init_by_lua_file \"%{nginx_confdir}/tmd4_loc.lua\";" >> %{buildroot}%{nginx_confdir}/tmd4_http.conf
+%{__install} -p -D -m 0644 %{SOURCE6} %{buildroot}%{nginx_confdir}/tmd4_domain.conf
+%{__install} -p -D -m 0644 %{SOURCE7} %{buildroot}%{nginx_confdir}/tmd4_loc.conf
+%{__install} -p -D -m 0644 %{SOURCE8} %{buildroot}%{nginx_confdir}/tmd4_loc.lua
+
+%{__install} -p -d -m 0755 %{buildroot}%{nginx_confdir}/tmdconf
+%{__install} -p -D -m 0644 %{SOURCE9} %{buildroot}%{nginx_confdir}/tmdconf/check.lua
+%{__install} -p -D -m 0644 %{SOURCE10} %{buildroot}%{nginx_confdir}/tmdconf/head
+%{__install} -p -D -m 0644 %{SOURCE11} %{buildroot}%{nginx_confdir}/tmdconf/foot
+%{__install} -p -D -m 0644 %{SOURCE12} %{buildroot}%{nginx_confdir}/tmdconf/tair_white.lua
+%{__install} -p -D -m 0644 %{SOURCE13} %{buildroot}%{nginx_confdir}/tmdconf/taobao-wait-head.html
+%{__install} -p -D -m 0644 %{SOURCE14} %{buildroot}%{nginx_confdir}/tmdconf/taobao-wait-footer.html
+%{__install} -p -D -m 0644 %{SOURCE15} %{buildroot}%{nginx_confdir}/tmdconf/tmall-wait-head.html
+%{__install} -p -D -m 0644 %{SOURCE16} %{buildroot}%{nginx_confdir}/tmdconf/tmall-wait-footer.html
+%{__install} -p -D -m 0644 %{SOURCE17} %{buildroot}%{nginx_confdir}/tmdconf/doc
+
+%{__install} -p -d -m 0755 %{buildroot}%{nginx_home_tmp}
+%{__install} -p -d -m 0755 %{buildroot}%{nginx_home_tmp}/sbin
+%{__install} -p -d -m 0755 %{buildroot}%{nginx_logdir}
+
+
+%clean
+rm -rf %{buildroot}
+
+%pre
+if [ $1 == 1 ]; then
+    %{_sbindir}/useradd -c "Nginx user" -s /bin/false -r -d %{nginx_home} %{nginx_user} 2>/dev/null || :
+fi
+
+%post
+if [ $1 == 1 ]; then
+    /sbin/sysctl -w net.unix.max_dgram_qlen=60000
+fi
+cd %{nginx_datadir}
+tar zxf ./modules/dyconf.tgz
+tar zxf ./modules/dycert.tgz
+#rm -f ./modules/dyconf.tgz ./modules/dycert.tgz
+cd ./modules
+ln -sf mod_dyconf dyconf
+ln -sf mod_dycert dycert
+%preun
+%postun
+
+%files
+%config(noreplace) %{nginx_confdir}/browsers
+%defattr(-,%{nginx_user},%{nginx_group},-)
+%dir %{nginx_home_tmp}
+%dir %{nginx_home_tmp}/sbin
+
+%defattr(-,root,root,-)
+%config(noreplace) %{_sysconfdir}/sysconfig/%{name}
+
+%defattr(-,%{nginx_user},%{nginx_group},-)
+%dir %{nginx_sbindir}
+%{nginx_sbindir}/%{name}
+%{nginx_sbindir}/dso-tool
+%{nginx_confdir}/module_stubs
+%attr(0750, root, admin) %{nginx_sbindir}/%{name}
+%dir %{nginx_datadir}
+%dir %{nginx_confdir}
+%dir %{nginx_confdir}/tmdconf
+%dir %{nginx_logdir}
+%dir %{nginx_moddir}
+%{nginx_home_tmp}/include
+%config(noreplace) %{nginx_sbindir}/%{name}-ctl
+%config(noreplace) %{nginx_confdir}/win-utf
+%config(noreplace) %{nginx_confdir}/nginx.conf.default
+%config(noreplace) %{nginx_confdir}/mime.types.default
+%config(noreplace) %{nginx_confdir}/fastcgi.conf
+%config(noreplace) %{nginx_confdir}/fastcgi.conf.default
+%config(noreplace) %{nginx_confdir}/fastcgi_params
+%config(noreplace) %{nginx_confdir}/fastcgi_params.default
+%config(noreplace) %{nginx_confdir}/scgi_params
+%config(noreplace) %{nginx_confdir}/scgi_params.default
+%config(noreplace) %{nginx_confdir}/uwsgi_params
+%config(noreplace) %{nginx_confdir}/uwsgi_params.default
+%config(noreplace) %{nginx_confdir}/koi-win
+%config(noreplace) %{nginx_confdir}/koi-utf
+%config(noreplace) %{nginx_confdir}/browsers
+%config(noreplace) %{nginx_confdir}/%{name}.conf
+%config(noreplace) %{nginx_confdir}/mime.types
+%config(noreplace) %{nginx_confdir}/tmd4_main.conf
+%config(noreplace) %{nginx_confdir}/tmd4_http.conf
+%config(noreplace) %{nginx_confdir}/tmd4_domain.conf
+%config(noreplace) %{nginx_confdir}/tmd4_loc.conf
+%config(noreplace) %{nginx_confdir}/tmd4_loc.lua
+%config(noreplace) %{nginx_confdir}/tmdconf/check.lua
+%config(noreplace) %{nginx_confdir}/tmdconf/head
+%config(noreplace) %{nginx_confdir}/tmdconf/foot
+%config(noreplace) %{nginx_confdir}/tmdconf/tair_white.lua
+%config(noreplace) %{nginx_confdir}/tmdconf/taobao-wait-head.html
+%config(noreplace) %{nginx_confdir}/tmdconf/taobao-wait-footer.html
+%config(noreplace) %{nginx_confdir}/tmdconf/tmall-wait-head.html
+%config(noreplace) %{nginx_confdir}/tmdconf/tmall-wait-footer.html
+%config(noreplace) %{nginx_confdir}/tmdconf/doc
+%config(noreplace) %{nginx_moddir}/dyconf.tgz
+%config(noreplace) %{nginx_moddir}/dycert.tgz
+
+%changelog
+
+*Thu Aug 29 2013 Wenjing <wenjing.ywb@taobao.com> - 1.4.6.2
+- remove the useless modules for SLB
+
+*Thu Jun 6 2013 Wenjing <wenjing.ywb@taobao.com> - 1.4.6.1
+- updated tengine to be 1.4.6
+- enhanced the directive proxy_bind
+
+*Thu Apr 19 2013 Wenjing <wenjing.ywb@taobao.com> - 1.4.4.3
+- add the module gray
+
+*Thu Mar 29 2013 Wenjing <wenjing.ywb@taobao.com> - 1.4.4.2
+- increase NGX_MAX_SHM_CYCLES to be 40000
+
+*Thu Mar 5 2013 Wenjing <wenjing.ywb@taobao.com> - 1.4.3.14
+- move the rpm to ABS(http://rpm.corp.taobao.com/), now this
+  packet could be installed by yum
+- use the tengine version instead of nginx as the packet base version
+
+*Thu Jan 30 2013 Wenjing <wenjing.ywb@taobao.com> - 1.2.5.11
+- update tengine to 1.4.3
+- add the feature of request non buffering
+
+*Thu Dec 24 2012 Wenjing <wenjing.ywb@taobao.com> - 1.2.5.10
+- fix a dso bug when reloading
+
+-*Thu Nov 29 2012 Wenjing <wenjing.ywb@taobao.com> - 1.2.3-9
+-import to svn
+
+*Thu Sep 10 2012 Wenjing <wenjing.ywb@taobao.com> - 1.2.3
+- initial version

@@ -1,0 +1,13 @@
+#!/bin/sh
+export temppath=$1
+cd $temppath/rpm
+RELS=$4
+echo Release is : $RELS
+REDHAT_RELEASE=`cat /etc/redhat-release|cut -d " " -f 7|sed y/./u/`
+sed -i  "s/^Release.*$/Release: "$RELS".el"$REDHAT_RELEASE"/" $2.spec
+VERSION=$3
+sed -i  "s/^Version.*$/Version: "${VERSION}"/" $2.spec
+sed -i "s/VERS/"${VERSION}"/g" $2.sh
+echo ${VERSION} > $2-VER.txt
+sh  $2.sh
+rm -f *.src.rpm

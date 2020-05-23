@@ -1,0 +1,17 @@
+class Student {
+    fullName: string;
+    constructor(public firstName, public lastName) {
+        this.fullName = firstName + " " + lastName;
+    }
+    greet(name?: string) {
+        if (name) {
+            return "Hi! " + name + "! my name is " + this.fullName;
+        } else {
+            return "Hi! my name is " + this.fullName;
+        }
+    }
+}
+
+var someone = new Student("Jane", "User");
+console.log(someone.greeter());
+console.log(someone.greeter('Prof. Halsey'));

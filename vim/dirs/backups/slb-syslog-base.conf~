@@ -1,0 +1,8 @@
+source s_sys {
+        file ("/proc/kmsg" program_override("kernel: "));
+        unix-stream ("/dev/log");
+        internal();
+};
+source s_slb_netudp {
+        udp(ip(127.0.0.1) port(514));
+};

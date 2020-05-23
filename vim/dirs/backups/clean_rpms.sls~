@@ -1,0 +1,172 @@
+{% set reinstall = pillar['taskinfo']['reinstall'] | default('false') %}
+
+######################clean###############################
+ali-sls-ilogtail-shanghai-clean:
+  pkg.removed:
+    - name: ali-sls-ilogtail-shanghai
+
+slb-service-vpc-clean:
+  pkg.removed:
+    - name: slb-service-vpc
+
+slb-debugtools-clean:
+  pkg.removed:
+    - name: slb-debugtools
+
+lvs-tools-aliyun-clean:
+  pkg.removed:
+    - name: lvs-tools-aliyun
+
+slb_ctk_proxy-clean:
+  pkg.removed:
+    - name: slb_ctk_proxy
+
+slb-ctk-session-clean:
+  pkg.removed:
+    - name: slb-ctk-session
+
+t-security-aliwafmodule-slb-clean:
+  pkg.removed:
+    - name: t-security-aliwafmodule-slb
+
+t-coresystem-tengine-jushita-debuginfo-clean:
+  pkg.removed:
+    - name: t-coresystem-tengine-jushita-debuginfo
+
+t-coresystem-tengine-jushita-clean:
+  pkg.removed:
+    - name: t-coresystem-tengine-jushita
+
+slb-nginx-debuginfo-clean:
+  pkg.removed:
+    - name: slb-nginx-debuginfo
+
+slb-dstat-monitor-clean:
+  pkg.removed:
+      - name: slb-dstat-monitor
+
+slb-vsock-ali878-clean:
+  pkg.removed:
+    - name: slb-vsock-ali878
+
+slb-vsock-ali2008-clean:
+  pkg.removed:
+    - name: slb-vsock-ali2008
+
+slb-vtoa-ali4000-clean:
+  pkg.removed:
+    - name: slb-vtoa-ali4000
+
+slb-kernel-modules-vsock-ali4000-clean:
+  pkg.removed:
+    - name: slb-kernel-modules-vsock-ali4000
+
+
+quagga-uninstall:
+  pkg.removed:
+    - name: quagga
+####################uninstall############################
+{% if reinstall == true %}
+slb-drop-logcache-uninstall:
+  pkg.removed:
+    - name: slb-drop-logcache
+
+#no need to uninstall
+#ethtool-uninstall:
+#  pkg.latest:
+#    - fromrepo: proxyrepo
+#    - require:
+#      - pkgrepo: proxyrepo
+
+slb-vtoa-ali878-uninstall:
+  pkg.removed:
+    - name: slb-vtoa-ali878
+
+slb-vsock-ali878-uninstall:
+  pkg.removed:
+    - name: slb-vsock-ali878
+
+slb-libvsock-uninstall:
+  pkg.removed:
+    - name: slb-libvsock
+
+slb-vsock-ali2008-uninstall:
+  pkg.removed:
+    - name: slb-vsock-ali2008
+
+taobao-cronolog-uninstall:
+  pkg.removed:
+    - name: taobao-cronolog
+
+slb-dstat-monitor-uninstall:
+  pkg.removed:
+    - name: slb-dstat-monitor
+
+slb-sensor-sysmetrics-uninstall:
+  pkg.removed:
+    - name: slb-sensor-sysmetrics
+
+t-coresystem-tengine-jushita-uninstall:
+  pkg.removed:
+    - name: t-coresystem-tengine-jushita
+
+slb-nginx-uninstall:
+  pkg.removed:
+    - name: slb-nginx
+
+slb-monitor-proxy-uninstall:
+  pkg.removed:
+    - name: slb-monitor-proxy
+
+slb-control-proxy-uninstall:
+  pkg.removed:
+    - name: slb-control-proxy
+
+slb-role-proxy-vpc-uninstall:
+  pkg.removed:
+    - name: slb-role-proxy-vpc
+
+ali-sls-ilogtail-uninstall:
+  pkg.removed:
+    - name: ali-sls-ilogtail
+
+tops-ntp-uninstall:
+  pkg.removed:
+    - name: tops-ntp
+
+python-simplejson-uninstall:
+  pkg.removed:
+    - name: python-simplejson
+
+slb-syslog-logconfig-uninstall:
+  pkg.removed:
+    - name: slb-syslog-logconfig
+
+slb_clean_disk-uninstall:
+  pkg.removed:
+    - name: slb_clean_disk
+
+slb-pet-uninstall:
+  pkg.removed:
+    - name: slb-pet
+
+slb-python-gevent-uninstall:
+  pkg.removed:
+    - name: slb-python-gevent
+
+libev-uninstall:
+  pkg.removed:
+    - name: libev
+
+slb-python-greenlet-uninstall:
+  pkg.removed:
+    - name: slb-python-greenlet
+
+slb-common-uninstall:
+  pkg.removed:
+    - name: slb-common
+
+tsar-uninstall:
+  pkg.removed:
+    - name: tsar
+{% endif %}

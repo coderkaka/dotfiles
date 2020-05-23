@@ -1,0 +1,15 @@
+- script: deploy_node.py
+  timeout: 5
+- script: attach_node.py
+  timeout: 5
+- script: reboot_node.py
+  timeout: 600
+  reboot: True
+- script: enable_precheck.py
+  timeout: 600
+- script: start_process.py
+  timeout: 5
+- script: postall_check.py
+  timeout: 5
+- script: enable_node.py
+  timeout: 5

@@ -1,0 +1,35 @@
+# 完整的构建模板标签说明：https://lark.alipay.com/mq4l6o/val2ny/prwhsh
+# version表示构建模板.fw.yml的版本，默认值为1.0
+version: 1.0
+# name表示当前代码仓库的模块名称
+name: slb-keyserver
+
+variables:
+    tianji_package_type: serverRole
+
+# machine表示编译机配置，container表示基于docker容器编译
+# 5u7_docker表示宿主机的装机模板是alios5的
+# 'reg.docker.alibaba-inc.com/scm/buildbox6u2:latest'表示编译使用的base镜像，用户可使用自定义的编译镜像
+machine:
+    standard:
+        arm64_apsara:
+          - default
+
+# scripts中定义构建命令行，通过定义的构建命令行可以构建出artifacts中定义的构建产物
+# 在scripts中可直接使用系统环境变量
+scripts:
+#  - sh tianji-build
+  - wget "http://fastwork-inner-logs.cn-hangzhou.oss-cdn.aliyun-inc.com/CICD/deployRelease"
+    -O deployRelease
+  - /home/tops/bin/python deployRelease -w . -b {{FW_BUILD_NUMBER}} -c DeployPackage.xml
+
+# artifacts定义构建产物类型，目前支持rpms,packages,tianji,images四种类型定义
+# tianji中支持定义多个天基app包的匹配规则，使用正则表达式定义匹配规则，每个匹配规则需要能够对应唯一的天基app包
+# tianji的定义格式为dict类型，key表示天基app包所属的天基servicename/appname，value为天基app包的匹配规则
+artifacts:
+    tianji:
+        slb-keyserver: build/release64/deploy/slb-keyserver*.tar.gz
+# notifications定义通知人员列表，目前只支持邮件通知
+notifications:
+    email:
+      - xxx@alibaba-inc.com

@@ -1,0 +1,215 @@
+#!/usr/bin/env python
+'''use /usr/bin/env because of MySQLdb'''
+
+import os
+import time
+import commands
+import sys
+import json
+import time
+from common.command import *
+from common.master_api import *
+from common.proxy_check import *
+from private.envcheck import *
+
+import MySQLdb
+import MySQLdb.cursors
+
+def query_db(pillar_path, sql):
+    yaml_info = yaml.load(file(pillar_path))
+    db = yaml_info['database']
+
+    conn = None
+    data = None
+    try:
+        conn = MySQLdb.connect(host=db['xuanyuan_host'],
+                               user=db['xuanyuan_user'],
+                               passwd=db['xuanyuan_passwd'],
+                               db=db['xuanyuan_db'],
+                               port=db['xuanyuan_port'],
+                               cursorclass=MySQLdb.cursors.DictCursor,
+                               charset='utf8'
+                               )
+        conn.autocommit(True)
+        cur = conn.cursor()
+        cur.execute(sql)
+        data = cur.fetchall()
+        cur.close()
+        return data
+    finally:
+        if conn:
+            conn.close()
+    return None
+
+def is_master_upgrade_from_low_to_v38(pillar_path):
+    sql = "SELECT * FROM information_schema.COLUMNS WHERE TABLE_NAME='amber_info' and  TABLE_SCHEMA='xuanyuan'"
+    data = query_db(pillar_path, sql)
+    if len(data) < 0:
+        return False
+
+    sql = "select * from amber_info where up_task = '' and task_name='docker_v38_upgrade'"
+    data = query_db(pillar_path, sql)
+    if len(data) == 1 and data[0]['status'] != 'success':
+        return True
+
+    return False
+
+def get_up_rs_num():
+    up_rs = 0
+    up_rs_avg = 0
+    for i in range(3):
+        cmd = 'sudo curl -s localhost/check_healthcheck_status | grep up | wc -l'
+        ret, out = exec_local_cmd(cmd)
+        if ret != 0:
+            return -1
+        up_rs = up_rs + int(out.strip())
+        time.sleep(10)
+    up_rs_avg = up_rs / 3
+    return up_rs_avg
+
+class startProcess:
+    def __init__(self, pillar_path):
+        self.env_checker = EnvCheck()
+        self.proxy_checker = ProxyCheck()
+        self.masterapi = masterApi('proxy', pillar_path)
+        self.pillar_path = pillar_path
+        pass
+
+    def start_proxy_agent(self):
+        '''reentrant to support retry'''
+
+        if self.proxy_checker.check_proxy_agent_status('running'):
+            logger.debug("slb-control-proxy started before")
+            return 0
+
+        ret, out = exec_local_cmd("sudo /etc/init.d/slb-control-proxy start")
+        if ret:
+            logger.error("start slb-control-proxy failed")
+            return 1
+
+        if not self.proxy_checker.check_proxy_agent_status('running'):
+            logger.error("slb-control-proxy status abnormal")
+            return 1
+
+        return 0
+
+    def check_and_start(self):
+        if self.start_proxy_agent():
+            logger.info("start slb-control-proxy failed")
+            return 1
+
+        time.sleep(3)
+        if not self.masterapi.check_and_enable_device():
+            logger.error("check and enable device failed")
+            return 1
+
+        retry_nr = 0
+        while True:
+            if self.proxy_checker.check_tengine_status():
+                break
+
+            time.sleep(5)
+            retry_nr += 1
+            if retry_nr >= 20:
+                logger.error("start tengine failed")
+                return 2
+
+        return 0
+
+    def check_route(self):
+        cmd = 'ip route show match 0.0.0.0/0 | grep -c via'
+        ret, out = exec_local_cmd(cmd)
+        route_num = int(out.strip())
+        if route_num >= 2:
+            return 1
+
+        return 0
+
+    def start_dstat_monitor(self):
+        cmd = "service slb-dstat-monitor status | grep enabled"
+        ret, out = exec_local_cmd(cmd)
+        if ret == 0:
+            return 0
+
+        cmd = "sudo service slb-dstat-monitor restart"
+        ret, out = exec_local_cmd(cmd)
+        if ret != 0:
+            logger.error("start_process.py: start slb-dstat-monitor failed")
+            return 1
+
+        return 0
+
+    def start_process(self):
+
+        logger.info("wait route up ...60s")
+        time.sleep(60)
+
+        if not self.env_checker.post_check():
+            logger.error("start_process.py: post check failed")
+            return 1
+
+        if not self.check_route():
+            logger.error("start_process.py: check route failed")
+            return 1
+
+        if self.start_dstat_monitor():
+            logger.error("start_process.py: start dstat monitor failed")
+            return 1
+
+        if self.check_and_start():
+            logger.error("start_process.py: start service failed")
+            return 1
+
+        #wait hc transfor to succeed
+        logger.info("wait...120s")
+        time.sleep(120)
+        if is_master_upgrade_from_low_to_v38(self.pillar_path):
+            for i in range(8):
+                if not os.path.exists("/home/admin/up_rs"):
+                    logger.error("start_process.py: up rs file is not generated")
+                    return 1
+                f = open("/home/admin/up_rs","r")
+                res = f.read()
+                if res != "":
+                    up_rs_history = int(res.strip())
+                else:
+                    logger.error("start_process.py: up rs is not recorded")
+                    return 1
+
+
+                up_rs = get_up_rs_num()
+                if up_rs == -1:
+                    logger.error("start_process.py: get up rs failed")
+                    return 1
+                logger.info("up rs num is %d in start process" % up_rs)
+
+                if float(up_rs) >= float(up_rs_history) * 0.95:
+                    logger.info("pass up rs check")
+                    break
+                logger.info("up rs don't reach the condition. sleep 10s...")
+                time.sleep(10)
+
+        return 0
+
+if __name__ == '__main__':
+
+    if len(sys.argv) != 2:
+        logger.error("start_process.py: params error, need one param: pillar path")
+        exit(1)
+
+    pillar_path = sys.argv[1].strip()
+    if not os.path.exists(pillar_path):
+        logger.error("start_process.py: %s not exist" % pillar_path)
+        exit(2)
+
+    logger.info("start process on proxy...")
+    obj = startProcess(pillar_path)
+    ret = obj.start_process()
+    if ret:
+        msg = json.dumps(dict(msg="call %s, ret %d" % (sys.argv[0], ret), \
+                ts=time.time(), logpath="/var/log/proxy_deploy.log"))
+        logger.error("start_process.py: " + str(msg))
+        exit(3)
+
+    logger.info("start process ok!")
+    exit(0)

@@ -1,0 +1,449 @@
+#!/home/tops/bin/python
+# -*- coding: utf-8 -*-
+
+import os
+from command import *
+import yaml
+import httplib
+import json
+import time
+from pkg_resources import parse_version
+
+
+class masterApi():
+    def __init__(self, type, pillar_path):
+        self.type = type
+        self.yaml_info = yaml.load(file(pillar_path))
+        self.conf_byhost = self.yaml_info['byhost'][os.uname()[1]]
+        self.taskinfo = self.yaml_info['taskinfo']
+        if type in ["lvs", "proxy"]:
+            self.laddr_network = self.conf_byhost['laddr_network']
+            self.laddr_prefix = self.conf_byhost['laddr_prefix']
+            self.local_address = self.laddr_network + '%2f' + str(self.laddr_prefix)
+            self.site_name = self.conf_byhost['site_name']
+            if "dummy0_ip" in self.conf_byhost:
+                self.address = self.conf_byhost['dummy0_ip']
+            else:
+                self.address = self.conf_byhost['mgt_ip']
+        else:
+            self.address = self.conf_byhost['bond0_ip']
+
+        if 'bond0_ip' in self.conf_byhost.keys():
+            self.master_address = self.conf_byhost['bond0_ip']
+        else:
+            self.master_address = self.conf_byhost['dummy0_ip']
+        pass
+
+    def __call_master(self, master_address, method, req_params):
+        api_port = '8088'
+        timeout = int(30)
+        req = req_params[0]
+        req += ''.join([';' + x for x in req_params[1:]])
+        conn = httplib.HTTPConnection(
+            master_address, int(api_port), timeout=timeout)
+        print("request master method: %s req: %s" % (method, req))
+        conn.request(method, req)
+        resp = conn.getresponse()
+        resp_status = resp.status
+        resp_content = resp.read()
+        conn.close()
+        print("resp_status: %s" % resp_status)
+        assert resp_status == 200
+        result = json.loads(resp_content)
+        return result['code'], result.get('data')
+
+    # if return True, plug function is enabled in master
+    # if return False, plug function is disabled in master
+    # otherwise, plug funtion is set illegally in master, contact control group members
+    def plug_count_function_enabled(self):
+        key = "DEVICE_PLUG_COUNT_ENABLED"
+        ret, data = self.__call_master(self.get_master_address(), 'GET',
+                                                                  ['/admin/params',
+                                                                   'key=' + key])
+        print("check plug_count_function_enabled result: %s data: %s" % (ret, data))
+        if ret == -100 and data == "Not support key %s" % key:
+            return False
+        elif 'real_value' not in data.keys() or 'value' not in data.keys():
+            raise Exception("FATAL ERROR: DEVICE_PLUG_COUNT_ENABLED param value not consistent!")
+        elif ret == 200 and data['real_value'] == 1 and data['value'] == 1:
+            return True
+        elif ret == 200 and data['real_value'] == 0 and data['value'] == 0:
+            return False
+        else:
+            raise Exception("check DEVICE_PLUG_COUNT_ENABLED failed!")
+
+    def update_plug_enabled(self, plug_enabled):
+        ret, data = self.__call_master(self.get_master_address(), 'PUT',
+                                                                  ['/admin/device/plug_enabled',
+                                                                   'address=' + self.address,
+                                                                   'plug_enabled=' + str(plug_enabled)])
+        if ret == 200:
+            return 1
+        else:
+            return 0
+
+    def plug_node(self):
+        ret, data = self.__call_master(self.get_master_address(), 'PUT',
+                                                                  ['/admin/agents/plug/v2',
+                                                                   'address=' + self.address])
+        if ret == 200:
+            return 1
+        else:
+            return 0
+
+    def unplug_node(self):
+        ret, data = self.__call_master(self.get_master_address(), 'PUT',
+                                                                  ['/admin/agents/unplug/v2',
+                                                                   'address=' + self.address])
+        if ret == 200:
+            return 1
+        else:
+            return 0
+
+    def upgrade_from_1612(self):
+        if self.taskinfo['opProfile'] == 'upgrade':  # versionFrom 在某些 opProfile 中不存在
+            versionFrom = self.taskinfo['versionFrom']
+            return (parse_version(versionFrom) >= parse_version('16.12.0')) and \
+                   (parse_version(versionFrom) <= parse_version('16.12.9999'))
+        else:
+            return False
+
+    def upgrade_from_1612_to_1804(self):
+        if self.taskinfo['opProfile'] == 'upgrade':  # versionFrom 在某些 opProfile 中不存在
+            versionFrom = self.taskinfo['versionFrom']
+            versionTo = self.taskinfo['versionTo']
+            return (parse_version(versionFrom) >= parse_version('16.12.0')) and \
+                   (parse_version(versionFrom) <= parse_version('16.12.9999')) and \
+                   (parse_version(versionTo) >= parse_version('18.04.0')) and \
+                   (parse_version(versionFrom) <= parse_version('18.04.9999'))
+        else:
+            return False
+
+    def __check_master_enabled(self, address, method, req_params):
+        api_port = '8088'
+        timeout = int(30)
+        req = req_params[0]
+        req += ''.join([';' + x for x in req_params[1:]])
+        conn = httplib.HTTPConnection(address, int(api_port), timeout=timeout)
+        conn.request(method, req)
+        resp = conn.getresponse()
+        resp_content = resp.read()
+        conn.close()
+        if 'slb service is on' in resp_content:
+            return 0
+        if 'slb service is off' in resp_content:
+            return 1
+        return 1
+
+    def get_master_address(self):
+        for address in self.yaml_info['list_master']:
+            ret = self.__check_master_enabled(address, 'GET', ['/echo'])
+            if 0 == ret:
+                return address
+
+        print 'no available master'
+        return None
+
+    def get_taskinfo(self):
+        return self.taskinfo
+
+    def send_http_to_master(self, method, url_base, params, json_ret=0, log_detail=1):
+        url = url_base
+        for key in params.keys():
+            url = url + ';' + "%s=%s" % (key, params[key])
+        ret, out = exec_local_cmd("sudo /usr/bin/curl -s -X %s \"%s\"" % (method, url), log_detail)
+        if ret != 0:
+            return 0
+        if out.find('code') == -1:
+            return 0
+        result = json.loads(out)
+        if json_ret == 1:
+            return result
+        else:
+            if result['code'] != 200:
+                return 0
+            else:
+                return 1
+        pass
+
+    def is_node_added(self):
+        node_info = self.query_info()
+        if node_info['code'] != 200:
+            return False
+
+        if self.type == 'lvs':
+            lvs_group_name = self.conf_byhost['lvs_group']
+            check_list = {'ip_addr': self.address,
+                          'lvs_group_name': lvs_group_name,
+                          'sitename': self.site_name,
+                          # 'local_address' : self.local_address
+                         }
+        elif self.type == 'proxy':
+            check_list = {'address': self.address,
+                          # 'proxy_pool_name' : proxy_pool_name,
+                          'service_address': self.address,
+                          'sitename': self.site_name,
+                          'laddr': self.local_address
+                         }
+
+        for iterm in check_list.keys():
+            if check_list[iterm].replace('%2f', '/') != node_info['data'][iterm]:
+                return False
+
+        return True
+
+    def add_node(self):
+
+        if self.type == 'lvs':
+            if self.is_node_added():
+                return 1
+            url_base = "http://%s:8088/admin/lb_nodes" % self.get_master_address()
+            lvs_group_name = self.conf_byhost['lvs_group']
+            params = {
+                'address': self.address,
+                'lvs_group_name': lvs_group_name,
+                'site_name': self.site_name,
+                'local_address': self.local_address,
+                'action': 'add_lvs'
+            }
+            ret = self.send_http_to_master('POST', url_base, params)
+            return ret
+        elif self.type == 'proxy':
+            url_base = "http://%s:8088/admin/proxies" % self.get_master_address()
+            proxy_pool_name = self.conf_byhost['proxy_pool']
+            proxy_pool_name += self.site_name
+            params = {
+                'proxy_pool_name': proxy_pool_name,
+                'address': self.address,
+                'service_address': self.address,
+                'site_name': self.site_name,
+                'local_address': self.local_address,
+                'action': 'add_proxy',
+                'plug_enabled': 1
+            }
+            ret = self.send_http_to_master('POST', url_base, params)
+            return ret
+
+    def delete_node(self):
+        if self.type == 'lvs':
+            url_base = "http://%s:8088/admin/lb_nodes" % self.get_master_address()
+            params = {
+                'address': self.address,
+                'action': 'delete_lvs'
+            }
+            ret = self.send_http_to_master('DELETE', url_base, params)
+            return ret
+        elif self.type == 'proxy':
+            url_base = "http://%s:8088/admin/proxies" % self.get_master_address()
+            params = {
+                'address': self.address,
+                'action': 'delete_proxy'
+            }
+            ret = self.send_http_to_master('DELETE', url_base, params)
+            return ret
+
+    def enable_node(self):
+        """0: fail; 1: succeed"""
+        url_base = "http://%s:8088/admin/agents/maintain" % self.get_master_address()
+        params = {
+            'address': self.address,
+            'enable': '1'
+        }
+        # "http://%s:8088/admin/agents/maintain;address=%s;enable=true" % (self.get_master_address(), self.address)
+        ret = self.send_http_to_master('PUT', url_base, params)
+        return ret
+
+    def check_lvs_node_healthy(self):
+        lvs_status = self.query_info()
+        if lvs_status['data']['status'] == 'Healthy':
+            return 1
+        return 0
+
+    def check_lvs_node_healthy_and_enabled(self):
+        lvs_status = self.query_info()
+        if lvs_status['data']['status'] == 'Healthy' and lvs_status['data']['enabled'] == 1:
+            return 1
+        return 0
+
+    def check_lvs_node_after_online(self):
+        lvs_status = self.query_info()
+        if lvs_status['data']['status'] == 'Healthy' and lvs_status['data']['enabled'] == 1 and lvs_status['data']['service_enabled'] == 'online':
+            return 1
+        return 0
+
+    def enable_lvs_node(self):
+        """0: fail; 1: succeed"""
+
+        if self.upgrade_from_1612(): # upgrade from 1612, skip check healthy
+            ret = self.enable_device()
+        elif self.check_lvs_node_healthy(): # version after 1708, check healthy first
+            ret = self.enable_device()
+        else:
+            return 0
+
+        if not ret:
+            return ret
+
+        time.sleep(30)
+
+        if not self.check_lvs_node_healthy_and_enabled():
+            return 0
+
+        return ret
+
+    def online_lvs_node(self):
+        """0: fail; 1: succeed"""
+
+        if not self.check_lvs_node_healthy_and_enabled():
+            return 0
+        ret = self.online_device()
+        if not ret:
+            return ret
+
+        time.sleep(10)
+
+        if not self.check_lvs_node_after_online():
+            return 0
+        return ret
+
+    def disable_node(self):
+        """0: fail; 1: succeed"""
+        url_base = "http://%s:8088/admin/agents/maintain" % self.get_master_address()
+        params = {
+            'address': self.address,
+            'enable': '0',
+            # 'force'   : 1
+        }
+        # http://%s:8088/admin/agents/maintain;address=%s;enable=false" % (self.get_master_address(), self.address)
+        ret = self.send_http_to_master('PUT', url_base, params)
+        return ret
+        pass
+
+    def enable_device(self):
+        """打开配置同步。0: fail; 1: succeed"""
+
+        url_base = "http://%s:8088/admin/agents/enable" % self.get_master_address()
+        params = {
+            'address': self.address
+        }
+        # "http://%s:8088/admin/agents/maintain;address=%s;enable=true" % (self.get_master_address(), self.address)
+        ret = self.send_http_to_master('PUT', url_base, params)
+        return ret
+
+    def ssl_session_sync(self, enable):
+        """打开ssl session同步。0: fail; 1: succeed"""
+        # curl -X PUT "http://11.191.78.18:8088/admin/proxy/ssl_session_sync;action=config_session_sync;session_sync=1;address=11.201.238."
+        url_base = "http://%s:8088/admin/proxy/ssl_session_sync" % self.get_master_address()
+
+        switch = '0'
+        if enable:
+            switch = '1'
+
+        params = {
+            'action': 'config_session_sync',
+            'session_sync': switch,
+            'address': self.address,
+        }
+
+        ret = self.send_http_to_master('PUT', url_base, params)
+        return ret
+
+    def check_and_enable_device(self):
+        info = self.query_info()
+        if info['data']['status'] != 'Healthy':
+            return 0
+
+        return self.enable_device()
+
+    def disable_device(self):
+        """关闭配置同步。0: fail; 1: succeed"""
+
+        url_base = "http://%s:8088/admin/agents/disable" % self.get_master_address()
+        params = {
+            'address': self.address
+        }
+        # http://%s:8088/admin/agents/maintain;address=%s;enable=false" % (self.get_master_address(), self.address)
+        ret = self.send_http_to_master('PUT', url_base, params)
+        return ret
+
+    def check_and_online_device(self):
+
+        info = self.query_info()
+        if info['data']['status'] != 'Healthy' or info['data']['enabled'] != 1:
+            return 0
+
+        return self.online_device()
+
+    def online_device(self):
+        """设备引流。0: fail; 1: succeed"""
+
+        url_base = "http://%s:8088/admin/agents/online" % self.get_master_address()
+        params = {
+            'address': self.address
+        }
+        # "http://%s:8088/admin/agents/maintain;address=%s;enable=true" % (self.get_master_address(), self.address)
+        ret = self.send_http_to_master('PUT', url_base, params)
+        return ret
+
+    def check_device_status(self):
+        '''0: fail; 1: succeed'''
+
+        info = self.query_info()
+        if info['data']['status'] == 'Healthy' and \
+                info['data']['enabled'] == 1 and \
+                info['data']['service_enabled'] == 'online':
+            return 1
+
+        return 0
+
+    def offline_device(self):
+        """设备断流。0: fail; 1: succeed"""
+
+        url_base = "http://%s:8088/admin/agents/offline" % self.get_master_address()
+        params = {
+            'address': self.address
+        }
+        # http://%s:8088/admin/agents/maintain;address=%s;enable=false" % (self.get_master_address(), self.address)
+        ret = self.send_http_to_master('PUT', url_base, params)
+        return ret
+
+    def query_info(self):
+        if self.type == 'lvs':
+            url_base = "http://%s:8088/admin/lb_nodes" % self.get_master_address()
+            params = {
+                'address': self.address,
+            }
+            result = self.send_http_to_master('GET', url_base, params, 1, log_detail=0)
+            return result
+        elif self.type == 'proxy':
+            url_base = "http://%s:8088/admin/proxy" % self.get_master_address()
+            params = {
+                'address': self.address,
+            }
+            result = self.send_http_to_master('GET', url_base, params, 1)
+            return result
+
+    def check_lvs_status(self):
+        result = self.query_info()
+        if result['code'] != 200:
+            return 1
+        if (result['data']['status'] == "Healthy" and result['data']['service_enabled'] == 'online') \
+                or (result['data']['status'] == "online" and result['data']['service_enabled'] == 'enabled'):
+            return 0
+        else:
+            return 1
+
+    def call_master(self, method, req_params):
+        api_port = '8088'
+        timeout = int(30)
+        req = req_params[0]
+        req += ''.join([';' + x for x in req_params[1:]])
+        conn = httplib.HTTPConnection(self.master_address, int(api_port), timeout=timeout)
+        conn.request(method, req)
+        resp = conn.getresponse()
+        resp_status = resp.status
+        resp_content = resp.read()
+        conn.close()
+        assert resp_status == 200
+        result = json.loads(resp_content)
+        return result['code']

@@ -1,0 +1,274 @@
+{% set xuanyuan_host = pillar['database']['xuanyuan_host'] %}
+{% set xuanyuan_port = pillar['database']['xuanyuan_port'] %}
+{% set xuanyuan_user = pillar['database']['xuanyuan_user'] %}
+{% set xuanyuan_passwd = pillar['database']['xuanyuan_passwd'] %}
+{% set xuanyuan_db = pillar['database']['xuanyuan_db'] %}
+{% set stats_host = pillar['database']['stats_host'] %}
+{% set stats_port = pillar['database']['stats_port'] %}
+{% set stats_user = pillar['database']['stats_user'] %}
+{% set stats_passwd = pillar['database']['stats_passwd'] %}
+{% set stats_db = pillar['database']['stats_db'] %}
+{% set logserver = pillar['logserver'] %}
+{% set version = pillar['taskinfo']['version'] %}
+{% set scene = pillar['taskinfo']['opProfile'] %}
+
+{% if scene == 'rollback' %}
+include:
+  - remove_rpms
+{% endif %}
+
+{% set reboot = pillar['taskinfo']['reboot'] | default('false') %}
+{% set upgrade_mode = pillar['taskinfo']['upgrade_mode'] | default('full') %}
+{% if upgrade_mode != 'fly' %}
+    {% set upgrade_mode = 'full' %}
+{% endif %}
+
+proxyrepo:
+  pkgrepo.managed:
+    - humanname: proxyrepo
+    - baseurl: file:///home/slb/release/{{ version }}/proxy/rpms
+    - gpgcheck: 0
+    - enabled: 1
+
+{% if upgrade_mode == "full" %}
+
+{% if grains['kernelrelease'] == '4.9.79-009.ali3000.alios7.x86_64' %}
+
+nic-i40e-kernel-ali3000:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+kernel-hotfix-D727983-009.ali3000:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+{% else %}
+
+nic-drivers-i40e-uninstall-temp:
+  pkg.removed:
+    - name: nic-drivers-i40e
+
+nic-drivers-i40e:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - version: 2.0.30-1.noarch
+    - require:
+      - pkgrepo: proxyrepo
+
+{% endif %}
+
+slb-common:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+slb-role-proxy-vpc-uninstall-temp:
+  pkg.removed:
+    - name: slb-role-proxy-vpc
+
+slb-role-proxy-vpc:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+slb-syslog-logconfig:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+      - pkg: slb-common
+
+slb-sensor-sysmetrics:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+ali-sls-ilogtail:
+  pkg.installed:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+quagga:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+t-alibgp-quagga:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+#tops-ntp:
+#  pkg.latest:
+#    - fromrepo: proxyrepo
+#    - require:
+#      - pkgrepo: proxyrepo
+#
+#slb-pet-uninstall-temp:
+#  pkg.removed:
+#    - name: slb-pet
+#
+#slb-pet:
+#  pkg.latest:
+#    - fromrepo: proxyrepo
+#    - version: 2.2.0-25.x86_64
+#    - require:
+#      - pkgrepo: proxyrepo
+
+python-greenlet:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+python-gevent:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+python-simplejson:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+libev:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+{% if grains['kernelrelease'] == '4.9.79-009.ali3000.alios7.x86_64' %}
+
+slb-vsock-ali3000:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+slb-vtoa-ali3000:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+slb-kernel-modules-vsock-ali2008:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+slb-vtoa-ali2008:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+{% else %}
+
+slb-kernel-modules-vsock-ali4000:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+slb-vtoa-ali4000:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+{% endif %}
+
+slb-libvsock:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+{% endif %}
+
+##################slb-nginx##############
+taobao-cronolog:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+slb-nginx:
+  pkg.latest:
+    - name: slb-nginx
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+###################slb-control-proxy###########
+protobuf-python:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+python-urllib3:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+python-requests:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+      - pkg: python-urllib3
+
+slb-control-proxy:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+      - pkg: python-requests
+      - pkg: protobuf-python
+
+#################slb-monitor-proxy##############
+slb-monitor-proxy:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+###################independent##################
+slb-dstat-7layer:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+slb-drop-logcache:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+tsar:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo
+
+slb_clean_disk:
+  pkg.latest:
+    - fromrepo: proxyrepo
+    - require:
+      - pkgrepo: proxyrepo

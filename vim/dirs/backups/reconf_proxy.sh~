@@ -1,0 +1,305 @@
+#!/bin/bash
+
+proxy_bin="/home/admin/tengine/bin/t-coresystem-tengine-jushita"
+proxy_conf="/etc/proxy/conf/proxy.conf"
+proxy_new_conf="/etc/proxy/conf/proxy.conf.new"
+proxy_old_conf="/etc/proxy/conf/proxy.conf.old"
+upstream_conf="/etc/proxy/conf/upstreams.conf"
+upstream_new_conf="/etc/proxy/conf/upstreams.conf.new"
+upstream_old_conf="/etc/proxy/conf/upstreams.conf.old"
+vip_conf_dir="/etc/proxy/conf/vip"
+stream_vip_conf_dir="/etc/proxy/conf/stream_vip"
+vip_new_conf_dir="/etc/proxy/conf/vip.new"
+vip_old_conf_dir="/etc/proxy/conf/vip.old"
+stream_vip_new_conf_dir="/etc/proxy/conf/stream_vip.new"
+stream_vip_old_conf_dir="/etc/proxy/conf/stream_vip.old"
+proxy_pid="/etc/proxy/nginx.pid"
+
+cpu_binder="/etc/rc.d/init.d/slb-proxy-affinity"
+
+# kill the oldest process group
+function kill_shuttingdown_worker()
+{
+    pid=$1
+
+    proc_tree=`ps f -p $pid --ppid $pid -o pid,etime,cmd`
+    # the format of etime ([[dd-]hh:]mm:ss) could be: 12:34 / 02:46:39 / 5-22:20:08
+    shutting_downs=`echo "$proc_tree" | grep "shutting" | awk '{
+        etime = $2;
+        split(etime, arr, "[-:]");
+        if (length(arr) == 4) {
+        etime = arr[1] * 24 * 60 * 60 + arr[2] * 60 * 60 + arr[3] * 60 + arr[4];
+        } else if (length(arr) == 3) {
+        etime = arr[1] * 60 * 60 + arr[2] * 60 + arr[3];
+        } else if (length(arr) == 2) {
+        etime = arr[1] * 60 + arr[2];
+        } else
+        etime = 0;
+        print $1" "etime
+    }'`
+    
+    test -z "$shutting_downs" && return 1
+    
+    longest=`echo "$shutting_downs" | sed '/^\s*$/d' | sort -n -k 2 | uniq -f 1 | tail -1 | cut -d" " -f2`
+    
+    test -z "$longest" && return 2
+    
+    echo "proc shutting_downs worker is $shutting_downs longesttime=$longest seconds"
+    while read line; do
+        test -z "$line" && continue
+        read -r spid etime <<< "$line"
+        if [ "$etime" = "$longest" ]; then
+            echo "kill stale worker $spid"
+            kill $spid
+        fi
+    done <<< "$shutting_downs"
+    
+    return 0
+}
+
+proxy_exist=""
+pid=""
+ret=0
+reb=0
+
+echo
+echo "++++++++++++++++++++++++ reconf_proxy start ++++++++++++++++++++++++"
+date 
+start=`date +%s%N`
+
+[ -f $proxy_new_conf ] && cp -f $proxy_conf $proxy_old_conf
+[ -f $proxy_new_conf ] && mv -f $proxy_new_conf $proxy_conf
+
+[ -f $upstream_new_conf ] && cp -f $upstream_conf $upstream_old_conf
+[ -f $upstream_new_conf ] && mv -f $upstream_new_conf $upstream_conf
+
+[ -d $vip_new_conf_dir ] && rm -rf $vip_old_conf_dir
+[ -d $vip_new_conf_dir ] && mv -f $vip_conf_dir  $vip_old_conf_dir
+[ -d $vip_new_conf_dir ] && mv -f $vip_new_conf_dir $vip_conf_dir
+
+[ -d $stream_vip_new_conf_dir ] && rm -rf $stream_vip_old_conf_dir
+[ -d $stream_vip_new_conf_dir ] && mv -f $stream_vip_conf_dir $stream_vip_old_conf_dir
+[ -d $stream_vip_new_conf_dir ] && mv -f $stream_vip_new_conf_dir $stream_vip_conf_dir
+
+if [ -e $proxy_pid ]
+then
+    pid=`/bin/cat $proxy_pid`
+    proxy_exist=`/bin/ps axf | /bin/grep "^[ ]*$pid" | /bin/grep ngin[x]`
+fi
+
+if [ "$proxy_exist" != "" ]
+then
+
+cpu_nr=`grep -c processor /proc/cpuinfo`
+
+while true
+do
+    mem_free=`cat /proc/meminfo | grep MemFree | awk '{print $2}'`
+    if [ -z "$mem_free" ] ; then
+        break
+    fi
+    # 550MB memory requirement per worker; refer to curl http://localhost/debug_pool
+    ((worker_mem_malloc = 563200 * cpu_nr))
+
+    #echo "mem_free: $mem_free, worker_mem_malloc: $worker_mem_malloc"    
+    if (( mem_free >= worker_mem_malloc )); then
+        break
+    fi
+    sleep 2
+    kill_shuttingdown_worker $pid
+    ret=$?
+    echo "ret=$ret"
+    if (( ret > 0 )); then 
+        break
+    fi
+done
+
+proxy_tree=`pstree -p $pid`
+
+reb=1 #reboot case, not fresh start
+# collect the worker pid list before reboot
+pid=`/bin/cat $proxy_pid`
+proc_tree=`ps f -p $pid --ppid $pid -o pid,etime,cmd`
+worker=`echo "$proc_tree" | grep -v "shutting"| grep "worker process" |  awk  '{print $1}'`
+i=0
+echo "----------debug start save the old pid list ---------------"
+while read line;do
+	#echo $line
+	apid[$i]=$line
+	echo $i
+	echo ${apid[$i]} 	
+	let i+=1
+done <<< "$worker"
+echo "----------debug end save the old pid list ---------------"
+
+
+kill -HUP $pid
+ret=$?
+echo "proxy return value : $ret" 
+if [ "$ret" != "0" ] ; then
+    echo "proxy error, active pre proxy service" 
+    mv -f $proxy_old_conf $proxy_conf
+    mv -f $upstream_old_conf $upstream_conf
+    mv -f $vip_conf_dir $vip_new_conf_dir
+    mv -f $vip_old_conf_dir $vip_conf_dir
+    mv -f $stream_vip_conf_dir $stream_vip_new_conf_dir
+    mv -f $stream_vip_old_conf_dir $stream_vip_conf_dir
+else
+    count=0
+    retry_num=300
+    sleep_interval=0.1
+    while [ $count -lt $retry_num ]
+    do
+        new_proxy_tree=`pstree -p $pid`
+        if [ "$new_proxy_tree" != "$proxy_tree" ]; then
+            break
+        fi 
+        echo "not ready yet"
+        sleep $sleep_interval
+        let count=$count+1
+    done
+
+    if [ "$count" == "$retry_num" ] ; then
+        echo "proxy error, reload return 0 but proxy tree does not change" 
+        ret=2
+        mv -f $proxy_old_conf $proxy_conf
+        mv -f $upstream_old_conf $upstream_conf
+        mv -f $vip_conf_dir $vip_new_conf_dir
+        mv -f $vip_old_conf_dir $vip_conf_dir
+        mv -f $stream_vip_conf_dir $stream_vip_new_conf_dir
+        mv -f $stream_vip_old_conf_dir $stream_vip_conf_dir
+    else
+        echo "success"
+    fi
+fi
+
+# kill the oldest process group if there are more than 4 groups or etime > 24hours(1440 min)
+
+proc_tree=`ps f -p $pid --ppid $pid -o pid,etime,cmd`
+# the format of etime ([[dd-]hh:]mm:ss) could be: 12:34 / 02:46:39 / 5-22:20:08
+shutting_downs=`echo "$proc_tree" | grep "shutting" | awk '{
+    etime = $2;
+    split(etime, arr, "[-:]");
+    if (length(arr) == 4) {
+    etime = arr[1] * 24 * 60 + arr[2] * 60 + arr[3];
+    } else if (length(arr) == 3) {
+    etime = arr[1] * 60 + arr[2];
+    } else if (length(arr) == 2) {
+    etime = arr[1] + 0;
+    } else
+    etime = 0;
+    print $1" "etime
+}'`
+
+shutting_downs_worker_nr=`echo "$proc_tree" | grep "shutting" | grep -v grep |wc -l`
+cpu_nr=`grep -c processor /proc/cpuinfo`
+longest=`echo "$shutting_downs" | sed '/^\s*$/d' | sort -n -k 2 | uniq -f 1 | tail -1 | cut -d" " -f2`
+
+rate=1
+if (( cpu_nr > 0 )); then
+    ((rate = shutting_downs_worker_nr / cpu_nr))
+fi
+echo "proc shutting_downs worker nr is $shutting_downs_worker_nr, cpu_nr=$cpu_nr, rate=$rate"
+kill_rate=2
+if (( rate >= kill_rate )) || (( longest > 1440 )); then
+    shutting_downs_sort_by_etime=`echo "$shutting_downs" | sed '/^\s*$/d' | sort -n -k 2`
+#    echo "proc shutting_downs worker group is $proc_grp_nr, pids=$shutting_downs_sort_by_etime"
+    nr=1
+    ((loc_idx = cpu_nr * kill_rate))
+    echo "loc_idx=$loc_idx"
+
+    while read line; do
+        test -z "$line" && continue
+        read -r spid etime <<< "$line"
+        if (( nr > loc_idx )) || (( etime > 1440 )); then
+                echo "kill stale worker $spid livetime: $etime"
+                kill $spid
+        fi
+        ((nr++))
+    done <<< "$shutting_downs_sort_by_etime"
+fi
+
+else
+echo "--------------fresh-----------------"
+$proxy_bin -c $proxy_conf  
+ret=$?
+echo "proxy return value : $ret" 
+if [ "$ret" != "0" ] ; then
+    echo "proxy error" 
+fi
+
+fi
+sleep 1
+
+#wait all worker process ready
+pid=`/bin/cat $proxy_pid`
+proc_tree=`ps f -p $pid --ppid $pid -o pid,etime,cmd`
+workers=`echo "$proc_tree" | grep -v "shutting"| grep "worker process" | wc -l`
+ncpu=`grep -c processor /proc/cpuinfo`
+count=0
+retry_num=300
+sleep_interval=0.1
+fini=0
+echo "++++++++++++++++++++++++ waiting for all workers ready ++++++++++++++++++++++++"
+echo "number of workers:" $workers
+echo "number of cpu:" $ncpu
+#only for the timeout and ok case
+if [ $ret -eq 2 ] || [ $ret -eq 0 ];then
+	while [ $count -lt $retry_num ]
+	do
+		sleep $sleep_interval
+		let count=$count+1
+		if [ $workers -eq $ncpu ]; then
+			# collect the worker pid list 
+			pid=`/bin/cat $proxy_pid`
+			proc_tree=`ps f -p $pid --ppid $pid -o pid,etime,cmd`
+			worker=`echo "$proc_tree" | grep -v "shutting"| grep "worker process" |  awk  '{print $1}'`
+			i=0
+			nodup=1
+			while read line;do
+				for data in ${apid[@]}; #for fresh start apid is null,
+				do
+					echo "old pid is:" $data
+					echo "new pid is:" $line
+					if [ $line -eq $data ]; then #if there is dup, wait
+						nodup=0
+                        echo "dup worker process found:" $line
+						break
+					fi
+				done
+			done <<< "$worker"
+			if [ $nodup -eq 1 ]; then
+                echo "no dup worker found, reload ok"
+				break;
+			fi
+			echo "wait for workers"
+		fi
+		echo "some worker not ready yet"
+		#get number of workers 
+		workers=`echo "$proc_tree" | grep -v "shutting"| grep "worker process" | wc -l`
+	    echo $workers
+	done
+	if [ "$count" == "$retry_num" ] ; then
+		echo "worker processes are not up for all"
+		ret=2 #another level of checking ,timeout and notify agent
+		if [ $reb -eq 1 ]; then #only work for reboot case 
+			mv -f $proxy_old_conf $proxy_conf
+			mv -f $upstream_old_conf $upstream_conf
+			mv -f $vip_conf_dir $vip_new_conf_dir
+			mv -f $vip_old_conf_dir $vip_conf_dir
+			mv -f $stream_vip_conf_dir $stream_vip_new_conf_dir
+			mv -f $stream_vip_old_conf_dir $stream_vip_conf_dir
+		fi
+	else
+		echo "success"
+	fi
+fi
+
+end=`date +%s%N`
+reload_time=`expr \( $end - $start \) / 1000000`
+date 
+echo "++++++++++++++++++++++++ reload time $reload_time ++++++++++++++++++++++++"
+echo "++++++++++++++++++++++++ reconf_proxy end ++++++++++++++++++++++++"
+echo "set cpu affinity for workers"
+$cpu_binder tengine-start
+exit $ret

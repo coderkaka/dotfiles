@@ -1,0 +1,3 @@
+<soapenv:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ws="http://ws.services.crea.com">  <soapenv:Header />  <soapenv:Body>     <ws:process soapenv:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">         <reqpkg xsi:type="xsd:base64Binary">MDAwMU0wMDBNMDAxM0owMHsiZGV2aWNlaWQiOiJETEhYIiwgImN1c3RfdXVpZCI6IjAwMDAwMDAw
+    MDAwMDAwMDAwMDAwMDAwMDE4MjI4OTc3In0=
+             </reqpkg>     </ws:process>  </soapenv:Body></soapenv:Envelope>

@@ -1,0 +1,1583 @@
+# encoding: utf-8
+# owner: 天暴
+# 测试点：
+# 1.正确处理wildconf中的配置
+# 2.VIP探测的via header正确生成
+# 3.1712 secure cookie可以正确生成
+# 4.如果没有location匹配，dyconf返回404
+# 5.请求中如果带有空的Host字段，可以被正常转发
+# 6.验证domain的配置优先级别：exact match > wildcard match > default match
+# 7.删除不带upstream的监听Ok
+# 8.创建监听
+# 9.创建重复监听
+# 10.创建带wildconf监听
+# 11.创建带全量配置的监听
+# 12.创建带最少配置的监听
+# 13.创建带基本配置的监听
+# 14.测试新建监听的qps配置
+# 15.测试监听下rs的配置
+# 16.测试监听下多个rs的配置
+# 17.创建带规则的监听
+# 18.创建带多条规则的监听
+# 19.创建https监听
+# 20.创建SNI的https监听
+# 21.创建双向认证的https监听
+# 22.创建双向认证的https监听，不带ca证书
+# 23.创建双向认证的https监听，不带ca证书id
+# 24.创建不带证书的https监听
+# 25.测试新建监听的qps配置
+# 26.测试默认QPS配置
+import json
+import string
+import random
+import slbqat
+import alitest
+import threading
+from slb_ops    import *
+from slbqat     import api
+from random     import randint
+from slbqat.api import db as apidb
+from alitest import http_util, system_util
+from slbqat.master import db as masterdb
+import requests
+import common_pb2
+import loadbalancer_pb2
+import proxy_pb2
+import response_pb2
+
+from slb_ops_ref    import *
+logging.getLogger("requests").setLevel(logging.WARNING)
+
+slb_ops_ref = slb_ops_ref()
+slb_obj = slb_ops()
+def setup_module(module):
+    slb_ops_ref.start_proxy_via_reload()
+    time.sleep(10)
+    pass
+
+def check_result(resp):
+    assert resp.code  == response_pb2.Response.OK
+
+@marker.function
+def add_rules(l7srv, idx):
+    rule = slb_ops_ref.build_rule(l7srv,'rule' + str(idx),'www.abc.com','/abc',proxy_pb2.HttpRule.CREATED)
+    rs = slb_ops_ref.build_rule_rs(rule,"1.1.1.1", 8080,common_pb2.Realserver.CREATED,0)
+
+#1808 default qps
+@marker.function
+@pytest.mark.test_way('''
+    创建lb未配置qps,创建http_listener并添加rule，rule绑定rs，测试qps默认值
+''')
+@pytest.mark.test_points(
+    "检查vipconf中是否有rate=40000",
+    "检查dyconf中是否rate_limit:40000",
+    "检查device_count默认配置是否是8"
+)
+def test_qps_cfg():
+    port = slb_ops_ref.get_test_port()
+    # lb with no qps 
+    lb = slb_ops_ref.build_lb( '12.12.12.12', 'lb-0001',2, None) 
+    s_str = lb.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/lb',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    vms = slb_obj.get_physical_servers()
+    vm = vms[0]
+    l7srv = slb_ops_ref.build_listen("17.7.7.73",port,'http','lb-0001','hangzhou_listener_0001',1, 23)
+    rule         = slb_ops_ref.build_rule(l7srv, "rule1", "www.abc.com", "/",common_pb2.Realserver.CREATED)
+    rs           = slb_ops_ref.build_rule_rs(rule, vm["ALI_IP"], 8082, common_pb2.Realserver.CREATED, 0)  
+    
+    s_str = l7srv.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "sudo cat /etc/proxy/conf/vip/"+str(port))
+    # default value is 5000 * 8
+    assert out.find("rate=40000") > 0
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl 127.0.0.1:8089/config?vip="+str(port))
+    # default value in dyconf is 5000 * 8
+    assert out.find('"rate_limit":"40000"}') > 0
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl 127.0.0.1:8089/config?vip=device_count")
+    assert out.find('"dc":"8"') > 0
+    
+#handing wildconf wrong
+@marker.function
+@pytest.mark.test_way('''
+    创建listener并增加rule，rule_rs，更新listener配置，验证配置是否更新成功
+''')
+@pytest.mark.test_points(
+    "验证listener更新配置是否成功"
+)
+def test_rule_wildconf():
+    slb_ops_ref.start_proxy_via_reload()
+    time.sleep(10)
+    port = slb_ops_ref.get_test_port()
+    l7srv = slb_ops_ref.build_listen("17.7.7.71",port,'http','hangzhou','ls-20180330',3, 23)
+    l7srv.config.wild_config['name'] = 'TaoBao'
+    l7srv.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    l7srv.config.sticky_session.timeout = 3
+
+    # add rule 
+    vms = slb_obj.get_physical_servers()
+    vm = vms[0]
+    rule         =  slb_ops_ref.build_rule(l7srv, "rule1", "www.abc.com", "/test",common_pb2.Realserver.CREATED)
+    rs           =  slb_ops_ref.build_rule_rs(rule, vm["ALI_IP"], 8082, common_pb2.Realserver.CREATED, 0) 
+
+    s_str = l7srv.SerializeToString()
+    
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+    rule.config.wild_config['gzip'] = 'on'
+    l7srv.version = 4
+    l7srv.is_incremental = 1
+    s_str = l7srv.SerializeToString()
+    
+    res = requests.put(slb_ops_ref.url + 'update/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+# test via header 
+@marker.function
+@pytest.mark.test_way('''
+    curl proxy_host+port,验证via header正确生成
+''')
+@pytest.mark.test_points(
+    "测试VIP探测的via header正确生成"
+)
+def test_create_via_header():
+    port = slb_ops_ref.get_test_port()
+    resp = system_util.execute_cmd('''curl --connect-timeout 3 -v -L  ''' + slb_ops_ref.get_proxy()  + ''':''' + str(port) + '''/''')
+    assert resp[2].find("Via") > 0
+    assert resp[2].find("SLB.") > 0
+
+# test secure cookie 
+@marker.function
+@pytest.mark.test_way('''
+    创建listener，配置开启secure_cookie，httponly_cookie，验证配置是否生效
+''')
+@pytest.mark.test_points(
+    "验证listener是否创建成功",
+    "curl proxy_host+port,验证返回结果包含secure，httponly"
+)
+def test_create_secure_cookie():
+    port = slb_ops_ref.get_test_port()
+    l7srv = slb_ops_ref.build_listen("17.7.7.71",port,'http','hangzhou','ls-20180333',3, 0)
+    l7srv.config.wild_config['slb_secure_cookie'] = 'on'
+    l7srv.config.wild_config['slb_httponly_cookie'] = 'on'
+    l7srv.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT  
+    l7srv.config.sticky_session.cookie  = 'SERVERID'
+    l7srv.config.sticky_session.timeout = 300              
+    vms = slb_obj.get_spec_char_servers()
+    vm = vms[0]
+    rs           = slb_ops_ref.build_listen_rs(l7srv, vm["ALI_IP"], 8082, common_pb2.Realserver.CREATED, 0)
+    s_str = l7srv.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+    time.sleep(3)
+    resp = system_util.execute_cmd('''curl --connect-timeout 3 -v -L ''' + slb_ops_ref.get_proxy()  + ''':''' + str(port)  + '''/''')
+    assert resp[2].find("secure") > 0
+    assert resp[2].find("httponly") > 0
+
+# return 404 if no loc match
+@marker.function
+@pytest.mark.test_way('''
+    创建listener，增加rule（www.abc.com，/test），rule_rs，
+    测试没有location match 返回404
+''')
+@pytest.mark.test_points(
+    "curl 指定host+未配置的url（/abc），返回状态404"
+)
+def test_create_404():
+    #slb_ops_ref.start_proxy_via_reload()
+    port = slb_ops_ref.get_test_port()
+    l7srv = slb_ops_ref.build_listen("17.7.7.71",port,'http','hangzhou','ls-20180332',3, 0)
+    l7srv.config.wild_config['name'] = 'TaoBao'
+    l7srv.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    l7srv.config.sticky_session.timeout = 3
+
+    # add rule 
+    rule         = slb_ops_ref.build_rule(l7srv, "rule1", "www.abc.com", "/test",common_pb2.Realserver.CREATED)
+    rs           = slb_ops_ref.build_rule_rs(rule, "100.69.197.181", 8082, common_pb2.Realserver.CREATED, 0)
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+    #use another port
+    resp = system_util.execute_cmd('''curl -H "Host:www.abc.com" --connect-timeout 3 -s  ''' + slb_ops_ref.get_proxy()  + ''':''' + str(port) + '''/abc''')
+    assert resp[1].find("404 Not Found") > 0
+
+# request with null host name won't be droped
+@marker.function
+@pytest.mark.test_way('''
+    创建listener，listener增加rs，验证host为空，仍能正常转发
+''')
+@pytest.mark.test_points(
+    "测试curl 指定host为空，请求仍能正常转发，且返回信息中包含default match"
+)
+def test_create_null_host():
+    #slb_ops_ref.start_proxy_via_reload()
+    port = slb_ops_ref.get_test_port()
+    l7srv = slb_ops_ref.build_listen("17.7.7.71",port,'http','hangzhou','ls-20180331',3, 0)
+    l7srv.config.wild_config['name'] = 'TaoBao'
+    l7srv.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    l7srv.config.sticky_session.timeout = 3
+
+    vms = slb_obj.get_spec_char_servers()
+    vm = vms[0]
+    realserver = slb_ops_ref.build_listen_rs(l7srv, vm["ALI_IP"], 8082, common_pb2.Realserver.CREATED, 0)
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+    time.sleep(2)
+    resp = system_util.execute_cmd(
+                '''curl -H "" --connect-timeout 3 -s  ''' + slb_ops_ref.get_proxy()  + ''':''' + str(port) + '''/''')
+    #check result 
+    assert resp[1].find("default match") > 0
+    time.sleep(1)
+
+# exact match > wildcard match > default match
+@marker.function
+@pytest.mark.test_way('''
+    创建listen,增加rule：domain（www.abc.com/*.abc.com）,通过curl指定host，
+    验证domain的配置优先级别：exact match > wildcard match > default match
+''')
+@pytest.mark.test_points(
+    "curl 指定host www.abc.com，请求成功，返回信息exact match",
+    "curl 指定host p.abc.com，请求成功，返回wild match",
+    "curl 不指定host，请求成功，返回信息default match"
+)
+def test_create_diff_hostname():
+    #slb_ops_ref.start_proxy_via_reload()
+    port = slb_ops_ref.get_test_port()
+    l7srv = slb_ops_ref.build_listen("17.7.7.71",port,'http','hangzhou','ls-20180330',3, 0)
+    l7srv.config.wild_config['name'] = 'TaoBao'
+    l7srv.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    l7srv.config.sticky_session.timeout = 3
+
+    vms = slb_obj.get_spec_char_servers()
+    vm = vms[0]
+    realserver = slb_ops_ref.build_listen_rs(l7srv, vm["ALI_IP"], 8082, common_pb2.Realserver.CREATED, 0)
+
+    rule         = slb_ops_ref.build_rule(l7srv, "rule1", "www.abc.com", "/",common_pb2.Realserver.CREATED)
+    rs           = slb_ops_ref.build_rule_rs(rule, vm["ALI_IP"], 8082, common_pb2.Realserver.CREATED, 0)  
+    
+    rule         = slb_ops_ref.build_rule(l7srv, "rule1", "*.abc.com", "/",common_pb2.Realserver.CREATED)
+    rs           = slb_ops_ref.build_rule_rs(rule, vm["ALI_IP"], 8082, common_pb2.Realserver.CREATED, 0)    
+    
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+    time.sleep(5)
+    port = str(port)
+    
+    resp = system_util.execute_cmd(
+                '''curl -H "Host:www.abc.com" --connect-timeout 3 -s  ''' + slb_ops_ref.get_proxy()  + ''':''' + str(port) + '''/''')
+               
+    assert resp[1].find("exact match") > 0
+    time.sleep(1)
+
+    resp = system_util.execute_cmd(
+                '''curl -H "Host:p.abc.com" --connect-timeout 3 -s  ''' + slb_ops_ref.get_proxy()  + ''':''' + str(port) + '''/''')
+               
+    assert resp[1].find("wild match") > 0
+    time.sleep(1)
+
+    resp = system_util.execute_cmd(
+                '''curl  --connect-timeout 3 -s  ''' + slb_ops_ref.get_proxy()  + ''':''' + str(port) + '''/''')
+               
+    assert resp[1].find("default match") > 0
+    time.sleep(1)
+
+@marker.function
+@pytest.mark.test_way('''
+    创建listen，增加rs，测试删除不带upstream的监听
+''')
+@pytest.mark.test_points(
+    "验证删除upstream后，在删除listen，ok"
+)
+def test_create_del_noexist_ups_ok():
+    #slb_ops_ref.start_proxy_via_reload()
+    port = slb_ops_ref.get_test_port()
+    l7srv = slb_ops_ref.build_listen("17.7.7.71",(port),'http','hangzhou','hangzhou_listener',3, 23)
+    l7srv.config.wild_config['name'] = 'TaoBao'
+    l7srv.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    l7srv.config.sticky_session.timeout = 3
+
+    realserver = slb_ops_ref.build_listen_rs(l7srv, "8.8.8.8", 3, common_pb2.Realserver.DELETED, 23)
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+    #del ups
+    rsp = slb_ops_ref.execute_remote_cmd(slb_ops_ref.proxy, "curl -s -X DELETE 127.0.0.1:6677/upstream/9800")
+    assert rsp[0] == 0
+
+    #del listen 
+    
+    res = requests.put(slb_ops_ref.url + 'delete/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    创建listen，rs，增加rule（1000条），测试listen创建是否成功
+''')
+@pytest.mark.test_points(
+    "验证增加1000条rules，listen创建成功，ok"
+)
+def test_create_listener_bigconf_ok():
+    #slb_ops_ref.start_proxy_via_reload()
+
+    port = slb_ops_ref.get_test_port()
+    l7srv = slb_ops_ref.build_listen("17.7.7.71",(port),'http','hangzhou','hangzhou_listener',3, 23)
+    l7srv.config.wild_config['name'] = 'TaoBao'
+    l7srv.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    l7srv.config.sticky_session.timeout = 3
+    realserver = slb_ops_ref.build_listen_rs(l7srv, "8.8.8.8", 3, common_pb2.Realserver.DELETED, 23)
+    for i in range(1,1000):
+        add_rules(l7srv,i)
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    time.sleep(10)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    构建listen参数，增加rs，测试listen创建是否成功
+''')
+@pytest.mark.test_points(
+    "验证创建listen成功，ok"
+)
+def test_create_listener_ok():
+    #slb_ops_ref.start_proxy_via_reload()
+
+    port = slb_ops_ref.get_test_port()
+    l7srv = slb_ops_ref.build_listen("17.7.7.71", (port),'http','hangzhou','hangzhou_listener1',3, 23)
+    l7srv.config.wild_config['name'] = 'TaoBao'
+    l7srv.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    l7srv.config.sticky_session.timeout = 3
+    realserver = slb_ops_ref.build_listen_rs(l7srv, "8.8.8.8", 3, common_pb2.Realserver.DELETED, 23)
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据已创建的listener_id查询listen信息
+''')
+@pytest.mark.test_points(
+    "验证根据listener_id可成功查询到listen信息"
+)
+def test_create_listener_ok_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener1"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_ok_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_ok_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 3)
+
+@marker.function
+@pytest.mark.test_way('''
+    构造listen参数，listener_id为已存在的监听id，测试是否可以成功创建listen
+''')
+@pytest.mark.test_points(
+    "验证创建重复监听，失败，listener_id已存在"
+)
+def test_create_listener_exist_id():
+    port = slb_ops_ref.get_test_port()
+    l7srv = slb_ops_ref.build_listen("17.7.7.71",port,'http','hangzhou','hangzhou_listener1',3, 23)
+    l7srv.config.wild_config['name'] = 'TaoBao'
+    l7srv.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    l7srv.config.sticky_session.timeout = 3
+    realserver = slb_ops_ref.build_listen_rs(l7srv, "8.8.8.8", 3, common_pb2.Realserver.DELETED, 23)
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    
+    l7srv = slb_ops_ref.build_listen("17.7.7.71",port,'http','hangzhou','hangzhou_listener1',3, 23)
+    l7srv.config.wild_config['name'] = 'TaoBao'
+    l7srv.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    l7srv.config.sticky_session.timeout = 3
+    realserver = slb_ops_ref.build_listen_rs(l7srv, "8.8.8.8", 3, common_pb2.Realserver.DELETED, 23)
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.EXISTED)
+
+@marker.function
+@pytest.mark.test_way('''
+    构造listen参数，构建http_rule所有参数，增加rs，测试listen包含http_rule信息创建是否成功
+''')
+@pytest.mark.test_points(
+    "验证listen包含http_rule所有item创建成功"
+)
+def test_create_listener_http_all_item():
+    #slb_ops_ref.start_proxy_via_reload()
+
+    port = slb_ops_ref.get_test_port()
+    l7srv = slb_ops_ref.build_listen("17.7.7.71", (port),'http','hangzhou','hangzhou_listener_all_item',1, 23)
+    l7srv.config.wild_config['name'] = 'TaoBao'
+    l7srv.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    l7srv.config.sticky_session.timeout = 3
+    realserver = slb_ops_ref.build_listen_rs(l7srv, "8.8.8.8", 3, common_pb2.Realserver.DELETED, 23)
+    rule = slb_ops_ref.build_rule(l7srv,'vala','www.x.com','www.x.com.cn',proxy_pb2.HttpRule.CREATED)
+    rule.state = proxy_pb2.HttpRule.CREATED
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据listener_id查询创建listen信息
+''')
+@pytest.mark.test_points(
+    "验证根据已存在的listener_id可成功查询到listen信息"
+)
+def test_create_listener_http_all_item_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener_all_item"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_http_all_item_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_http_all_item_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 1)
+
+@marker.function
+@pytest.mark.test_way('''
+    构造https_listen参数，构建https_rule所有参数，增加rs，测试listen包含https_rule信息创建是否成功
+
+''')
+@pytest.mark.test_points(
+    "验证listen包含https_rule所有item创建成功"
+)
+def test_create_listener_https_all_item():
+    #slb_ops_ref.start_proxy_via_reload()
+    
+    port = slb_ops_ref.get_test_port()
+    l7srv = slb_ops_ref.build_listen("17.7.7.71",(port),'https','hangzhou','hangzhou_listener_all_item_https',1, 23)
+    l7srv.config.wild_config['name'] = 'TaoBao'
+    l7srv.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    l7srv.config.sticky_session.timeout = 3
+    realserver = slb_ops_ref.build_listen_rs(l7srv, "8.8.8.8", 3, common_pb2.Realserver.DELETED, 23)
+    rule = slb_ops_ref.build_rule(l7srv,'vala','www.x.com','www.x.com.cn',proxy_pb2.HttpRule.CREATED)
+    slb_ops_ref.append_cert(l7srv)
+    l7srv.cert_key.cert_key_id = 'defaultcertkeyid'
+    l7srv.cert_key.ca_cert_id = 'defaultcacertid'
+    l7srv.cert_key.key_server_url = "http:/www.default.com"
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据listener_id查询创建https_listen信息
+''')
+@pytest.mark.test_points(
+    "验证根据已存在的listener_id可成功查询到https_listen信息"
+)
+def test_create_listener_https_all_item_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener_all_item_https"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_https_all_item_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_https_all_item_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 1)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据listener_id(最少参数构造的http_listen)查询创建http_listen信息
+''')
+@pytest.mark.test_points(
+    "验证根据已存在的listener_id可成功查询到http_listen信息"
+)
+def test_create_listener_http_least_item_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener_least_item"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_http_least_item_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_http_least_item_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.NOT_FOUND)
+    #assert(rsp.data[0].version == 10)
+    #assert(rsp.data[0].listener_id == "hangzhou_listener_least_item")
+    #assert(rsp.data[0].tunnel_id == 23)
+    #assert(rsp.data[0].port == 50000)
+
+@marker.function
+@pytest.mark.test_way('''
+    构造listen基本参数，测试listen创建是否成功
+
+''')
+@pytest.mark.test_points(
+    "验证创建基本配置的listen成功"
+)
+def test_create_listener_http_basic_config():
+    #slb_ops_ref.start_proxy_via_reload()
+
+    port = slb_ops_ref.get_test_port()
+    l7srv = slb_ops_ref.build_listen("1.1.1.1",port,'http','hangzhou','hangzhou_listener_basic_config',10, 23)
+    l7srv.vip_port = 50
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+
+@marker.function
+@pytest.mark.test_way('''
+    根据listener_id（基本配置listen）查询创建listen信息
+''')
+@pytest.mark.test_points(
+    "验证根据已存在的listener_id可成功查询到listen信息，且查询结果正确"
+)
+def test_create_listener_http_basic_config_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener_basic_config"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_http_basic_config_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_http_basic_config_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 10)
+    assert(rsp.data[0].listener_id == "hangzhou_listener_basic_config")
+    assert(rsp.data[0].tunnel_id == 23)
+    #assert(rsp.data[0].port == 50000)
+    assert(rsp.data[0].address == "1.1.1.1")
+    assert(rsp.data[0].protocol == "http")
+    assert(rsp.data[0].vip_port == 50)
+
+@marker.function
+@pytest.mark.test_way('''
+    构造listen基本参数，测试listen qps配置
+''')
+@pytest.mark.test_points(
+    "验证默认qps配置的listen成功"
+)
+def test_create_listener_http_sla():
+    #slb_ops_ref.start_proxy_via_reload()
+    port = slb_ops_ref.get_test_port()
+
+    l7srv = slb_ops_ref.build_listen("1.1.1.1",port,'http','hangzhou','hangzhou_listener_sla',1, 23)
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据listener_id查询创建listen信息
+''')
+@pytest.mark.test_points(
+    "验证根据已存在的listener_id可成功查询到listen信息，且查询结果正确"
+)
+def test_create_listener_http_sla_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener_sla"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_http_sla_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_http_sla_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 1)
+    assert(rsp.data[0].listener_id == "hangzhou_listener_sla")
+    assert(rsp.data[0].tunnel_id == 23)
+    #assert(rsp.data[0].port == 9800)
+    assert(rsp.data[0].address == "1.1.1.1")
+    assert(rsp.data[0].protocol == "http")
+
+@marker.function
+@pytest.mark.test_way('''
+    构造listen参数并增加配置信息，测试http_listen创建成功
+''')
+@pytest.mark.test_points(
+    "验证包含配置信息的listen创建成功"
+)
+def test_create_listener_http_config():
+    #slb_ops_ref.start_proxy_via_reload()
+    port = slb_ops_ref.get_test_port()
+
+    l7srv = slb_ops_ref.build_listen("17.7.7.72",port,'http','hangzhou','hangzhou_listener_config',2, 24)
+    l7srv.config.wild_config['name'] = 'TaoBao'
+    l7srv.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    l7srv.config.sticky_session.timeout = 3
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据listener_id查询创建listen配置信息
+''')
+@pytest.mark.test_points(
+    "验证根据已存在的listener_id可成功查询到listen配置信息，且查询结果正确"
+)
+def test_create_listener_http_config_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener_config"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_http_config_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_http_config_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 2)
+    assert(rsp.data[0].listener_id == "hangzhou_listener_config")
+    assert(rsp.data[0].tunnel_id == 24)
+    assert(rsp.data[0].address == "17.7.7.72")
+    assert(rsp.data[0].protocol == "http")
+    assert(rsp.data[0].config.wild_config['name'] == 'TaoBao')
+    assert(rsp.data[0].config.sticky_session.sticky_session_type == proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT)
+    assert(rsp.data[0].config.sticky_session.timeout == 3)
+
+@marker.function
+@pytest.mark.test_way('''
+    构造listen参数并增加rs配置，测试http_listen创建成功
+''')
+@pytest.mark.test_points(
+    "验证增加rs配置的listen创建成功"
+)
+def test_create_listener_http_realserver():
+    #slb_ops_ref.start_proxy_via_reload()
+    port = slb_ops_ref.get_test_port()
+
+    l7srv = slb_ops_ref.build_listen("17.7.7.73",port,'http','hangzhou','hangzhou_listener_realserver',1, 23)
+    realserver = slb_ops_ref.build_listen_rs(l7srv, "8.8.8.8", 3, common_pb2.Realserver.DELETED, 23)
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据listener_id查询创建listen和listen_rs配置信息
+''')
+@pytest.mark.test_points(
+    "验证根据已存在的listener_id可成功查询到listen和listen_rs配置信息，且查询结果正确"
+)
+def test_create_listener_http_realserver_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener_realserver"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_http_realserver_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_http_realserver_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 1)
+    assert(rsp.data[0].listener_id == "hangzhou_listener_realserver")
+    assert(rsp.data[0].tunnel_id == 23)
+    assert(rsp.data[0].address == "17.7.7.73")
+    assert(rsp.data[0].protocol == "http")
+    assert(rsp.data[0].realserver[0].address == "8.8.8.8")
+    assert(rsp.data[0].realserver[0].port == 3)
+    assert(rsp.data[0].realserver[0].state == common_pb2.Realserver.DELETED)
+    assert(rsp.data[0].realserver[0].weight == 100)
+    assert(rsp.data[0].realserver[0].tunnel_id == 23)
+
+@marker.function
+@pytest.mark.test_way('''
+    构造listen参数并增加多个rs配置，测试http_listen创建成功
+''')
+@pytest.mark.test_points(
+    "验证增加多个rs配置的listen创建成功"
+)
+def test_create_listener_http_realserver2():
+    #slb_ops_ref.start_proxy_via_reload()
+    port = slb_ops_ref.get_test_port()
+
+    l7srv = slb_ops_ref.build_listen("17.7.7.73", port,'http','hangzhou','hangzhou_listener_realserver2',1, 23)
+    realserver = slb_ops_ref.build_listen_rs(l7srv, "8.8.8.8", 3, common_pb2.Realserver.DELETED, 23)
+    realserver = slb_ops_ref.build_listen_rs(l7srv, "8.8.8.9", 31, common_pb2.Realserver.DELETED, 24)
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据listener_id查询创建listen和多个listen_rs配置信息
+''')
+@pytest.mark.test_points(
+    "验证根据已存在的listener_id可成功查询到listen和多个listen_rs配置信息，且查询结果正确"
+)
+def test_create_listener_http_realserver2_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener_realserver2"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_http_realserver2_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_http_realserver2_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 1)
+    assert(rsp.data[0].listener_id == "hangzhou_listener_realserver2")
+    assert(rsp.data[0].tunnel_id == 23)
+    assert(rsp.data[0].address == "17.7.7.73")
+    assert(rsp.data[0].protocol == "http")
+    assert(rsp.data[0].realserver[0].address == "8.8.8.8")
+    assert(rsp.data[0].realserver[0].port == 3)
+    assert(rsp.data[0].realserver[0].state == common_pb2.Realserver.DELETED)
+    assert(rsp.data[0].realserver[0].weight == 100)
+    assert(rsp.data[0].realserver[0].tunnel_id == 23)
+    assert(rsp.data[0].realserver[1].address == "8.8.8.9")
+    assert(rsp.data[0].realserver[1].port == 31)
+    assert(rsp.data[0].realserver[1].state == common_pb2.Realserver.DELETED)
+    assert(rsp.data[0].realserver[1].weight == 100)
+    assert(rsp.data[0].realserver[1].tunnel_id == 24)
+
+@marker.function
+@pytest.mark.test_way('''
+    构造listen参数，增加rs配置，http_rule配置，测试http_listen的创建
+''')
+@pytest.mark.test_points(
+    "验证增加rule配置的listen创建成功"
+)
+def test_create_listener_http_rule():
+    #slb_ops_ref.start_proxy_via_reload()
+    port = slb_ops_ref.get_test_port()
+
+    l7srv = slb_ops_ref.build_listen("17.7.7.74",port,'http','hangzhou','hangzhou_listener_realserver2',1, 23)
+    realserver = slb_ops_ref.build_listen_rs(l7srv, "8.8.8.8", 3, common_pb2.Realserver.DELETED, 23)
+
+
+    rule = l7srv.http_rule.add()#repeated
+    rule.name = 'vala'
+    rule.domain = 'www.x.com'
+    rule.url = 'www.x.com.cn'
+    rule.state = proxy_pb2.HttpRule.CREATED
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+'''
+def test_create_listener_http_all_rule_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener_rule"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_http_rule_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_http_rule_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 1)
+    assert(rsp.data[0].listener_id == "hangzhou_listener_rule")
+    assert(rsp.data[0].tunnel_id == 23)
+    assert(rsp.data[0].port == 9804)
+    assert(rsp.data[0].address == "17.7.7.74")
+    assert(rsp.data[0].protocol == "http")
+    assert(rsp.data[0].http_rule[0].name == 'vala')
+    assert(rsp.data[0].http_rule[0].domain == 'www.x.com')
+    assert(rsp.data[0].http_rule[0].url == 'www.x.com.cn')
+    assert(rsp.data[0].http_rule[0].wild_config['tao'] == 'bao')
+    assert(rsp.data[0].http_rule[0].state == proxy_pb2.HttpRule.CREATED)
+'''
+
+@marker.function
+@pytest.mark.test_way('''
+    构造listen参数，增加rs配置，多条http_rule配置，测试http_listen的创建
+''')
+@pytest.mark.test_points(
+    "验证增加多条rule配置的listen创建成功"
+)
+def test_create_listener_http_rule2():
+    #slb_ops_ref.start_proxy_via_reload()
+    port = slb_ops_ref.get_test_port()
+
+    l7srv = slb_ops_ref.build_listen("17.7.7.74",port,'http','hangzhou','hangzhou_listener_rule2',1, 23)
+    realserver = slb_ops_ref.build_listen_rs(l7srv, "8.8.8.8", 3, common_pb2.Realserver.DELETED, 23)
+
+    rule = l7srv.http_rule.add()#repeated
+    rule.name = 'vala'
+    rule.domain = 'www.x.com'
+    rule.url = 'www.x.com.cn'
+    rule.state = proxy_pb2.HttpRule.CREATED
+    rule = l7srv.http_rule.add()#repeated
+    rule.name = 'vala1'
+    rule.domain = 'www.x.com1'
+    rule.url = 'www.x.com.cn1'
+    rule.state = proxy_pb2.HttpRule.DELETED
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK) 
+
+@marker.function
+@pytest.mark.test_way('''
+    根据listener_id查询创建listen和多个rule配置信息
+''')
+@pytest.mark.test_points(
+    "验证根据已存在的listener_id可成功查询到listen和多个rule配置信息，且查询结果正确"
+)
+def test_create_listener_http_all_rule2_query(): 
+    query = common_pb2.QueryConfigMessage() 
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG 
+    query.listener_id =  "hangzhou_listener_rule2"
+
+    s_str = query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_http_rule2_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_http_rule2_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 1)
+    assert(rsp.data[0].listener_id == "hangzhou_listener_rule2")
+    assert(rsp.data[0].tunnel_id == 23)
+    assert(rsp.data[0].address == "17.7.7.74")
+    assert(rsp.data[0].protocol == "http")
+    assert(rsp.data[0].http_rule[0].name == 'vala')
+    assert(rsp.data[0].http_rule[0].domain == 'www.x.com')
+    assert(rsp.data[0].http_rule[0].url == 'www.x.com.cn')
+    #assert(rsp.data[0].http_rule[0].wild_config['tao'] == 'bao')
+    assert(rsp.data[0].http_rule[0].state == proxy_pb2.HttpRule.CREATED)
+    assert(rsp.data[0].http_rule[1].name == 'vala1')
+    assert(rsp.data[0].http_rule[1].domain == 'www.x.com1')
+    assert(rsp.data[0].http_rule[1].url == 'www.x.com.cn1')
+    #assert(rsp.data[0].http_rule[1].wild_config['tao1'] == 'bao1')
+    assert(rsp.data[0].http_rule[1].state == proxy_pb2.HttpRule.DELETED)
+
+@marker.function
+@pytest.mark.test_way('''
+    构造https_listen参数，增加cert配置，测试https_listen的创建
+''')
+@pytest.mark.test_points(
+    "验证https_listen创建成功"
+)
+def test_create_listener_https_cert():
+    #slb_ops_ref.start_proxy_via_reload()
+    port = slb_ops_ref.get_test_port()
+
+    l7srv = proxy_pb2.LayerSevenServiceMessage()
+    l7srv.address = "17.7.7.71"
+    l7srv.port = port
+    l7srv.protocol = 'https'
+    l7srv.loadbalancer_id  = 'hangzhou'
+    l7srv.listener_id  = 'hangzhou_listener_https_cert' 
+    l7srv.tunnel_id =23
+    l7srv.version = 1
+    l7srv.is_incremental = 0 #full
+
+    l7srv.cert_key.cert_key_id = 'defaultcertkeyid'
+    l7srv.cert_key.cert = """-----BEGIN CERTIFICATE-----
+MIIDLDCCAhQCCQCir9qo2OsDfjANBgkqhkiG9w0BAQUFADBSMQswCQYDVQQGEwJD
+TjERMA8GA1UECBMIWmhlamlhbmcxETAPBgNVBAcTCEhhbmd6aG91MQ8wDQYDVQQK
+EwZBbGl5dW4xDDAKBgNVBAsTA1NMQjAeFw0xNjA1MDkwNzM3MDhaFw0xNjA2MDgw
+NzM3MDhaMF4xCzAJBgNVBAYTAkNOMREwDwYDVQQIEwhaaGVqaWFuZzERMA8GA1UE
+BxMISGFuZ3pob3UxDzANBgNVBAoTBkFsaXl1bjEMMAoGA1UECxMDU0xCMQowCAYD
+VQQDEwFjMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxzhs462VVa4y
+5HydTHqsnR2gAfiibKWJjCsuck6fs9vB28NhzfmkytTRYVZPaj/iNDihdvAZfuQX
+of+2NoHHcw0DHMHRIWLyHnZ4+iEsYTPIiBAWSBIWRXwCxIyBahdo0Vh4oTKLZ5dv
+q6zCj+6hOGnV2YtKtMcdtkTCPvxyVNHxFHiXvElCyYlqpyaS//MT8oEjaNwCBamz
+XB+VE81BT/H9jui5LjAoqgVJcRt/s3zQMt+WsD6vzF9iakOAlYWKGxBNrvEY/JYI
+PLyAOe1Ghse+PhX1KF4ofQp0XBZCa7NQ9lEnk3ZJv95kVwVBnAN3Ii7mc6wBMUxp
+kuoP+4rBowIDAQABMA0GCSqGSIb3DQEBBQUAA4IBAQC0q72QCuOwH7bFOqAkrXDw
+VRfvhCjGi3xKV6NB6CsqsJ3wKOkC2nzuG5dXHbTVKX7m3JP1kX1NzxDjUJOhrl3+
+5hWeM3J9OVzScIwtX10QsRUUbFmyEeTsHvjHZI8AoODzX6EMT5cZNWAfYXqQ4ziy
+wwBg8u/cx8tvLe2geWJJcudnB0UJaG7348vWOsm6CaE8y9Ya1VYemsvii+8R29xm
+6I5YIcGOOm24xU49rCNkh6ntV1K0hC0lx0WWU34dPY7OiznrkTMauuAbTol4BjDT
+jabRiJYdvgUHbkPRnCiuuk6jJUAAW80GVyGyGPD9d2aNUa44FlxgtNE5e/vwMwFX
+-----END CERTIFICATE-----"""
+    l7srv.cert_key.key_server_url = "http:/www.default.com"
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据listener_id查询创建https_listen和cert配置信息
+''')
+@pytest.mark.test_points(
+    "验证根据已存在的listener_id可成功查询到https_listen和cert配置信息，且查询结果正确"
+)
+def test_create_listener_https_cert_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener_https_cert"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_https_cert_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_https_cert_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 1)
+    assert(rsp.data[0].address == "17.7.7.71")
+    assert(rsp.data[0].protocol == 'https')
+    assert(rsp.data[0].loadbalancer_id  == 'hangzhou')
+    assert(rsp.data[0].listener_id == 'hangzhou_listener_https_cert')
+    assert(rsp.data[0].tunnel_id == 23)
+    assert(rsp.data[0].cert_key.cert_key_id == 'defaultcertkeyid')
+    # assert(rsp.data[0].cert_key.cert == "defaultcert")
+    assert(rsp.data[0].cert_key.key_server_url == "http:/www.default.com")
+
+@marker.function
+@pytest.mark.test_way('''
+    构造https_listen参数，增加cert配置，http_rule规则，测试创建SNI的https监听
+''')
+@pytest.mark.test_points(
+    "验证SNI的https监听创建成功"
+)
+def test_create_listener_https_rule_cert():
+    #slb_ops_ref.start_proxy_via_reload()
+    port = slb_ops_ref.get_test_port()
+
+    l7srv = proxy_pb2.LayerSevenServiceMessage()
+    l7srv.address = "17.7.7.71"
+    l7srv.port = port
+    l7srv.protocol = 'https'
+    l7srv.loadbalancer_id  = 'hangzhou'
+    l7srv.listener_id  = 'hangzhou_listener_https_rule_cert' 
+    l7srv.tunnel_id =23
+    l7srv.version = 1
+    l7srv.is_incremental = 0 #full
+
+    l7srv.cert_key.cert_key_id = 'defaultcertkeyid'
+    l7srv.cert_key.ca_cert_id = 'defaultcacertid'
+    l7srv.cert_key.cert = """-----BEGIN CERTIFICATE-----
+MIIDLDCCAhQCCQCir9qo2OsDfjANBgkqhkiG9w0BAQUFADBSMQswCQYDVQQGEwJD
+TjERMA8GA1UECBMIWmhlamlhbmcxETAPBgNVBAcTCEhhbmd6aG91MQ8wDQYDVQQK
+EwZBbGl5dW4xDDAKBgNVBAsTA1NMQjAeFw0xNjA1MDkwNzM3MDhaFw0xNjA2MDgw
+NzM3MDhaMF4xCzAJBgNVBAYTAkNOMREwDwYDVQQIEwhaaGVqaWFuZzERMA8GA1UE
+BxMISGFuZ3pob3UxDzANBgNVBAoTBkFsaXl1bjEMMAoGA1UECxMDU0xCMQowCAYD
+VQQDEwFjMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxzhs462VVa4y
+5HydTHqsnR2gAfiibKWJjCsuck6fs9vB28NhzfmkytTRYVZPaj/iNDihdvAZfuQX
+of+2NoHHcw0DHMHRIWLyHnZ4+iEsYTPIiBAWSBIWRXwCxIyBahdo0Vh4oTKLZ5dv
+q6zCj+6hOGnV2YtKtMcdtkTCPvxyVNHxFHiXvElCyYlqpyaS//MT8oEjaNwCBamz
+XB+VE81BT/H9jui5LjAoqgVJcRt/s3zQMt+WsD6vzF9iakOAlYWKGxBNrvEY/JYI
+PLyAOe1Ghse+PhX1KF4ofQp0XBZCa7NQ9lEnk3ZJv95kVwVBnAN3Ii7mc6wBMUxp
+kuoP+4rBowIDAQABMA0GCSqGSIb3DQEBBQUAA4IBAQC0q72QCuOwH7bFOqAkrXDw
+VRfvhCjGi3xKV6NB6CsqsJ3wKOkC2nzuG5dXHbTVKX7m3JP1kX1NzxDjUJOhrl3+
+5hWeM3J9OVzScIwtX10QsRUUbFmyEeTsHvjHZI8AoODzX6EMT5cZNWAfYXqQ4ziy
+wwBg8u/cx8tvLe2geWJJcudnB0UJaG7348vWOsm6CaE8y9Ya1VYemsvii+8R29xm
+6I5YIcGOOm24xU49rCNkh6ntV1K0hC0lx0WWU34dPY7OiznrkTMauuAbTol4BjDT
+jabRiJYdvgUHbkPRnCiuuk6jJUAAW80GVyGyGPD9d2aNUa44FlxgtNE5e/vwMwFX
+-----END CERTIFICATE-----"""
+    l7srv.cert_key.ca_cert = """-----BEGIN CERTIFICATE-----
+MIIDLDCCAhQCCQCir9qo2OsDfjANBgkqhkiG9w0BAQUFADBSMQswCQYDVQQGEwJD
+TjERMA8GA1UECBMIWmhlamlhbmcxETAPBgNVBAcTCEhhbmd6aG91MQ8wDQYDVQQK
+EwZBbGl5dW4xDDAKBgNVBAsTA1NMQjAeFw0xNjA1MDkwNzM3MDhaFw0xNjA2MDgw
+NzM3MDhaMF4xCzAJBgNVBAYTAkNOMREwDwYDVQQIEwhaaGVqaWFuZzERMA8GA1UE
+BxMISGFuZ3pob3UxDzANBgNVBAoTBkFsaXl1bjEMMAoGA1UECxMDU0xCMQowCAYD
+VQQDEwFjMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxzhs462VVa4y
+5HydTHqsnR2gAfiibKWJjCsuck6fs9vB28NhzfmkytTRYVZPaj/iNDihdvAZfuQX
+of+2NoHHcw0DHMHRIWLyHnZ4+iEsYTPIiBAWSBIWRXwCxIyBahdo0Vh4oTKLZ5dv
+q6zCj+6hOGnV2YtKtMcdtkTCPvxyVNHxFHiXvElCyYlqpyaS//MT8oEjaNwCBamz
+XB+VE81BT/H9jui5LjAoqgVJcRt/s3zQMt+WsD6vzF9iakOAlYWKGxBNrvEY/JYI
+PLyAOe1Ghse+PhX1KF4ofQp0XBZCa7NQ9lEnk3ZJv95kVwVBnAN3Ii7mc6wBMUxp
+kuoP+4rBowIDAQABMA0GCSqGSIb3DQEBBQUAA4IBAQC0q72QCuOwH7bFOqAkrXDw
+VRfvhCjGi3xKV6NB6CsqsJ3wKOkC2nzuG5dXHbTVKX7m3JP1kX1NzxDjUJOhrl3+
+5hWeM3J9OVzScIwtX10QsRUUbFmyEeTsHvjHZI8AoODzX6EMT5cZNWAfYXqQ4ziy
+wwBg8u/cx8tvLe2geWJJcudnB0UJaG7348vWOsm6CaE8y9Ya1VYemsvii+8R29xm
+6I5YIcGOOm24xU49rCNkh6ntV1K0hC0lx0WWU34dPY7OiznrkTMauuAbTol4BjDT
+jabRiJYdvgUHbkPRnCiuuk6jJUAAW80GVyGyGPD9d2aNUa44FlxgtNE5e/vwMwFX
+-----END CERTIFICATE-----"""
+    l7srv.cert_key.key_server_url = "http:/www.default.com"
+
+    rule = l7srv.http_rule.add()#repeated
+    rule.name = 'vala'
+    rule.domain = 'www.x.com'
+    rule.url = 'www.x.com.cn'
+    rule.state = proxy_pb2.HttpRule.CREATED
+
+#    rule.cert_key.cert_key_id = 'rulecertkeyid'
+#    rule.cert_key.ca_cert_id = 'rulecacertid'
+#    rule.cert_key.cert = "rulecert"
+#    rule.cert_key.ca_cert = 'ruleca'
+#    rule.cert_key.key_server_url = "http:/www.rule.com"
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据listener_id查询SNI的https监听配置
+
+''')
+@pytest.mark.test_points(
+    "验证SNI的https监听配置正确"
+)
+def test_create_listener_https_cert_rule_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener_https_rule_cert"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_https_rule_cert_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_https_rule_cert_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 1)
+    assert(rsp.data[0].address == "17.7.7.71")
+    assert(rsp.data[0].protocol == 'https')
+    assert(rsp.data[0].loadbalancer_id  == 'hangzhou')
+    assert(rsp.data[0].listener_id == 'hangzhou_listener_https_rule_cert')
+    assert(rsp.data[0].tunnel_id == 23)
+    assert(rsp.data[0].cert_key.cert_key_id == 'defaultcertkeyid')
+    assert(rsp.data[0].cert_key.ca_cert_id == 'defaultcacertid')
+#    assert(rsp.data[0].cert_key.cert == "defaultcert")
+#    assert(rsp.data[0].cert_key.ca_cert == 'defaultca')
+    assert(rsp.data[0].cert_key.key_server_url == "http:/www.default.com")
+    assert(rsp.data[0].http_rule[0].name == 'vala')
+    assert(rsp.data[0].http_rule[0].domain == 'www.x.com')
+    assert(rsp.data[0].http_rule[0].url == 'www.x.com.cn')
+    #assert(rsp.data[0].http_rule[0].wild_config['tao'] == 'bao')
+    assert(rsp.data[0].http_rule[0].state == proxy_pb2.HttpRule.CREATED)
+#    assert(rsp.data[0].http_rule[0].cert_key.cert_key_id == 'rulecertkeyid')
+#    assert(rsp.data[0].http_rule[0].cert_key.ca_cert_id == 'rulecacertid')
+#    assert(rsp.data[0].http_rule[0].cert_key.cert == "rulecert")
+#    assert(rsp.data[0].http_rule[0].cert_key.ca_cert == 'ruleca')
+#    assert(rsp.data[0].http_rule[0].cert_key.key_server_url == "http:/www.rule.com")
+
+@marker.function
+@pytest.mark.test_way('''
+    构造https_listen参数值，配置cert和cacert，测试创建双向认证的https监听
+''')
+@pytest.mark.test_points(
+    "验证创建双向认证的https监听成功"
+)
+def test_create_listener_https_client_auth():
+    #slb_ops_ref.start_proxy_via_reload()
+    port = slb_ops_ref.get_test_port()
+
+    l7srv = proxy_pb2.LayerSevenServiceMessage()
+    l7srv.address = "17.7.7.71"
+    l7srv.port = port
+    l7srv.protocol = 'https'
+    l7srv.loadbalancer_id  = 'hangzhou'
+    l7srv.listener_id  = 'hangzhou_listener_https_client_auth' 
+    l7srv.tunnel_id =23
+    l7srv.version = 1
+    l7srv.is_incremental = 0 #full
+
+    l7srv.cert_key.cert_key_id = 'defaultcertkeyid'
+    l7srv.cert_key.ca_cert_id = 'defaultcacertid'
+    l7srv.cert_key.cert = """-----BEGIN CERTIFICATE-----
+MIIDLDCCAhQCCQCir9qo2OsDfjANBgkqhkiG9w0BAQUFADBSMQswCQYDVQQGEwJD
+TjERMA8GA1UECBMIWmhlamlhbmcxETAPBgNVBAcTCEhhbmd6aG91MQ8wDQYDVQQK
+EwZBbGl5dW4xDDAKBgNVBAsTA1NMQjAeFw0xNjA1MDkwNzM3MDhaFw0xNjA2MDgw
+NzM3MDhaMF4xCzAJBgNVBAYTAkNOMREwDwYDVQQIEwhaaGVqaWFuZzERMA8GA1UE
+BxMISGFuZ3pob3UxDzANBgNVBAoTBkFsaXl1bjEMMAoGA1UECxMDU0xCMQowCAYD
+VQQDEwFjMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxzhs462VVa4y
+5HydTHqsnR2gAfiibKWJjCsuck6fs9vB28NhzfmkytTRYVZPaj/iNDihdvAZfuQX
+of+2NoHHcw0DHMHRIWLyHnZ4+iEsYTPIiBAWSBIWRXwCxIyBahdo0Vh4oTKLZ5dv
+q6zCj+6hOGnV2YtKtMcdtkTCPvxyVNHxFHiXvElCyYlqpyaS//MT8oEjaNwCBamz
+XB+VE81BT/H9jui5LjAoqgVJcRt/s3zQMt+WsD6vzF9iakOAlYWKGxBNrvEY/JYI
+PLyAOe1Ghse+PhX1KF4ofQp0XBZCa7NQ9lEnk3ZJv95kVwVBnAN3Ii7mc6wBMUxp
+kuoP+4rBowIDAQABMA0GCSqGSIb3DQEBBQUAA4IBAQC0q72QCuOwH7bFOqAkrXDw
+VRfvhCjGi3xKV6NB6CsqsJ3wKOkC2nzuG5dXHbTVKX7m3JP1kX1NzxDjUJOhrl3+
+5hWeM3J9OVzScIwtX10QsRUUbFmyEeTsHvjHZI8AoODzX6EMT5cZNWAfYXqQ4ziy
+wwBg8u/cx8tvLe2geWJJcudnB0UJaG7348vWOsm6CaE8y9Ya1VYemsvii+8R29xm
+6I5YIcGOOm24xU49rCNkh6ntV1K0hC0lx0WWU34dPY7OiznrkTMauuAbTol4BjDT
+jabRiJYdvgUHbkPRnCiuuk6jJUAAW80GVyGyGPD9d2aNUa44FlxgtNE5e/vwMwFX
+-----END CERTIFICATE-----"""
+    l7srv.cert_key.ca_cert = """-----BEGIN CERTIFICATE-----
+MIIDLDCCAhQCCQCir9qo2OsDfjANBgkqhkiG9w0BAQUFADBSMQswCQYDVQQGEwJD
+TjERMA8GA1UECBMIWmhlamlhbmcxETAPBgNVBAcTCEhhbmd6aG91MQ8wDQYDVQQK
+EwZBbGl5dW4xDDAKBgNVBAsTA1NMQjAeFw0xNjA1MDkwNzM3MDhaFw0xNjA2MDgw
+NzM3MDhaMF4xCzAJBgNVBAYTAkNOMREwDwYDVQQIEwhaaGVqaWFuZzERMA8GA1UE
+BxMISGFuZ3pob3UxDzANBgNVBAoTBkFsaXl1bjEMMAoGA1UECxMDU0xCMQowCAYD
+VQQDEwFjMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxzhs462VVa4y
+5HydTHqsnR2gAfiibKWJjCsuck6fs9vB28NhzfmkytTRYVZPaj/iNDihdvAZfuQX
+of+2NoHHcw0DHMHRIWLyHnZ4+iEsYTPIiBAWSBIWRXwCxIyBahdo0Vh4oTKLZ5dv
+q6zCj+6hOGnV2YtKtMcdtkTCPvxyVNHxFHiXvElCyYlqpyaS//MT8oEjaNwCBamz
+XB+VE81BT/H9jui5LjAoqgVJcRt/s3zQMt+WsD6vzF9iakOAlYWKGxBNrvEY/JYI
+PLyAOe1Ghse+PhX1KF4ofQp0XBZCa7NQ9lEnk3ZJv95kVwVBnAN3Ii7mc6wBMUxp
+kuoP+4rBowIDAQABMA0GCSqGSIb3DQEBBQUAA4IBAQC0q72QCuOwH7bFOqAkrXDw
+VRfvhCjGi3xKV6NB6CsqsJ3wKOkC2nzuG5dXHbTVKX7m3JP1kX1NzxDjUJOhrl3+
+5hWeM3J9OVzScIwtX10QsRUUbFmyEeTsHvjHZI8AoODzX6EMT5cZNWAfYXqQ4ziy
+wwBg8u/cx8tvLe2geWJJcudnB0UJaG7348vWOsm6CaE8y9Ya1VYemsvii+8R29xm
+6I5YIcGOOm24xU49rCNkh6ntV1K0hC0lx0WWU34dPY7OiznrkTMauuAbTol4BjDT
+jabRiJYdvgUHbkPRnCiuuk6jJUAAW80GVyGyGPD9d2aNUa44FlxgtNE5e/vwMwFX
+-----END CERTIFICATE-----"""
+    l7srv.cert_key.key_server_url = "http:/www.default.com"
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据创建成功的listener_id查询双向认证的https_listen配置
+''')
+@pytest.mark.test_points(
+    "验证查询双向认证的https_listen配置正确"
+)
+def test_create_listener_https_client_auth_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener_https_client_auth"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_https_client_auth_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_https_client_auth_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 1)
+    assert(rsp.data[0].address == "17.7.7.71")
+    assert(rsp.data[0].protocol == 'https')
+    assert(rsp.data[0].loadbalancer_id  == 'hangzhou')
+    assert(rsp.data[0].listener_id == 'hangzhou_listener_https_client_auth')
+    assert(rsp.data[0].tunnel_id == 23)
+    assert(rsp.data[0].cert_key.cert_key_id == 'defaultcertkeyid')
+    assert(rsp.data[0].cert_key.ca_cert_id == 'defaultcacertid')
+    #assert(rsp.data[0].cert_key.cert == "defaultcert")
+    #assert(rsp.data[0].cert_key.ca_cert == 'defaultca')
+    assert(rsp.data[0].cert_key.key_server_url == "http:/www.default.com")
+
+@marker.function
+@pytest.mark.test_way('''
+    构造https_listener参数值，不配置cacert，测试创建双向认证，不带ca证书的https监听
+''')
+@pytest.mark.test_points(
+    "验证创建双向认证，不带ca证书的https监听成功"
+)
+def test_create_listener_https_client_auth_nocacert():
+    #slb_ops_ref.start_proxy_via_reload()
+    port = slb_ops_ref.get_test_port()
+    l7srv = proxy_pb2.LayerSevenServiceMessage()
+    l7srv.address = "17.7.7.71"
+    l7srv.port = port
+    l7srv.protocol = 'https'
+    l7srv.loadbalancer_id  = 'hangzhou'
+    l7srv.listener_id  = 'hangzhou_listener_https_client_auth_nocacert' 
+    l7srv.tunnel_id =23
+    l7srv.version = 1
+    l7srv.is_incremental = 0 #full
+
+    l7srv.cert_key.cert_key_id = 'defaultcertkeyid'
+    l7srv.cert_key.ca_cert_id = 'defaultcacertid'
+    l7srv.cert_key.cert = """-----BEGIN CERTIFICATE-----
+MIIDLDCCAhQCCQCir9qo2OsDfjANBgkqhkiG9w0BAQUFADBSMQswCQYDVQQGEwJD
+TjERMA8GA1UECBMIWmhlamlhbmcxETAPBgNVBAcTCEhhbmd6aG91MQ8wDQYDVQQK
+EwZBbGl5dW4xDDAKBgNVBAsTA1NMQjAeFw0xNjA1MDkwNzM3MDhaFw0xNjA2MDgw
+NzM3MDhaMF4xCzAJBgNVBAYTAkNOMREwDwYDVQQIEwhaaGVqaWFuZzERMA8GA1UE
+BxMISGFuZ3pob3UxDzANBgNVBAoTBkFsaXl1bjEMMAoGA1UECxMDU0xCMQowCAYD
+VQQDEwFjMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxzhs462VVa4y
+5HydTHqsnR2gAfiibKWJjCsuck6fs9vB28NhzfmkytTRYVZPaj/iNDihdvAZfuQX
+of+2NoHHcw0DHMHRIWLyHnZ4+iEsYTPIiBAWSBIWRXwCxIyBahdo0Vh4oTKLZ5dv
+q6zCj+6hOGnV2YtKtMcdtkTCPvxyVNHxFHiXvElCyYlqpyaS//MT8oEjaNwCBamz
+XB+VE81BT/H9jui5LjAoqgVJcRt/s3zQMt+WsD6vzF9iakOAlYWKGxBNrvEY/JYI
+PLyAOe1Ghse+PhX1KF4ofQp0XBZCa7NQ9lEnk3ZJv95kVwVBnAN3Ii7mc6wBMUxp
+kuoP+4rBowIDAQABMA0GCSqGSIb3DQEBBQUAA4IBAQC0q72QCuOwH7bFOqAkrXDw
+VRfvhCjGi3xKV6NB6CsqsJ3wKOkC2nzuG5dXHbTVKX7m3JP1kX1NzxDjUJOhrl3+
+5hWeM3J9OVzScIwtX10QsRUUbFmyEeTsHvjHZI8AoODzX6EMT5cZNWAfYXqQ4ziy
+wwBg8u/cx8tvLe2geWJJcudnB0UJaG7348vWOsm6CaE8y9Ya1VYemsvii+8R29xm
+6I5YIcGOOm24xU49rCNkh6ntV1K0hC0lx0WWU34dPY7OiznrkTMauuAbTol4BjDT
+jabRiJYdvgUHbkPRnCiuuk6jJUAAW80GVyGyGPD9d2aNUa44FlxgtNE5e/vwMwFX
+-----END CERTIFICATE-----"""
+    l7srv.cert_key.key_server_url = "http:/www.default.com"
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据创建成功的listener_id查询不带cacert的 https_listen配置
+''')
+@pytest.mark.test_points(
+    "验证查询不带cacert的https_listen配置正确"
+)
+def test_create_listener_https_client_auth_nocacert_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener_https_client_auth_nocacert"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_https_client_auth_nocacert_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_https_client_auth_nocacert_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 1)
+    assert(rsp.data[0].address == "17.7.7.71")
+    assert(rsp.data[0].protocol == 'https')
+    assert(rsp.data[0].loadbalancer_id  == 'hangzhou')
+    assert(rsp.data[0].listener_id == 'hangzhou_listener_https_client_auth_nocacert')
+    assert(rsp.data[0].tunnel_id == 23)
+    assert(rsp.data[0].cert_key.cert_key_id == 'defaultcertkeyid')
+    assert(rsp.data[0].cert_key.ca_cert_id == 'defaultcacertid')
+    #assert(rsp.data[0].cert_key.cert == "defaultcert")
+    assert(rsp.data[0].cert_key.key_server_url == "http:/www.default.com")
+    assert(rsp.data[0].cert_key.HasField('ca_cert') == False)
+
+@marker.function
+@pytest.mark.test_way('''
+    构造https_listener参数值，不配置cacertid，测试创建双向认证，不带cacertid的https监听
+''')
+@pytest.mark.test_points(
+    "验证创建双向认证，不带cacertid的https监听成功"
+)
+def test_create_listener_https_client_auth_nocacertid():
+    #slb_ops_ref.start_proxy_via_reload()
+
+    l7srv = proxy_pb2.LayerSevenServiceMessage()
+    l7srv.address = "17.7.7.71"
+    port = slb_ops_ref.get_test_port()
+    l7srv.port = port
+    l7srv.protocol = 'https'
+    l7srv.loadbalancer_id  = 'hangzhou'
+    l7srv.listener_id  = 'hangzhou_listener_https_client_auth_nocacertid'
+    l7srv.tunnel_id =23
+    l7srv.version = 1
+    l7srv.is_incremental = 0 #full
+
+    l7srv.cert_key.cert_key_id = 'defaultcertkeyid'
+    l7srv.cert_key.cert = """-----BEGIN CERTIFICATE-----
+MIIDLDCCAhQCCQCir9qo2OsDfjANBgkqhkiG9w0BAQUFADBSMQswCQYDVQQGEwJD
+TjERMA8GA1UECBMIWmhlamlhbmcxETAPBgNVBAcTCEhhbmd6aG91MQ8wDQYDVQQK
+EwZBbGl5dW4xDDAKBgNVBAsTA1NMQjAeFw0xNjA1MDkwNzM3MDhaFw0xNjA2MDgw
+NzM3MDhaMF4xCzAJBgNVBAYTAkNOMREwDwYDVQQIEwhaaGVqaWFuZzERMA8GA1UE
+BxMISGFuZ3pob3UxDzANBgNVBAoTBkFsaXl1bjEMMAoGA1UECxMDU0xCMQowCAYD
+VQQDEwFjMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxzhs462VVa4y
+5HydTHqsnR2gAfiibKWJjCsuck6fs9vB28NhzfmkytTRYVZPaj/iNDihdvAZfuQX
+of+2NoHHcw0DHMHRIWLyHnZ4+iEsYTPIiBAWSBIWRXwCxIyBahdo0Vh4oTKLZ5dv
+q6zCj+6hOGnV2YtKtMcdtkTCPvxyVNHxFHiXvElCyYlqpyaS//MT8oEjaNwCBamz
+XB+VE81BT/H9jui5LjAoqgVJcRt/s3zQMt+WsD6vzF9iakOAlYWKGxBNrvEY/JYI
+PLyAOe1Ghse+PhX1KF4ofQp0XBZCa7NQ9lEnk3ZJv95kVwVBnAN3Ii7mc6wBMUxp
+kuoP+4rBowIDAQABMA0GCSqGSIb3DQEBBQUAA4IBAQC0q72QCuOwH7bFOqAkrXDw
+VRfvhCjGi3xKV6NB6CsqsJ3wKOkC2nzuG5dXHbTVKX7m3JP1kX1NzxDjUJOhrl3+
+5hWeM3J9OVzScIwtX10QsRUUbFmyEeTsHvjHZI8AoODzX6EMT5cZNWAfYXqQ4ziy
+wwBg8u/cx8tvLe2geWJJcudnB0UJaG7348vWOsm6CaE8y9Ya1VYemsvii+8R29xm
+6I5YIcGOOm24xU49rCNkh6ntV1K0hC0lx0WWU34dPY7OiznrkTMauuAbTol4BjDT
+jabRiJYdvgUHbkPRnCiuuk6jJUAAW80GVyGyGPD9d2aNUa44FlxgtNE5e/vwMwFX
+-----END CERTIFICATE-----"""
+    l7srv.cert_key.key_server_url = "http:/www.default.com"
+    l7srv.cert_key.ca_cert = """-----BEGIN CERTIFICATE-----
+MIIDLDCCAhQCCQCir9qo2OsDfjANBgkqhkiG9w0BAQUFADBSMQswCQYDVQQGEwJD
+TjERMA8GA1UECBMIWmhlamlhbmcxETAPBgNVBAcTCEhhbmd6aG91MQ8wDQYDVQQK
+EwZBbGl5dW4xDDAKBgNVBAsTA1NMQjAeFw0xNjA1MDkwNzM3MDhaFw0xNjA2MDgw
+NzM3MDhaMF4xCzAJBgNVBAYTAkNOMREwDwYDVQQIEwhaaGVqaWFuZzERMA8GA1UE
+BxMISGFuZ3pob3UxDzANBgNVBAoTBkFsaXl1bjEMMAoGA1UECxMDU0xCMQowCAYD
+VQQDEwFjMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxzhs462VVa4y
+5HydTHqsnR2gAfiibKWJjCsuck6fs9vB28NhzfmkytTRYVZPaj/iNDihdvAZfuQX
+of+2NoHHcw0DHMHRIWLyHnZ4+iEsYTPIiBAWSBIWRXwCxIyBahdo0Vh4oTKLZ5dv
+q6zCj+6hOGnV2YtKtMcdtkTCPvxyVNHxFHiXvElCyYlqpyaS//MT8oEjaNwCBamz
+XB+VE81BT/H9jui5LjAoqgVJcRt/s3zQMt+WsD6vzF9iakOAlYWKGxBNrvEY/JYI
+PLyAOe1Ghse+PhX1KF4ofQp0XBZCa7NQ9lEnk3ZJv95kVwVBnAN3Ii7mc6wBMUxp
+kuoP+4rBowIDAQABMA0GCSqGSIb3DQEBBQUAA4IBAQC0q72QCuOwH7bFOqAkrXDw
+VRfvhCjGi3xKV6NB6CsqsJ3wKOkC2nzuG5dXHbTVKX7m3JP1kX1NzxDjUJOhrl3+
+5hWeM3J9OVzScIwtX10QsRUUbFmyEeTsHvjHZI8AoODzX6EMT5cZNWAfYXqQ4ziy
+wwBg8u/cx8tvLe2geWJJcudnB0UJaG7348vWOsm6CaE8y9Ya1VYemsvii+8R29xm
+6I5YIcGOOm24xU49rCNkh6ntV1K0hC0lx0WWU34dPY7OiznrkTMauuAbTol4BjDT
+jabRiJYdvgUHbkPRnCiuuk6jJUAAW80GVyGyGPD9d2aNUa44FlxgtNE5e/vwMwFX
+-----END CERTIFICATE-----"""
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据创建成功的listener_id查询不带cacertid的 https_listen配置
+''')
+@pytest.mark.test_points(
+    "验证查询不带cacertid的https_listen配置正确"
+)
+def test_create_listener_https_client_auth_nocacertid_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener_https_client_auth_nocacertid"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_https_client_auth_nocacertid_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_https_client_auth_nocacertid_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 1)
+    assert(rsp.data[0].address == "17.7.7.71")
+    assert(rsp.data[0].protocol == 'https')
+    assert(rsp.data[0].loadbalancer_id  == 'hangzhou')
+    assert(rsp.data[0].listener_id == 'hangzhou_listener_https_client_auth_nocacertid')
+    assert(rsp.data[0].tunnel_id == 23)
+    assert(rsp.data[0].cert_key.cert_key_id == 'defaultcertkeyid')
+    assert(rsp.data[0].cert_key.HasField('ca_cert_id') == False)
+    #assert(rsp.data[0].cert_key.cert == "defaultcert")
+    assert(rsp.data[0].cert_key.key_server_url == "http:/www.default.com")
+    #assert(rsp.data[0].cert_key.ca_cert == 'defaultca')
+
+@marker.function
+@pytest.mark.test_way('''
+    构造https_listen参数，不带cert，测试创建不带证书的https监听
+''')
+@pytest.mark.test_points(
+    "验证不带cert的https_listen创建成功"
+)
+def test_create_listener_https_nocert():
+    #slb_ops_ref.start_proxy_via_reload()
+
+    l7srv = proxy_pb2.LayerSevenServiceMessage()
+    l7srv.address = "17.7.7.71"
+    port = slb_ops_ref.get_test_port()
+    l7srv.port = port
+    l7srv.protocol = 'https'
+    l7srv.loadbalancer_id  = 'hangzhou'
+    l7srv.listener_id  = 'hangzhou_listener_https_nocert'
+    l7srv.tunnel_id =23
+    l7srv.version = 1
+    l7srv.is_incremental = 0 #full
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据创建成功的listener_id查询nocert listen配置
+''')
+@pytest.mark.test_points(
+    "验证查询nocert listen配置正确"
+)
+def test_create_listener_https_nocert_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "hangzhou_listener_https_nocert"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========test_create_listener_https_nocert_query begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========test_create_listener_https_nocert_query end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 1)
+    assert(rsp.data[0].address == "17.7.7.71")
+    assert(rsp.data[0].protocol == 'https')
+    assert(rsp.data[0].loadbalancer_id  == 'hangzhou')
+    assert(rsp.data[0].listener_id == 'hangzhou_listener_https_nocert')
+    assert(rsp.data[0].tunnel_id == 23)
+    assert(rsp.data[0].HasField('cert_key') == False)
+
+@marker.function
+@pytest.mark.test_way('''
+    构造lb参数，qps设置10000，测试lb创建是否成功
+''')
+@pytest.mark.test_points(
+    "验证lb创建成功"
+)
+def testCreateLBQPS():
+    #slb_ops_ref.start_proxy_via_reload()
+    lb = loadbalancer_pb2.LoadbalancerMessage()
+    lb.address = '12.12.12.13'
+    lb.loadbalancer_id = 'lb_create_qps'
+    lb.version = 3
+    lb.sla_config.qps = 10000
+    lb.is_incremental = 0
+    s_str =lb.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/lb',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据创建成功的loadbalancer_id查询lb和qps配置
+''')
+@pytest.mark.test_points(
+    "验证查询lb和qps配置正确"
+)
+def testCreateLBAllItemsQuery():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.loadbalancer_id = "lb_create_qps"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/lb/detail',data =s_str)
+    rsp = response_pb2.QueryLoadbalancerResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========lb_create_qps begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========lb_create_qps end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 3)
+    assert(rsp.data[0].sla_config.qps == 10000)
+    assert(rsp.data[0].address == "12.12.12.13")
+    assert(rsp.data[0].loadbalancer_id == "lb_create_qps")
+port1 = 0
+@marker.function
+@pytest.mark.test_way('''
+    构造listen参数，关联已创建的lb_id（qps设置10000），测试listen创建是否成功
+''')
+@pytest.mark.test_points(
+    "验证listen创建成功"
+)
+def test_create_listener_qps():
+    global port1 
+    l7srv = proxy_pb2.LayerSevenServiceMessage()
+    l7srv.address = "17.7.7.71"
+    port1 = slb_ops_ref.get_test_port()
+    l7srv.port = port1
+    l7srv.protocol = 'https'
+    l7srv.loadbalancer_id  = 'lb_create_qps'
+    l7srv.listener_id  = 'lb_listener_qps'
+    l7srv.tunnel_id =23
+    l7srv.version = 1
+    l7srv.is_incremental = 0 #full
+
+    s_str = l7srv.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+@marker.function
+@pytest.mark.test_way('''
+    根据创建成功的listen_id查询listen和qps配置
+''')
+@pytest.mark.test_points(
+    "验证查询listen和qps配置正确"
+)
+def test_create_listener_qps_query():
+    query = common_pb2.QueryConfigMessage()
+    query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+    query.listener_id =  "lb_listener_qps"
+    s_str =query.SerializeToString()        
+    res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+    rsp = response_pb2.QueryLayerSevenServiceResponse()
+    rsp.ParseFromString(res.content)
+    logger.debug("==========lb_listener_qps begin================\n")
+    logger.debug(rsp.data[0])
+    logger.debug("==========lb_listener_qps end================\n")
+    assert(rsp.response.code == response_pb2.Response.OK)
+    assert(rsp.data[0].version == 1)
+    assert(rsp.data[0].address == "17.7.7.71")
+    assert(rsp.data[0].protocol == 'https')
+    assert(rsp.data[0].loadbalancer_id  == 'lb_create_qps')
+    assert(rsp.data[0].listener_id == 'lb_listener_qps')
+    assert(rsp.data[0].tunnel_id == 23)
+    assert(rsp.data[0].HasField('cert_key') == False)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "sudo cat /etc/proxy/conf/vip/"+str(port1)+"| grep rate | cut -d '=' -f 3 | cut -d ' ' -f 1 | head -n 1")
+    rate="%dr/s\n" % (10000)
+    assert out == rate

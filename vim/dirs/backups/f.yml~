@@ -1,0 +1,16 @@
+# 服务名必须少于15个字符，ginkgo 有要求
+service: gikk
+
+provider:
+  name: ginkgo
+  runtime: nodejs10
+
+functions:
+    index: index
+    handler: index.handler
+    events:
+      - http: true
+
+        #layers:
+        #  puppeteer-layer:
+        #    path: oss:puppeteer-layer@latest

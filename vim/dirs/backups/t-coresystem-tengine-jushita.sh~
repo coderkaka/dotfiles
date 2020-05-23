@@ -1,0 +1,57 @@
+#!/bin/sh
+
+CWD=`pwd`
+NGINX=t-coresystem-tengine-jushita
+NGINXDIR=${NGINX}-2.1.1
+NGINXTAR=${NGINXDIR}.tar.gz
+BUILDDIR=$(cd ${HOME}; pwd)
+
+echo "rsync tengine source code..."
+rsync -a --exclude=rpm ../* ${NGINXDIR}
+
+rm -rf ${NGINXDIR}/libs/luajit
+mv ${NGINXDIR}/libs/luajit-2.0-cdn ${NGINXDIR}/libs/luajit
+
+echo "create tengine tar package ${NGINXTAR}..."
+tar zfc ${NGINXTAR} ${NGINXDIR}
+
+echo "create rpmbuild directory and copy files..."
+mkdir -p ~/rpmbuild/{BUILD,RPMS,SRPMS,SPECS,SOURCES}
+cp ${NGINX}.spec ~/rpmbuild/SPECS
+
+cp ${NGINXTAR} ~/rpmbuild/SOURCES
+
+#cp ${NGINX}-auto-cc-gcc.patch ~/rpmbuild/SOURCES
+#cp recognize_local_addr.patch ~/rpmbuild/SOURCES/recognize_local_addr.patch
+#cp dynamic_upstream_check.patch ~/rpmbuild/SOURCES/dynamic-upstream-check.patch
+#cp dynamic_upstream_check_vpc_tunnelid_h.patch ~/rpmbuild/SOURCES/dynamic_upstream_check_vpc_tunnelid_h.patch
+#cp dynamic_upstream_check_vpc_tunnelid_c.patch ~/rpmbuild/SOURCES/dynamic_upstream_check_vpc_tunnelid_c.patch
+#cp tengine-proxy-dso.patch ~/rpmbuild/SOURCES
+cp ${NGINX}.conf ~/rpmbuild/SOURCES
+cp ${NGINX}.sysconfig ~/rpmbuild/SOURCES
+cp t-coresystem-tengine-jushita-ctl ~/rpmbuild/SOURCES
+
+cp tmd4_main.conf ~/rpmbuild/SOURCES
+cp tmd4_domain.conf ~/rpmbuild/SOURCES
+cp tmd4_http.conf ~/rpmbuild/SOURCES
+cp tmd4_loc.conf ~/rpmbuild/SOURCES
+cp tmd4_loc.lua ~/rpmbuild/SOURCES
+cp tmdconf/check.lua ~/rpmbuild/SOURCES/tmd_check.lua
+cp tmdconf/foot ~/rpmbuild/SOURCES/tmd_foot
+cp tmdconf/head ~/rpmbuild/SOURCES/tmd_head
+cp tmdconf/tair_white.lua ~/rpmbuild/SOURCES/tair_white.lua
+
+cp tmdconf/taobao-wait-head.html ~/rpmbuild/SOURCES/taobao-wait-head.html
+cp tmdconf/taobao-wait-footer.html ~/rpmbuild/SOURCES/taobao-wait-footer.html
+cp tmdconf/tmall-wait-head.html ~/rpmbuild/SOURCES/tmall-wait-head.html
+cp tmdconf/tmall-wait-footer.html ~/rpmbuild/SOURCES/tmall-wait-footer.html
+cp tmdconf/doc ~/rpmbuild/SOURCES/tmd_doc
+
+rm -fr ${NGINXDIR}
+rm -f  ${NGINXTAR}
+
+echo "execute rpmbuild command..."
+cd ~/rpmbuild/SPECS
+rpmbuild --define "_topdir ${BUILDDIR}/rpmbuild" -v -ba ${NGINX}.spec
+find ../ -name "*.rpm" -exec cp '{}' ${CWD}/ \;
+rm -rf ~/rpmbuild

@@ -1,0 +1,244 @@
+#!/home/tops/bin/python2.7
+# -*- coding:UTF-8 -*-
+
+import os
+import commands
+import sys
+import json
+import time
+import logging
+import yaml
+from common.command import *
+from common.log import *
+
+EXIT_STEPS = [
+    "disable_node.py",
+]
+
+TRANSFORM_LIST = ['addnode', 'upgrade']
+OPS_STEPS_DIR = './transform'
+OPS_STEPS_DEFINE_PATH = OPS_STEPS_DIR + '/ops_steps_define.yaml'
+OPS_STEPS_STATUS_PATH = OPS_STEPS_DIR + '/ops_steps_status.yaml'
+
+class StepOps:
+    def __init__(self, ops, opcfg, root_path):
+        self.ops = ops
+        self.opcfg = opcfg
+        self.root_path = root_path
+        self.node_sls_path = root_path + '/srv/pillar/node.sls'
+
+        if ops not in TRANSFORM_LIST:
+            raise Exception('ops %s not support' % ops)
+
+        if not os.path.exists(OPS_STEPS_DIR):
+            os.makedirs(OPS_STEPS_DIR)
+
+        self.transform_steps = self.get_transform_steps(ops)
+        self.steps = self.gen_ops_steps(ops)
+        self.trans_yaml = OPS_STEPS_STATUS_PATH
+        #保留原有的逻辑
+        self.gen_trans_conf()
+
+    def get_transform_steps(self, ops):
+        transform_steps = []
+        transform_path = '%s/transform/' % self.root_path
+        #addnode
+        if ops == 'addnode':
+            fpath = transform_path + '/addnode.yaml'
+        elif ops == 'upgrade':
+            fpath = transform_path + '/upgrade.yaml'
+        elif ops == 'delnode':
+            fpath = transform_path + '/delnode.yaml'
+
+        yaml_info = yaml.load(file(fpath))
+        for item in yaml_info:
+            transform_steps.append(item['script'])
+
+        return transform_steps
+
+    def gen_ops_steps(self, ops):
+
+        step_list = []
+        if ops == 'addnode':
+            step_list.append('add_node_precheck.py')
+            step_list.append('cmdb_onlining.py')
+            for step in self.transform_steps:
+                step_list.append(step)
+            step_list.append('cmdb_done.py')
+
+        elif ops == 'upgrade':
+            #去掉upgrade_precheck，因为precheck阶段机器已经被disable了
+            #step_list.append('upgrade_precheck.py')
+            for step in self.transform_steps:
+                step_list.append(step)
+
+        #save ops steps
+        with open(OPS_STEPS_DEFINE_PATH, 'w') as f:
+            f.write(json.dumps(step_list, indent=2))
+
+        return step_list
+
+    def init_conf(self):
+        status_list = ('False ' * len(self.steps)).split(' ')[:-1]
+        trans = dict(zip(self.steps, status_list))
+        open(self.trans_yaml, "w").write(json.dumps(trans))
+
+    def gen_trans_conf(self):
+        if not os.path.isfile(self.trans_yaml):
+            self.init_conf()
+        else:
+            try:
+                json.loads(open(self.trans_yaml, 'r').read())
+            except Exception as e:
+                logger.error("load from %s failed" % self.trans_yaml)
+                exit(1)
+                #self.init_conf()
+
+    def set_step(self, step=None):
+        tmp_steps = json.loads(open(self.trans_yaml, 'r').read())
+        tmp_steps[step] = True
+        open(self.trans_yaml, "w").write(json.dumps(tmp_steps))
+
+    def set_all_steps(self):
+        for step in self.steps:
+            self.set_step(step)
+
+    def unset_step(self, step=None):
+        tmp_steps = json.loads(open(self.trans_yaml, 'r').read())
+        tmp_steps[step] = False
+        open(self.trans_yaml, "w").write(json.dumps(tmp_steps))
+
+    def unset_all_steps(self):
+        for step in self.steps:
+            self.unset_step(step)
+
+    def check_step(self, step=None):
+        tmp_steps = json.loads(open(self.trans_yaml, 'r').read())
+        return tmp_steps[step]
+
+    def do_steps(self, retry=3):
+
+        for step in self.steps:
+            if self.check_step(step) == 'False':
+                if step in ('cmdb_onlining.py', 'cmdb_done.py'):
+                    cmd = "./scripts/%s %s" % (step, self.node_sls_path)
+                elif step in self.transform_steps:
+                    logger.info("doing step: %s, logging into /var/log/proxy_deploy.log" % step)
+                    cmd = "%s/scripts/%s %s" % (self.root_path, step, self.node_sls_path)
+                else:
+                    cmd = "./scripts/%s %s" % (step, self.opcfg)
+
+                while retry > 0:
+                    ret, out = exec_local_cmd(cmd)
+                    if ret == 0:
+                        self.set_step(step) #执行成功，对应step置为true
+                        logger.info("do_steps: %s done. cmd: %s" % (step, cmd))
+                        if step == "reboot_node.py":
+                            logger.info("doing reboot node, sleep 15s...")
+                            time.sleep(15)
+                        break
+                    else:
+                        logger.error("do_steps: %s error. %s" % (step, out))
+                        retry -= 1
+
+                        from common.node_envcheck import get_kernel_type
+                        from common.node_envcheck import KERNEL_6U
+                        if get_kernel_type() == KERNEL_6U and step == "postall_check.py":
+                            rpm_cmd = "rpm -e python-simplejson"
+                            ret, out = exec_local_cmd(rpm_cmd)
+                            rpm_cmd = "rpm -i %s/rpms/python-simplejson-2.0.9-3.1.1.alios6.x86_64" % self.root_path
+                            ret, out = exec_local_cmd(rpm_cmd)
+                            snmpd_cmd = "chkconfig  --level 2345 snmpd off"
+                            ret, out = exec_local_cmd(snmpd_cmd)
+
+                        time.sleep(1)
+                if retry <= 0:
+                    return 1
+
+        return 0
+
+def rpm_get_info(rpm, state='offline'):
+    if state == 'online':
+        cmd = 'rpm -q --nosignature --qf "%%{Name} %%{Version} %%{Release}" %s' % rpm
+    else:
+        cmd = 'rpm -qp --nosignature --qf "%%{Name} %%{Version} %%{Release}" %s' % rpm
+    ret, out = exec_local_cmd(cmd)
+    if ret:
+        return None
+    (name, version, release) = out.strip().split()
+    dict = {}
+    dict['name'] = name
+    dict['version'] = version
+    dict['release'] = release
+
+    return dict
+
+def slb_role_work_path(role):
+    if role == 'proxy':
+        cmd = 'rpm -qa | grep slb-proxy'
+        ret, out = exec_local_cmd(cmd)
+        if ret:
+            print 'rpm slb-proxy not exist'
+            return None
+
+    elif role == 'keyserver':
+        cmd = 'rpm -qa | grep slb-keyserver'
+        ret, out = exec_local_cmd(cmd)
+        if ret:
+            print 'rpm slb-keyserver not exist'
+            return None
+
+    lines = out.split('\n')
+    if lines == 1:
+        rpm = lines
+    else:
+        rpm_max = lines[0].strip()
+        for line in lines:
+            if cmp(line.strip(), rpm_max) > 0:
+                rpm_max = line.strip()
+        rpm = rpm_max
+
+    rpm_info = rpm_get_info(rpm, 'online')
+    role_work_path = '/home/slb/release/%s/%s/' % (rpm_info['version'], role)
+    return role_work_path
+
+TIME_COUNT = -1
+
+def signal_handler(signum, frame):
+    global TIME_COUNT
+
+    if TIME_COUNT == -1:
+        TIME_COUNT = 240
+
+        #sleep to avoid 'reboot_node trigger disable_node'
+        time.sleep(15)
+
+        role_worker_path = slb_role_work_path('proxy')
+        node_sls_path = "%s/srv/pillar/node.sls" % role_worker_path
+        for step in EXIT_STEPS:
+            cmd = "%s/scripts/%s %s" % (role_worker_path, step, node_sls_path)
+            retry = 3
+            while retry > 0:
+                ret, out = exec_local_cmd(cmd)
+                if ret == 0:
+                    logger.info("do_exit: %s done." % step)
+                    break
+                else:
+                    logger.error("do_exit: %s error. %s" % (step, out))
+                    retry -= 1
+                    time.sleep(1)
+            if retry < 0:
+                sys.exit(1)
+        sys.exit(0)
+
+    logger.info("signal SIGTERM is processing...")
+    time.sleep(1)
+    TIME_COUNT -= 1
+
+if __name__ == '__main__':
+    OPCFG_PATH = '/tmp/op.cfg'
+    role_work_path = '/home/slb/release/17.04.3/proxy/'
+    ops = StepOps("upgrade", OPCFG_PATH, role_work_path)
+    #ops.gen_ops_steps("upgrade")
+    ops.do_steps(retry=3)
+    #ops.gen_ops_steps("addnode")

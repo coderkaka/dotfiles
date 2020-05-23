@@ -1,0 +1,20 @@
+module('dyconf.modules.slb_proxy_read_timeout', package.seeall)
+local m = require 'dyconf.nginx_module'
+local module_name = 'slb_proxy_read_timeout'
+
+
+local function slb_proxy_read_timeout_set(cf, cmd)
+  local slb_proxy_read_timeout_module = m.get_module(cf, module_name)
+  local slb_proxy_read_timeout_conf = slb_proxy_read_timeout_module.conf
+  local proxy_read_timeout = tonumber(cf.args[2])
+  if proxy_read_timeout ~= nil then
+    slb_proxy_read_timeout_conf.proxy_read_timeout = proxy_read_timeout
+  else
+    return nil, 'bad value in slb_proxy_read_timeout directive'
+  end
+
+  return true
+end
+
+m.register_module(module_name, {})
+m.register_module_directive(module_name, m.http_srv_conf, m.CONF_FLAG, slb_proxy_read_timeout_set)

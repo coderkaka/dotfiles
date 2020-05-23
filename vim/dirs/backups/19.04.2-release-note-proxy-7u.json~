@@ -1,0 +1,125 @@
+{
+    "main_version":"19.04.2",
+    "compnent_list": [
+        {
+            "role":"Proxy",
+            "rpm_version_list":[
+                {
+                    "rpm":"slb-nginx",
+                    "version":"19.04.0-20190919144850.el7u2.aarch64"
+                },
+                {
+                    "rpm":"slb-kernel-modules-vsock-ali4000",
+                    "version":"1.1.0-20200317093807.alios7.aarch64"
+                },
+                {
+                    "rpm":"slb-vtoa-ali4000",
+                    "version":"1.1.0-20200227152114.alios7.aarch64"
+                },
+                {
+                    "rpm": "slb-dstat-7layer",
+                    "version": "1.1.1-20190918140217.alios7.aarch64"
+                },
+                {
+                    "rpm":"slb-control-proxy",
+                    "version":"19.04.0-20200310211800.aarch64"
+                },
+                {
+                    "rpm":"slb-monitor-proxy",
+                    "version":"16.10.0-20191125200358.noarch"
+                },
+                {
+                    "rpm":"t-alibgp-quagga",
+                    "version":"1.0.4-20190830172347.el7.aarch64"
+                },
+                {
+                    "rpm":"slb-role-proxy-vpc",
+                    "version":"18.08.0-20190918152358.alios7.aarch64"
+                },
+                {
+                     "rpm":"slb-drop-logcache",
+                     "version":"0.0.5-20190311114813.alios7.aarch64"
+                },
+                {
+                  "rpm": "ali-sls-ilogtail",
+                  "version": "1.0.0-1.alios7.aarch64"
+                },
+                {
+                  "rpm": "python-simplejson",
+                  "version": "3.3.3-1.alios7.aarch64"
+                },
+                {
+                  "rpm": "slb_clean_disk",
+                  "version": "16.12.2-20190919111735.alios7.aarch64"
+                },
+                {
+                    "rpm": "slb-common",
+                    "version": "3.5.3-993670.alios7.noarch"
+                },
+                {
+                    "rpm": "slb-libvsock",
+                    "version": "1.0.1-1.alios7.aarch64"
+                },
+                {
+                    "rpm": "python-gevent",
+                    "version": "1.0-3.el7.aarch64"
+                },
+                {
+                    "rpm": "python-greenlet",
+                    "version": "0.4.2-4.el7.aarch64"
+                },
+                {
+                    "rpm": "slb-syslog-logconfig",
+                    "version": "3.5.3-1162145.alios7.noarch"
+                },
+                {
+                    "rpm": "taobao-cronolog",
+                    "version": "1.6.2-15.alios7.aarch64"
+                },
+                {
+                    "rpm": "tsar",
+                    "version": "2.1.13-1000140.49ccc9d.el7.aarch64"
+                },
+                {
+                    "rpm": "slb-sensor-sysmetrics",
+                    "version": "0.0.2-991398.noarch"
+                },
+                {
+                    "rpm": "libev",
+                    "version": "4.15-7.el7.aarch64"
+                },
+                {
+                    "rpm": "protobuf-python",
+                    "version": "3.2.0-3.alios7.aarch64"
+                }
+            ]
+        }
+    ],
+    "change_list": [
+        "19.04.0",
+        "[Requirement] IPv6支持",
+        "[Requirement] JumboFrame ECS支持",
+        "[Requirement] 健康检查详细信息展示",
+        "[Requirement] 客户端证书信息获取",
+        "[Requirement] 健康检查支持HTTP/1.1",
+        "[Requirement] 自定义Header转发",
+        "[Requirement] agent异步",
+        "[Requirement] Underlay laddr/Overlay laddr分离",
+        "19.04.1",
+        "[Requirement] 访问日志中增加客户端端口",
+        "[Requirement] 增加开关关闭keyserver多vip功能",
+        "[Bugfix] 关闭upstream session reuse修复全链路HTTPS内存泄漏问题",
+        "[Bugfix] HTTP/2安全漏洞和bug修复: CVE-2019-9511,  CVE-2019-9513, CVE-2019-9516",
+        "[Bugfix] 修复upstream_response_time计算问题",
+        "[Bugfix] 兼容OKHTTP客户端旧版本",
+        "[Bugfix] 七层入流量统计修复",
+        "[Bugfix] 长连接边界值修改",
+        "[Bugfix] IPv6 checksum错误问题",
+        "19.04.2",
+        "[Bugfix] chunked模式的Post报文丢失问题",
+        "[Bugfix] IPv6 default route配置在dummy0"
+    ],
+    "bugfix" : [
+        "19.04.2"
+    ]
+}

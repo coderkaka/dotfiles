@@ -1,0 +1,140 @@
+#!/home/tops/bin/python
+# -*- coding: utf-8 -*-
+
+import urllib
+import sys
+import argparse
+import os
+import logging
+
+try:
+    import simplejson as json
+except ImportError:
+    import json
+
+logger = logging.getLogger(__name__)
+
+
+def parse_args():
+    _parser = argparse.ArgumentParser()
+    _parser.add_argument('release_note_file', help="release note 文件路径")
+    _parser.add_argument('role', choices=['slbapi', 'master', 'lvs', 'proxy', 'keyserver', 'probe'],
+                         help='打包的角色')
+    _parser.add_argument('fixed_rpm_path', nargs='?',
+                         help='指定 rpm 包下载的路径')
+    return _parser.parse_args()
+
+
+url_tmpl = 'http://yum.tbsite.net'
+
+
+def download_url(url, tmpfile_path, file_path):
+    _, msg = urllib.urlretrieve(url, tmpfile_path)
+    if 'rpm' in msg['Content-Type'] or 'x-redhat-package-manager' in msg['Content-Type']:
+        os.rename(tmpfile_path, file_path)
+        return 0
+    else:
+        os.remove(tmpfile_path)
+        return 1
+
+
+def download_rpm(name, version, path):
+    global url_tmpl
+    file_name = name + '-' + version + '.rpm'
+    file_path = path + '/' + file_name
+    tmpfile_path = path + '/' + 'tmpfile'
+    url_list = []
+
+    if 'x86_64' in version:
+        arch = 'x86_64'
+    elif 'noarch' in version:
+        arch = 'noarch'
+
+    '''for tops package'''
+    if 'tops' in name:
+        url = 'http://yum.tbsite.net/ops/6/%s/%s' % (arch, file_name)
+        url_list.append(url)
+
+    '''for redhat package'''
+    url = 'http://yum.tbsite.net/redhat/6u2/os/%s/Packages/%s' % (arch, file_name)
+    url_list.append(url)
+
+    '''for alios7 package'''
+    url = 'http://yum.tbsite.net/alios/7/os/%s/Packages/%s' % (arch, file_name)
+    url_list.append(url)
+
+    '''for alios7 package'''
+    url = 'http://yum.tbsite.net/alios/7/os/aarch64/Packages/%s' % (file_name)
+    url_list.append(url)
+
+    '''for each branch'''
+    for branch in ['test', 'current', 'stable']:
+        osversion = '6'
+        if 'el7' in version:
+            osversion = '7'
+        elif 'alios7' in version:
+            osversion = '7'
+        url = 'http://yum.tbsite.net/taobao/%s/%s/%s/%s/%s' % (osversion, arch, branch, name, file_name)
+        url_list.append(url)
+
+    url = 'http://yum.tbsite.net//alios/6/os/%s/Packages/%s' % (arch, file_name)
+    url_list.append(url)
+
+    logger.debug("download %s-%s from url: \n%s", name, version, '\n'.join(url_list))
+    for url in url_list:
+        download_url(url, tmpfile_path, file_path)
+
+    if not os.path.exists(file_path):
+        print 'download failed: %s' % file_name
+        sys.exit(1)
+
+
+def handle_rpm_list(role):
+    global url_tmpl
+
+    for module in role['rpm_version_list']:
+        download_rpm(module['rpm'].strip(), module['version'].strip(), path)
+
+def print_usage():
+    print 'Usage: %s [release_note_file] [api|master|lvs|proxy|keyserver|probe] [fixed_rpm_path]' % (sys.argv[0])
+
+
+
+if __name__ == '__main__':
+    logging.basicConfig(
+        format='%(asctime)s - %(pathname)s:%(funcName)s+%(lineno)d - %(levelname)s - %(message)s',
+        level=logging.INFO)
+    options = parse_args()
+
+    release = json.load(open(options.release_note_file, 'r'))
+
+    if options.role == 'slbapi':
+        target = 'SLB API'
+    elif options.role == 'master':
+        target = 'SLB controller'
+    else:
+        target = options.role
+
+    if options.fixed_rpm_path:
+        path = os.getcwd() + '/' + options.fixed_rpm_path
+    else:
+        path = os.getcwd() + '/' + options.role + '/' + 'rpms'
+
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+    '''for each role'''
+    rpm_list = []
+    for role in release['compnent_list']:
+        if role['role'].lower() != target.lower():
+            for module in role['rpm_version_list']:
+                if 'associate_role' in module and module['associate_role'].lower() == target.lower():
+                    rpm_list.append(module)
+        else:
+            for module in role['rpm_version_list']:
+                if 'associate_role' not in module:
+                    rpm_list.append(module)
+    logger.info(rpm_list)
+
+    for module in rpm_list:
+        download_rpm(module['rpm'].strip(), module['version'].strip(), path)

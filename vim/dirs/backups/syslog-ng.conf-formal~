@@ -1,0 +1,82 @@
+#syslog-ng.conf
+@version: 3.0
+#
+# syslog-ng.conf for Alibaba groups.
+# v20151215
+#                 ahao.mah@alibaba-inc.com
+#
+options {
+        flush_lines (0);
+        time_reopen (10);
+        log_fifo_size (1000);
+        long_hostnames (off);
+        chain_hostnames (no);
+        use_dns (no);
+        use_fqdn (yes);
+        keep_hostname (yes);
+        create_dirs (yes);
+        dir_perm(0755);
+        owner("root");
+        group("adm");
+        perm(0640);
+        stats_freq(0);
+};
+
+#syslog－ng client configure,log source is only from local
+source s_sys {
+        file ("/proc/kmsg" program_override("kernel: "));
+        unix-stream ("/dev/log");
+        internal();
+};
+
+include /etc/syslog-ng/conf.d;
+#include /etc/syslog-ng/remote_server.conf;
+
+destination d_sys_cons      { file("/dev/console"); };
+destination d_sys_mesg      { file("/var/log/messages"); };
+destination d_sys_auth      { file("/var/log/secure"); };
+destination d_sys_mail      { file("/var/log/maillog" flush_lines(10)); };
+destination d_sys_spol      { file("/var/log/spooler"); };
+destination d_sys_boot      { file("/var/log/boot.log"); };
+destination d_sys_cron      { file("/var/log/cron"); };
+destination d_sys_kern      { file("/var/log/kern"); };
+destination d_sys_mlal      { file("/dev/tty0"); };
+
+filter f_sys_snoopy         { program("snoopy"); };
+filter f_sys_netstat        { program("netstat"); };
+filter f_sys_app            { facility(local0,local1,local2,local3,local4); };
+filter f_sys_auth           { facility(auth,authpriv); };
+filter f_sys_kernel         { facility(kern); };
+filter f_sys_mail           { facility(mail); };
+filter f_sys_boot           { facility(local7); };
+filter f_sys_cron           { facility(cron); };
+filter f_sys_emergency      { level(emerg); };
+filter f_sys_news           { facility(uucp) or (facility(news) and level(crit..emerg)); };
+filter f_sys_message        { level(info..emerg); };
+
+#anycast_address
+#define in /etc/syslog-ng/remote_server.conf
+#test_dev: 10.101.0.55
+#aliyun: 10.143.22.55
+#main_site: 10.195.29.55
+#alipay: 10.137.100.55
+#destination d_sys_loghost   { udp("${any_syslog_ip}" port(514) suppress(10)); };
+
+# slb only some files send to remote server
+#log { source(s_sys); filter(f_sys_auth);        destination(d_sys_loghost);};
+#log { source(s_sys); filter(f_sys_kernel);      destination(d_sys_loghost);};
+#log { source(s_sys); filter(f_sys_cron);        destination(d_sys_loghost);};
+#log { source(s_sys); destination(d_sys_loghost); };
+
+# default
+log { source(s_sys); filter(f_sys_snoopy);      flags(final); };
+log { source(s_sys); filter(f_sys_app);         flags(final); };
+log { source(s_sys); filter(f_sys_netstat);     flags(final); };
+log { source(s_sys); filter(f_sys_auth);        destination(d_sys_auth);};
+log { source(s_sys); filter(f_sys_kernel);      destination(d_sys_kern);};
+log { source(s_sys); filter(f_sys_mail);        destination(d_sys_mail);};
+log { source(s_sys); filter(f_sys_cron);        destination(d_sys_cron);};
+log { source(s_sys); filter(f_sys_emergency);   destination(d_sys_mlal);};
+log { source(s_sys); filter(f_sys_boot);        destination(d_sys_boot);};
+log { source(s_sys); filter(f_sys_news);        destination(d_sys_spol);};
+log { source(s_sys); filter(f_sys_message);     destination(d_sys_mesg); flags(final);};

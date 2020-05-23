@@ -1,0 +1,144 @@
+{
+    "main_version":"19.04.0",
+    "compnent_list": [
+        {
+            "role":"Proxy",
+            "rpm_version_list":[
+                {
+                    "rpm":"slb-nginx",
+                    "version":"19.04.0-20190902150548.el7u2.x86_64"
+                },
+                {
+                    "rpm":"nic-i40e-kernel-ali3000",
+                    "version":"2.0.30-2.alios7.x86_64"
+                },
+                {
+                    "rpm":"kernel-hotfix-D727983-009.ali3000",
+                    "version":"1.0-1.alios7.x86_64"
+                },
+                {
+                    "rpm":"slb-kernel-modules-vsock-ali2008",
+                    "version":"3.0.2-20190823105529.alios7.x86_64"
+                },
+                {
+                    "rpm":"slb-vsock-ali3000",
+                    "version":"1.2.3-20190620203752.alios7.x86_64"
+                },
+                {
+                    "rpm":"slb-vtoa-ali2008",
+                    "version":"2.0.1-20180906095617.alios7.x86_64"
+                },
+                {
+                    "rpm":"slb-vtoa-ali3000",
+                    "version":"2.0.1-20181226202750.alios7.x86_64"
+                },
+                {
+                    "rpm": "slb-dstat-7layer",
+                    "version": "1.1.1-20190725013531.alios7.x86_64"
+                },
+                {
+                    "rpm":"slb-control-proxy",
+                    "version":"19.04.0-20190731011539.x86_64"
+                },
+                {
+                    "rpm":"slb-monitor-proxy",
+                    "version":"16.10.0-1233765.noarch"
+                },
+                {
+                    "rpm":"quagga",
+                    "version":"0.99.22.4-18.alios7.x86_64"
+                },
+                {
+                    "rpm":"slb-role-proxy-vpc",
+                    "version":"18.08.0-1799685.alios7.x86_64"
+                },
+                {
+                     "rpm":"slb-drop-logcache",
+                     "version":"0.0.5-1327646.alios7.x86_64"
+                },
+                {
+                  "rpm": "ali-sls-ilogtail",
+                  "version": "0.13.7-1446776.alios7.x86_64"
+                },
+                {
+                  "rpm": "python-simplejson",
+                  "version": "3.3.3-1.el7.x86_64"
+                },
+                {
+                  "rpm": "slb_clean_disk",
+                    "version": "16.12.2-1640205.alios7.x86_64"
+                },
+                {
+                    "rpm": "slb-common",
+                    "version": "3.5.3-993670.el7.x86_64"
+                },
+                {
+                    "rpm": "slb-libvsock",
+                    "version": "2.0.0-1779839.alios7.x86_64"
+                },
+                {
+                    "rpm": "slb-pet",
+                    "version": "2.2.0-25.x86_64"
+                },
+                {
+                    "rpm": "python-gevent",
+                    "version": "1.0-2.el7.x86_64"
+                },
+                {
+                    "rpm": "python2-greenlet",
+                    "version": "0.4.9-1.el7.x86_64"
+                },
+                {
+                    "rpm": "slb-syslog-logconfig",
+                    "version": "3.5.3-1162145.alios7.x86_64"
+                },
+                {
+                    "rpm": "taobao-cronolog",
+                    "version": "1.6.2-15.alios7.x86_64"
+                },
+                {
+                    "rpm": "tsar",
+                    "version": "2.1.13-1000140.49ccc9d.el7.x86_64"
+                },
+                {
+                    "rpm": "slb-sensor-sysmetrics",
+                    "version": "0.0.2-991398.noarch"
+                },
+                {
+                    "rpm": "slb-libevent",
+                    "version": "2.0.12-10.el6.x86_64"
+                },
+                {
+                    "rpm": "tops-ntp",
+                    "version": "4.2.6p5-1.x86_64"
+                },
+                {
+                    "rpm": "python-urllib3",
+                    "version": "1.10.2-2.2.alios7.noarch"
+                },
+                {
+                    "rpm": "python-requests",
+                    "version": "2.6.0-1.2.alios7.noarch"
+                },
+                {
+                    "rpm": "protobuf-python",
+                    "version": "3.2.0-3.alios7.x86_64"
+                }
+            ]
+        }
+    ],
+    "change_list": [
+        "19.04.0",
+        "[Requirement] IPv6支持",
+        "[Requirement] JumboFrame ECS支持",
+        "[Requirement] 健康检查详细信息展示",
+        "[Requirement] 客户端证书信息获取",
+        "[Requirement] 健康检查支持HTTP/1.1",
+        "[Requirement] 自定义Header转发",
+        "[Requirement] agent异步",
+        "[Requirement] Underlay laddr/Overlay laddr分离"
+    ],
+    "bugfix" : [
+        "19.04.0"
+    ]
+}

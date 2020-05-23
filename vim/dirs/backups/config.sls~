@@ -1,0 +1,1025 @@
+{% set role_name = pillar['byhost'][grains['nodename']]['role_name'] %}
+{% set hostname = grains['nodename'] %}
+{% set bond0_ip = pillar['byhost'][grains['nodename']]['bond0_ip'] %}
+{% set bond0_gateway = pillar['byhost'][grains['nodename']]['bond0_gateway'] %}
+{% if 'protocol_type' in pillar['taskinfo'] %}
+{% set protocol_type = pillar['taskinfo']['protocol_type'] %}
+{% else %}
+{% set protocol_type = 'none' %}
+{% endif %}
+{% if grains['network_type'] == "FortyGigabit"%}
+  {% set dummy0_ip = pillar['byhost'][grains['nodename']]['mgt_ip'] %}
+  {% set eth4_ip = pillar['byhost'][grains['nodename']]['eth4_ip'] %}
+  {% set eth4_gateway = pillar['byhost'][grains['nodename']]['eth4_gateway'] %}
+  {% set eth4_network = pillar['byhost'][grains['nodename']]['eth4_network'] %}
+  {% set eth4_prefix = pillar['byhost'][grains['nodename']]['eth4_prefix'] %}
+  {% set eth4_netmask = pillar['byhost'][grains['nodename']]['eth4_netmask'] %}
+  {% set eth4_mac = grains['eth4_mac'] %}
+  {% set eth5_ip = pillar['byhost'][grains['nodename']]['eth5_ip'] %}
+  {% set eth5_gateway = pillar['byhost'][grains['nodename']]['eth5_gateway'] %}
+  {% set eth5_network = pillar['byhost'][grains['nodename']]['eth5_network'] %}
+  {% set eth5_prefix = pillar['byhost'][grains['nodename']]['eth5_prefix'] %}
+  {% set eth5_netmask = pillar['byhost'][grains['nodename']]['eth5_netmask'] %}
+  {% set eth5_mac = grains['eth5_mac'] %}
+  {% set eth6_ip = pillar['byhost'][grains['nodename']]['eth6_ip'] %}
+  {% set eth6_gateway = pillar['byhost'][grains['nodename']]['eth6_gateway'] %}
+  {% set eth6_network = pillar['byhost'][grains['nodename']]['eth6_network'] %}
+  {% set eth6_prefix = pillar['byhost'][grains['nodename']]['eth6_prefix'] %}
+  {% set eth6_netmask = pillar['byhost'][grains['nodename']]['eth6_netmask'] %}
+  {% set eth6_mac = grains['eth6_mac'] %}
+  {% set eth7_ip = pillar['byhost'][grains['nodename']]['eth7_ip'] %}
+  {% set eth7_gateway = pillar['byhost'][grains['nodename']]['eth7_gateway'] %}
+  {% set eth7_network = pillar['byhost'][grains['nodename']]['eth7_network'] %}
+  {% set eth7_prefix = pillar['byhost'][grains['nodename']]['eth7_prefix'] %}
+  {% set eth7_netmask = pillar['byhost'][grains['nodename']]['eth7_netmask'] %}
+  {% set eth7_mac = grains['eth7_mac'] %}
+  {% set local_as = pillar['byhost'][grains['nodename']]['local_as'] %}
+  {% set remote_as = pillar['byhost'][grains['nodename']]['remote_as'] %}
+  {% set bgp_auth = pillar['byhost'][grains['nodename']]['bgp_auth'] %}
+  {% set community = pillar['byhost'][grains['nodename']]['community'] %}
+{% elif grains['network_type'] == "FortyGigabit-w4h"%}
+  {% set dummy0_ip = pillar['byhost'][grains['nodename']]['mgt_ip'] %}
+  {% set eth4_ip = pillar['byhost'][grains['nodename']]['eth4_ip'] %}
+  {% set eth4_gateway = pillar['byhost'][grains['nodename']]['eth4_gateway'] %}
+  {% set eth4_network = pillar['byhost'][grains['nodename']]['eth4_network'] %}
+  {% set eth4_prefix = pillar['byhost'][grains['nodename']]['eth4_prefix'] %}
+  {% set eth4_netmask = pillar['byhost'][grains['nodename']]['eth4_netmask'] %}
+  {% set eth4_mac = grains['eth4_mac'] %}
+  {% set eth5_ip = pillar['byhost'][grains['nodename']]['eth5_ip'] %}
+  {% set eth5_gateway = pillar['byhost'][grains['nodename']]['eth5_gateway'] %}
+  {% set eth5_network = pillar['byhost'][grains['nodename']]['eth5_network'] %}
+  {% set eth5_prefix = pillar['byhost'][grains['nodename']]['eth5_prefix'] %}
+  {% set eth5_netmask = pillar['byhost'][grains['nodename']]['eth5_netmask'] %}
+  {% set eth5_mac = grains['eth5_mac'] %}
+  {% set local_as = pillar['byhost'][grains['nodename']]['local_as'] %}
+  {% set remote_as = pillar['byhost'][grains['nodename']]['remote_as'] %}
+  {% set bgp_auth = pillar['byhost'][grains['nodename']]['bgp_auth'] %}
+  {% set community = pillar['byhost'][grains['nodename']]['community'] %}
+{% else %}
+  {% if protocol_type == "bgp"%}
+  {% set dummy0_ip = pillar['byhost'][grains['nodename']]['mgt_ip'] %}
+  {% set t1_ip = pillar['byhost'][grains['nodename']]['t1_ip'] %}
+  {% set t1_gateway = pillar['byhost'][grains['nodename']]['t1_gateway'] %}
+  {% set t1_network = pillar['byhost'][grains['nodename']]['t1_network'] %}
+  {% set t1_prefix = pillar['byhost'][grains['nodename']]['t1_prefix'] %}
+  {% set t1_netmask = pillar['byhost'][grains['nodename']]['t1_netmask'] %}
+  {% set t1_mac = grains['T1_mac'] %}
+  {% set t2_ip = pillar['byhost'][grains['nodename']]['t2_ip'] %}
+  {% set t2_gateway = pillar['byhost'][grains['nodename']]['t2_gateway'] %}
+  {% set t2_network = pillar['byhost'][grains['nodename']]['t2_network'] %}
+  {% set t2_prefix = pillar['byhost'][grains['nodename']]['t2_prefix'] %}
+  {% set t2_netmask = pillar['byhost'][grains['nodename']]['t2_netmask'] %}
+  {% set t2_mac = grains['T2_mac'] %}
+  {% set local_as = pillar['byhost'][grains['nodename']]['local_as'] %}
+  {% set remote_as = pillar['byhost'][grains['nodename']]['remote_as'] %}
+  {% set bgp_auth = pillar['byhost'][grains['nodename']]['bgp_auth'] %}
+  {% set community = pillar['byhost'][grains['nodename']]['community'] %}
+  {% else %}
+  {% set dummy0_ip = pillar['byhost'][grains['nodename']]['dummy0_ip'] %}
+  {% set t1_ip = pillar['byhost'][grains['nodename']]['t1_ip'] %}
+  {% set t1_network = pillar['byhost'][grains['nodename']]['t1_network'] %}
+  {% set t1_prefix = pillar['byhost'][grains['nodename']]['t1_prefix'] %}
+  {% set t1_netmask = pillar['byhost'][grains['nodename']]['t1_netmask'] %}
+  {% set t1_mac = grains['T1_mac'] %}
+  {% set t2_ip = pillar['byhost'][grains['nodename']]['t2_ip'] %}
+  {% set t2_network = pillar['byhost'][grains['nodename']]['t2_network'] %}
+  {% set t2_prefix = pillar['byhost'][grains['nodename']]['t2_prefix'] %}
+  {% set t2_netmask = pillar['byhost'][grains['nodename']]['t2_netmask'] %}
+  {% set t2_mac = grains['T2_mac'] %}
+  {% set ospf_auth = pillar['byhost'][grains['nodename']]['ospf_auth'] %}
+  {% set area_id = pillar['byhost'][grains['nodename']]['area_id'] %}
+  {% set area_type = pillar['byhost'][grains['nodename']]['area_type'] | default('nssa') %}
+  {% set mtu_ignore = pillar['byhost'][grains['nodename']]['mtu_ignore'] | default("no") %}
+  {% set hello_interval = pillar['byhost'][grains['nodename']]['hello_interval'] | default(3) %}
+  {% set dead_interval = pillar['byhost'][grains['nodename']]['dead_interval'] | default(10) %}
+  {% endif %}
+{% endif %}
+{% set laddr_network = pillar['byhost'][grains['nodename']]['laddr_network'] %}
+{% set laddr_prefix = pillar['byhost'][grains['nodename']]['laddr_prefix'] %}
+{% set proxy_pool = pillar['byhost'][grains['nodename']]['proxy_pool'] %}
+{% set xuanyuan_host = pillar['database']['xuanyuan_host'] %}
+{% set xuanyuan_port = pillar['database']['xuanyuan_port'] %}
+{% set xuanyuan_user = pillar['database']['xuanyuan_user'] %}
+{% set xuanyuan_passwd = pillar['database']['xuanyuan_passwd'] %}
+{% set xuanyuan_db = pillar['database']['xuanyuan_db'] %}
+{% set stats_host = pillar['database']['stats_host'] %}
+{% set stats_port = pillar['database']['stats_port'] %}
+{% set stats_user = pillar['database']['stats_user'] %}
+{% set stats_passwd = pillar['database']['stats_passwd'] %}
+{% set stats_db = pillar['database']['stats_db'] %}
+{% if pillar['vrrp'] is defined and pillar['vrrp']['masterVIP'] is defined%}
+{% set masterVIP = pillar['vrrp']['masterVIP'] %}
+{% else %}
+{% set masterVIP = None %}
+{% endif %}
+{% set master_ha_ip = 'yes' %}
+{% set list_master = pillar['list_master'] %}
+{% set list_monitor = pillar['list_monitor'] %}
+{% set cluster_name = pillar['cluster_name'] %}
+{% set cluster_info = pillar.get('cluster_info') %}
+{% if cluster_info and cluster_info.get('mtu') %}
+  {% set mtu = cluster_info['mtu'] %}
+{% else %}
+  {% set mtu = 1982 %}
+{% endif %}
+
+{% set reinstall = pillar['taskinfo']['reinstall'] | default('false') %}
+{% set reboot = pillar['taskinfo']['reboot'] | default('false') %}
+{% set upgrade_mode = pillar['taskinfo']['upgrade_mode'] | default('full') %}
+{% if upgrade_mode != 'fly' %}
+    {% set upgrade_mode = 'full' %}
+{% endif %}
+
+{% if reboot == "true" or upgrade_mode == "full" or reinstall == "true" %}
+touch_reboot_node:
+  cmd.run:
+    - name: 'touch /dev/shm/_node_reboot'
+
+/home/slb/coredump:
+  file.directory:
+    - user: root
+    - group: root
+    - dir_mode: 777
+    - file_mode: 777
+    - makedirs: True
+
+logrotate_log_compress:
+  cmd.run:
+    - name: sed -i 's/^#compress/compress/' /etc/logrotate.conf
+
+/etc/systemd/journald.conf:
+  file.append:
+    - text:
+      - "SystemMaxUse=2000M"
+
+/etc/rc.d/rc.local:
+  file.append:
+    - text:
+      - "systemctl restart slb-proxy-affinity.service > /dev/null 2>&1"
+
+/etc/sysconfig/network:
+  file.managed:
+    - source: salt://tmpl/network
+    - template: jinja
+    - context:
+      hostname: {{ hostname }}
+  cmd.wait:
+    - name: /etc/init.d/network restart
+    - watch:
+       - file: /etc/sysconfig/network
+
+/etc/sysconfig/network-scripts/ifcfg-dummy0:
+  file.managed:
+    - source: salt://tmpl/ifcfg-dummy0
+  cmd.wait:
+    - name: '/sbin/ifdown dummy0; /sbin/ifup dummy0'
+    - watch:
+       - file: /etc/sysconfig/network-scripts/ifcfg-dummy0
+
+/etc/sysconfig/network-scripts/ifcfg-lo:mgt:
+  file.managed:
+    - source: salt://tmpl/ifcfg-lo:mgt
+    - template: jinja
+    - context:
+      ipaddr: {{ dummy0_ip }}
+  cmd.wait:
+    - name: /etc/init.d/network restart
+    - watch:
+       - file: /etc/sysconfig/network-scripts/ifcfg-lo:mgt
+
+{% if grains['bonding'] == True %}
+/etc/sysconfig/network-scripts/route-bond0:
+  file.managed:
+    - source: salt://tmpl/route-bond0
+    - template: jinja
+    - context:
+      bond0_gateway: {{ bond0_gateway }}
+  cmd.wait:
+    - name: '/sbin/ifdown bond0;/sbin/ifup bond0'
+    - onlyif: True
+    - watch:
+      - file: /etc/sysconfig/network-scripts/route-bond0
+{% else %}
+enable_policy_route:
+  cmd.run:
+    - name: sed -i 's/^need_rule_table.*$/need_rule_table = yes/' /usr/local/lldp_kernel/lldp.conf
+{% endif %}
+
+/etc/sysconfig/network-scripts/rule-bond0:
+  file.managed:
+    - source: salt://tmpl/rule-bond0
+    - template: jinja
+    - context:
+      bond0_ip: {{ bond0_ip }}
+  cmd.wait:
+    - name: '/sbin/ifdown bond0;/sbin/ifup bond0'
+    - onlyif: True
+    - watch:
+      - file: /etc/sysconfig/network-scripts/rule-bond0
+
+/etc/init.d/zebra:
+  file.managed:
+      - source: salt://raw/zebra
+      - require:
+        - pkg: t-alibgp-quagga
+
+/etc/init.d/ospfd:
+  file.managed:
+      - source: salt://raw/ospfd
+      - mode: 755
+      - require:
+        - pkg: t-alibgp-quagga
+
+/etc/sysconfig/quagga:
+  file.managed:
+      - source: salt://raw/quagga
+      - mode: 755
+      - require:
+        - pkg: t-alibgp-quagga
+
+{% if grains['network_type'] == "FortyGigabit"%}
+
+/etc/sysconfig/network-scripts/ifcfg-eth4:
+  file.managed:
+    - source: salt://tmpl/ifcfg-eth4
+    - template: jinja
+    - context:
+      mtu: {{ mtu }}
+      ipaddr: {{ eth4_ip }}
+      netmask: {{ eth4_netmask }}
+      hwaddr: {{ eth4_mac }}
+
+/etc/sysconfig/network-scripts/ifcfg-eth5:
+  file.managed:
+    - source: salt://tmpl/ifcfg-eth5
+    - template: jinja
+    - context:
+      mtu: {{ mtu }}
+      ipaddr: {{ eth5_ip }}
+      netmask: {{ eth5_netmask }}
+      hwaddr: {{ eth5_mac }}
+
+/etc/sysconfig/network-scripts/ifcfg-eth6:
+  file.managed:
+    - source: salt://tmpl/ifcfg-eth6
+    - template: jinja
+    - context:
+      mtu: {{ mtu }}
+      ipaddr: {{ eth6_ip }}
+      netmask: {{ eth6_netmask }}
+      hwaddr: {{ eth6_mac }}
+
+/etc/sysconfig/network-scripts/ifcfg-eth7:
+  file.managed:
+    - source: salt://tmpl/ifcfg-eth7
+    - template: jinja
+    - context:
+      mtu: {{ mtu }}
+      ipaddr: {{ eth7_ip }}
+      netmask: {{ eth7_netmask }}
+      hwaddr: {{ eth7_mac }}
+
+/etc/sysconfig/network-scripts/ifcfg-T1:
+  file.absent
+
+/etc/sysconfig/network-scripts/ifcfg-T2:
+  file.absent
+
+network:
+  service.running:
+    - enable: True
+    - watch:
+       - file: /etc/sysconfig/network-scripts/ifcfg-eth4
+       - file: /etc/sysconfig/network-scripts/ifcfg-eth5
+       - file: /etc/sysconfig/network-scripts/ifcfg-eth6
+       - file: /etc/sysconfig/network-scripts/ifcfg-eth7
+       - file: /etc/sysconfig/network-scripts/ifcfg-T1
+       - file: /etc/sysconfig/network-scripts/ifcfg-T2
+
+/etc/init.d/bgpd:
+  file.managed:
+      - source: salt://raw/bgpd
+      - require:
+        - pkg: t-alibgp-quagga
+
+/etc/quagga/zebra_init.conf:
+  file.managed:
+    - template: jinja
+    - context:
+      hostname: {{ hostname }}
+    - source: salt://tmpl/zebra_init_40g.conf
+
+/etc/quagga/bgpd_init.conf:
+  file.managed:
+    - template: jinja
+    - context:
+      eth4_network: {{ eth4_network }}
+      eth5_network: {{ eth5_network }}
+      eth6_network: {{ eth6_network }}
+      eth7_network: {{ eth7_network }}
+      eth4_ip: {{ eth4_ip }}
+      eth5_ip: {{ eth5_ip }}
+      eth6_ip: {{ eth6_ip }}
+      eth7_ip: {{ eth7_ip }}
+      eth4_gateway: {{ eth4_gateway }}
+      eth5_gateway: {{ eth5_gateway }}
+      eth6_gateway: {{ eth6_gateway }}
+      eth7_gateway: {{ eth7_gateway }}
+      local_as: {{ local_as }}
+      remote_as: {{ remote_as }}
+      route_id: {{ dummy0_ip }}
+      laddr_network: {{ laddr_network }}
+      laddr_prefix: {{ laddr_prefix }}
+      bgp_auth: {{ bgp_auth }}
+      community: {{ community }}
+    - source: salt://tmpl/bgpd_init.conf
+
+zebra:
+  service.running:
+    - require:
+       - pkg: t-alibgp-quagga
+    - watch:
+       - service: network
+       - file: /etc/init.d/bgpd
+       - file: /etc/init.d/zebra
+       - file: /etc/quagga/zebra_init.conf
+       - file: /etc/quagga/bgpd_init.conf
+
+bgpd:
+  service.running:
+    - require:
+       - pkg: t-alibgp-quagga
+    - watch:
+       - service: network
+       - file: /etc/init.d/bgpd
+       - file: /etc/init.d/zebra
+       - file: /etc/quagga/zebra_init.conf
+       - file: /etc/quagga/bgpd_init.conf
+
+slb_proxy_zebra_autorun:
+  cmd.run:
+    - name: chkconfig zebra on && chkconfig ospfd off && chkconfig bgpd on
+
+{% elif grains['network_type'] == "FortyGigabit-w4h"%}
+
+/etc/sysconfig/network-scripts/ifcfg-eth4:
+  file.managed:
+    - source: salt://tmpl/ifcfg-eth4
+    - template: jinja
+    - context:
+      mtu: {{ mtu }}
+      ipaddr: {{ eth4_ip }}
+      netmask: {{ eth4_netmask }}
+      hwaddr: {{ eth4_mac }}
+
+/etc/sysconfig/network-scripts/ifcfg-eth5:
+  file.managed:
+    - source: salt://tmpl/ifcfg-eth5
+    - template: jinja
+    - context:
+      mtu: {{ mtu }}
+      ipaddr: {{ eth5_ip }}
+      netmask: {{ eth5_netmask }}
+      hwaddr: {{ eth5_mac }}
+
+/etc/sysconfig/network-scripts/ifcfg-T1:
+  file.absent
+
+/etc/sysconfig/network-scripts/ifcfg-T2:
+  file.absent
+
+network:
+  service.running:
+    - enable: True
+    - watch:
+       - file: /etc/sysconfig/network-scripts/ifcfg-eth4
+       - file: /etc/sysconfig/network-scripts/ifcfg-eth5
+       - file: /etc/sysconfig/network-scripts/ifcfg-T1
+       - file: /etc/sysconfig/network-scripts/ifcfg-T2
+
+/etc/init.d/bgpd:
+  file.managed:
+      - source: salt://raw/bgpd
+      - require:
+        - pkg: t-alibgp-quagga
+
+/etc/quagga/zebra_init.conf:
+  file.managed:
+    - template: jinja
+    - context:
+      hostname: {{ hostname }}
+    - source: salt://tmpl/zebra_init_40g_w4h.conf
+
+/etc/quagga/bgpd_init.conf:
+  file.managed:
+    - template: jinja
+    - context:
+      eth4_network: {{ eth4_network }}
+      eth5_network: {{ eth5_network }}
+      eth4_ip: {{ eth4_ip }}
+      eth5_ip: {{ eth5_ip }}
+      eth4_gateway: {{ eth4_gateway }}
+      eth5_gateway: {{ eth5_gateway }}
+      local_as: {{ local_as }}
+      remote_as: {{ remote_as }}
+      route_id: {{ dummy0_ip }}
+      laddr_network: {{ laddr_network }}
+      laddr_prefix: {{ laddr_prefix }}
+      bgp_auth: {{ bgp_auth }}
+      community: {{ community }}
+    - source: salt://tmpl/bgpd_init_w4h.conf
+
+zebra:
+  service.running:
+    - require:
+       - pkg: t-alibgp-quagga
+    - watch:
+       - service: network
+       - file: /etc/init.d/bgpd
+       - file: /etc/init.d/zebra
+       - file: /etc/quagga/zebra_init.conf
+       - file: /etc/quagga/bgpd_init.conf
+
+bgpd:
+  service.running:
+    - require:
+       - pkg: t-alibgp-quagga
+    - watch:
+       - service: network
+       - file: /etc/init.d/bgpd
+       - file: /etc/init.d/zebra
+       - file: /etc/quagga/zebra_init.conf
+       - file: /etc/quagga/bgpd_init.conf
+
+slb_proxy_zebra_autorun:
+  cmd.run:
+    - name: chkconfig zebra on && chkconfig ospfd off && chkconfig bgpd on
+
+{% else %}
+{% if protocol_type == "bgp"%}
+/usr/local/etc/route_type_10g.conf:
+  file.managed:
+    - source: salt://tmpl/route_type_10g
+    - template: jinja
+    - context:
+      protocol_type: {{ protocol_type }}
+
+/etc/sysconfig/network-scripts/ifcfg-T1:
+  file.managed:
+    - source: salt://tmpl/ifcfg-T1
+    - template: jinja
+    - context:
+      mtu: {{ mtu }}
+      ipaddr: {{ t1_ip }}
+      netmask: {{ t1_netmask }}
+      hwaddr: {{ t1_mac }}
+
+/etc/sysconfig/network-scripts/ifcfg-T2:
+  file.managed:
+    - source: salt://tmpl/ifcfg-T2
+    - template: jinja
+    - context:
+      mtu: {{ mtu }}
+      ipaddr: {{ t2_ip }}
+      netmask: {{ t2_netmask }}
+      hwaddr: {{ t2_mac }}
+
+network:
+  service.running:
+    - enable: True
+    - watch:
+       - file: /etc/sysconfig/network-scripts/ifcfg-T1
+       - file: /etc/sysconfig/network-scripts/ifcfg-T2
+
+/etc/init.d/bgpd:
+  file.managed:
+      - source: salt://raw/bgpd
+      - require:
+        - pkg: t-alibgp-quagga
+
+/etc/quagga/zebra_init.conf:
+  file.managed:
+    - template: jinja
+    - context:
+      hostname: {{ hostname }}
+    - source: salt://tmpl/zebra_init_10g_bgp.conf
+
+/etc/quagga/bgpd_init.conf:
+  file.managed:
+    - template: jinja
+    - context:
+      t1_network: {{ t1_network }}
+      t2_network: {{ t2_network }}
+      t1_ip: {{ t1_ip }}
+      t2_ip: {{ t2_ip }}
+      t1_gateway: {{ t1_gateway }}
+      t2_gateway: {{ t2_gateway }}
+      local_as: {{ local_as }}
+      remote_as: {{ remote_as }}
+      route_id: {{ dummy0_ip }}
+      laddr_network: {{ laddr_network }}
+      laddr_prefix: {{ laddr_prefix }}
+      bgp_auth: {{ bgp_auth }}
+      community: {{ community }}
+    - source: salt://tmpl/bgpd_init_10g.conf
+
+zebra:
+  service.running:
+    - require:
+       - pkg: t-alibgp-quagga
+    - watch:
+       - service: network
+       - file: /etc/init.d/bgpd
+       - file: /etc/init.d/zebra
+       - file: /etc/quagga/zebra_init.conf
+       - file: /etc/quagga/bgpd_init.conf
+
+bgpd:
+  service.running:
+    - require:
+       - pkg: t-alibgp-quagga
+    - watch:
+       - service: network
+       - file: /etc/init.d/bgpd
+       - file: /etc/init.d/zebra
+       - file: /etc/quagga/zebra_init.conf
+       - file: /etc/quagga/bgpd_init.conf
+
+slb_proxy_zebra_autorun:
+  cmd.run:
+    - name: chkconfig zebra on && chkconfig ospfd off && chkconfig bgpd on
+
+{% else %}
+/etc/sysconfig/network-scripts/ifcfg-T1:
+  file.managed:
+    - source: salt://tmpl/ifcfg-T1
+    - template: jinja
+    - context:
+      mtu: {{ mtu }}
+      ipaddr: {{ t1_ip }}
+      netmask: {{ t1_netmask }}
+      hwaddr: {{ t1_mac }}
+
+/etc/sysconfig/network-scripts/ifcfg-T2:
+  file.managed:
+    - source: salt://tmpl/ifcfg-T2
+    - template: jinja
+    - context:
+      mtu: {{ mtu }}
+      ipaddr: {{ t2_ip }}
+      netmask: {{ t2_netmask }}
+      hwaddr: {{ t2_mac }}
+
+network:
+  service.running:
+    - enable: True
+    - watch:
+       - file: /etc/sysconfig/network-scripts/ifcfg-T1
+       - file: /etc/sysconfig/network-scripts/ifcfg-T2
+
+/etc/init.d/ospfd:
+  file.managed:
+      - source: salt://raw/ospfd
+      - require:
+        - pkg: t-alibgp-quagga
+
+/etc/quagga/zebra_init.conf:
+  file.managed:
+    - template: jinja
+    - context:
+      hostname: {{ hostname }}
+    - source: salt://tmpl/zebra_init_10g.conf
+
+/etc/quagga/ospfd_init.conf:
+  file.managed:
+    - source: salt://tmpl/ospfd_init.conf
+    - template: jinja
+    - context:
+      ospf_auth: {{ ospf_auth }}
+      area_id: {{ area_id }}
+      area_type: {{ area_type }}
+      hello_interval: {{ hello_interval }}
+      dead_interval: {{ dead_interval }}
+      dummy0_ip: {{ dummy0_ip }}
+      t1_network: {{ t1_network }}
+      t1_prefix: {{ t1_prefix }}
+      t2_network: {{ t2_network }}
+      t2_prefix: {{ t2_prefix }}
+      mtu_ignore: {{ mtu_ignore }}
+
+zebra:
+  service.running:
+    - require:
+       - pkg: t-alibgp-quagga
+    - watch:
+       - service: network
+       - file: /etc/init.d/ospfd
+       - file: /etc/init.d/zebra
+       - file: /etc/quagga/zebra_init.conf
+       - file: /etc/quagga/ospfd_init.conf
+
+ospfd:
+  service.running:
+    - require:
+       - pkg: t-alibgp-quagga
+    - watch:
+       - service: network
+       - file: /etc/init.d/ospfd
+       - file: /etc/init.d/zebra
+       - file: /etc/quagga/zebra_init.conf
+       - file: /etc/quagga/ospfd_init.conf
+
+slb_proxy_zebra_autorun:
+  cmd.run:
+    - name: chkconfig zebra on && chkconfig ospfd on && chkconfig bgpd off
+{% endif %}
+{% endif %}
+
+#将对8182的监听切换到bond0上
+dragoon_listener:
+  cmd.run:
+    - name: netstat -ltn | awk '$4 ~ /0.0.0.0:8182/ {print $4}' | grep -q '0.0.0.0:8182' && /usr/alisys/dragoon/bin/AgentDownLoad -a 2 -w 0 -v current || exit 0
+
+######################stop service################
+#stop services that listens on 0.0.0.0
+rpcbind:
+  service.dead:
+    - name: rpcbind
+    - enable: False
+
+snmpd:
+  service.dead:
+    - name: snmpd
+    - enable: False
+
+#http://blog.yufeng.info/archives/2422
+irqbalance:
+  service.dead:
+    - name: irqbalance
+    - enable: False
+
+slb-irqbind:
+  service.dead:
+    - name: slb-irqbind
+    - enable: False
+    - require:
+      - pkg: slb-common
+
+######################base########################
+/etc/kdump.conf:
+  file.managed:
+    - source: salt://raw/kdump.conf
+
+kdump-enabled:
+  cmd.run:
+    - name: systemctl enable kdump.service
+    - require:
+      - file: /etc/kdump.conf
+
+kdump-restart:
+  cmd.run:
+    - name: systemctl restart kdump.service
+    - require:
+      - file: /etc/kdump.conf
+    - watch:
+      - file: /etc/kdump.conf
+
+#专有云的时钟同步由天基底座进行负责，v3.6版本之前使用ntp服务进行时钟
+#同步，v3.6及以后版本使用chrony进行时钟同步
+ntpd-off:
+  service.dead:
+    - name: ntpd
+    - enable: False
+
+#chrony服务的配置由天基底座的同学维护
+chronyd-enabled:
+  cmd.run:
+    - name: systemctl enable chronyd.service
+
+chronyd-restart:
+  cmd.run:
+    - name: systemctl restart chronyd.service
+
+/etc/ssh/sshd_config:
+  file.managed:
+    - source: salt://tmpl/sshd_config
+    - template: jinja
+    - context:
+      bond0_ip: {{ bond0_ip }}
+      dummy0_ip: {{ dummy0_ip }}
+
+sshd:
+  cmd.run:
+    - name: systemctl restart sshd
+    - watch:
+       - file: /etc/ssh/sshd_config
+
+/etc/syslog-ng/syslog-ng.conf:
+  file.managed:
+    - source: salt://raw/syslog-ng.conf-formal
+    - user: root
+    - group: root
+    - mode: 0644
+    - makedirs: True
+
+/etc/logrotate.d/syslog-ng:
+  file.managed:
+    - source: salt://raw/logrotate.syslog-ng
+    - user: root
+    - group: root
+    - mode: 0644
+    - makedirs: True
+
+syslog-ng-restart:
+  cmd.run:
+    - name: systemctl restart syslog-ng.service
+    - require:
+       - pkg: slb-syslog-logconfig
+    - watch:
+       - file: /etc/syslog-ng/syslog-ng.conf
+       - pkg: slb-syslog-logconfig
+
+syslog-ng-enabled:
+  cmd.run:
+    - name: chkconfig syslog-ng on
+
+sensor_dir_make:
+  cmd.run:
+    - name: mkdir -p /home/slb/logs/sensor/
+
+/home/slb/sensor/etc/sensor.conf:
+  file.managed:
+    - source: salt://tmpl/sensor.conf
+    - template: jinja
+    - context:
+      cluster_name: {{ cluster_name }}
+      dummy0_ip: {{ dummy0_ip }}
+    - makedirs: True
+
+/usr/local/ilogtail/ilogtail_config.json:
+  file.managed:
+    - source: salt://raw/ilogtail_config.json
+
+/etc/ilogtail/user_defined_id:
+  cmd.script:
+    - name: fill_ilogtail_user_defined_id.py {{ cluster_name }}
+    - source: salt://raw/fill_ilogtail_user_defined_id.py
+
+ilogtail_restart:
+  cmd.wait:
+    - name: /etc/init.d/ilogtaild stop; /etc/init.d/ilogtaild force-stop; /etc/init.d/ilogtaild start
+    - watch:
+       - pkg: ali-sls-ilogtail
+       - file: /usr/local/ilogtail/ilogtail_config.json
+       - cmd: /etc/ilogtail/user_defined_id
+
+#ntpconf_chattr:
+#  cmd.run:
+#    - name: /usr/bin/chattr -i /etc/ntp.conf
+#
+#/etc/ntp.conf:
+#  file.append:
+#    - text:
+#      - "interface ignore all"
+#      - "interface ignore wildcard"
+#      - "interface listen bond0"
+#      - "interface listen T1"
+#      - "interface listen T2"
+#      - "interface listen eth4"
+#      - "interface listen eth5"
+#      - "interface listen eth6"
+#      - "interface listen eth7"
+#    - require:
+#      - pkg: tops-ntp
+#      - cmd: ntpconf_chattr
+#
+#ntpd_replace:
+#  cmd.wait:
+#    - name: rm -f /usr/sbin/ntpd && cp /home/tops/bin/ntpd /usr/sbin/ntpd
+#    - require:
+#      - pkg: tops-ntp
+#    - watch:
+#      - pkg: tops-ntp
+#
+#ntpd:
+#  cmd.run:
+#    - name: systemctl restart ntpd.service
+#    - require:
+#      - pkg: tops-ntp
+#      - file: /etc/ntp.conf
+#      - cmd: ntpd_replace
+#    - watch:
+#      - pkg: tops-ntp
+#      - file: /etc/ntp.conf
+#      - cmd: ntpd_replace
+
+#reboot_watch:
+#  cmd.wait:
+#    - name: 'touch /dev/shm/_node_reboot'
+#    - watch:
+#      - pkg: slb-common
+#      - pkg: slb-role-proxy-vpc
+#      - pkg: nic-drivers-i40e
+
+{% endif %}
+
+#################slb-control-proxy#######################
+/home/slb/control-proxy/conf/ca.crt:
+  file.managed:
+    - source:
+      - salt://srcfile/ca.crt
+
+/home/slb/control-proxy/conf/client.crt:
+  file.managed:
+    - source:
+      - salt://srcfile/client.crt
+
+/home/slb/control-proxy/conf/client.key:
+  file.managed:
+    - source:
+      - salt://srcfile/client.key
+
+/etc/slb/cluster_db.sh:
+  file.managed:
+    - source: salt://tmpl/cluster_db.sh
+    - template: jinja
+    - context:
+      xuanyuan_host: {{ xuanyuan_host }}
+      xuanyuan_port: {{ xuanyuan_port }}
+      xuanyuan_user: {{ xuanyuan_user }}
+      xuanyuan_passwd: {{ xuanyuan_passwd }}
+      xuanyuan_db: {{ xuanyuan_db }}
+      stats_host: {{ stats_host }}
+      stats_port: {{ stats_port }}
+      stats_user: {{ stats_user }}
+      stats_passwd: {{ stats_passwd }}
+      stats_db: {{ stats_db }}
+
+{% if master_ha_ip == 'no' %}
+/home/slb/control-proxy/conf/agent.yaml:
+  file.managed:
+    - source: salt://tmpl/agent.yaml
+    - template: jinja
+    - context:
+      masterVIP: {{ masterVIP }}
+      dummy0_ip: {{ dummy0_ip }}
+    - require:
+      - pkg: slb-control-proxy
+{% else %}
+/home/slb/control-proxy/conf/agent.yaml:
+  file.managed:
+    - source: salt://tmpl/agent_new_ha.yaml
+    - template: jinja
+    - context:
+      list_master: {{ list_master }}
+      list_monitor: {{ list_monitor }}
+      dummy0_ip: {{ dummy0_ip }}
+    - require:
+      - pkg: slb-control-proxy
+{% endif %}
+
+service.slb-control-proxy:
+  service.running:
+    - name: slb-control-proxy
+    - enable: True
+    - require:
+      - file: /home/slb/control-proxy/conf/ca.crt
+      - file: /home/slb/control-proxy/conf/client.crt
+      - file: /home/slb/control-proxy/conf/client.key
+      - file: /etc/slb/cluster_db.sh
+      - file: /home/slb/control-proxy/conf/agent.yaml
+      - pkg:  protobuf-python
+      - pkg:  python-urllib3
+      - pkg:  python-requests
+      - pkg:  slb-nginx
+      - pkg:  slb-control-proxy
+
+#tengine_stop:
+#  cmd.wait:
+#    - name: /home/admin/tengine/bin/t-coresystem-tengine-jushita -c /etc/proxy/conf/proxy.conf -s stop
+#    - watch:
+#      - file: /home/slb/control-proxy/conf/ca.crt
+#      - file: /home/slb/control-proxy/conf/client.crt
+#      - file: /home/slb/control-proxy/conf/client.key
+#      - file: /etc/slb/cluster_db.sh
+#      - file: /home/slb/control-proxy/conf/agent.yaml
+#      - pkg: slb-vsock-ali2008
+#      - pkg: slb-vtoa-ali2008
+#      - pkg: slb-libvsock
+#      - pkg: taobao-cronolog
+#      - pkg: slb-nginx
+#      - pkg:  protobuf-python
+#      - pkg:  python-urllib3
+#      - pkg:  python-requests
+#      - pkg:  slb-control-proxy
+
+slb-control-proxy_restart:
+  cmd.wait:
+    - name: /etc/init.d/slb-control-proxy restart
+    - watch:
+      - file: /home/slb/control-proxy/conf/ca.crt
+      - file: /home/slb/control-proxy/conf/client.crt
+      - file: /home/slb/control-proxy/conf/client.key
+      - file: /etc/slb/cluster_db.sh
+      - file: /home/slb/control-proxy/conf/agent.yaml
+      - pkg: taobao-cronolog
+      - pkg: slb-nginx
+      - pkg:  protobuf-python
+      - pkg:  python-urllib3
+      - pkg:  python-requests
+      - pkg:  slb-control-proxy
+#      - pkg: slb-vsock-ali2008
+#      - pkg: slb-vtoa-ali2008
+#      - pkg: slb-libvsock
+
+############monitor-proxy########################
+{% if master_ha_ip == 'no' %}
+/home/slb/monitor-proxy/conf/envConf.py:
+  file.managed:
+    - source: salt://tmpl/envConf.py
+    - template: jinja
+    - context:
+      xuanyuan_host: {{ xuanyuan_host }}
+      xuanyuan_port: {{ xuanyuan_port }}
+      xuanyuan_user: {{ xuanyuan_user }}
+      xuanyuan_passwd: {{ xuanyuan_passwd }}
+      xuanyuan_db: {{ xuanyuan_db }}
+      stats_host: {{ stats_host }}
+      stats_port: {{ stats_port }}
+      stats_user: {{ stats_user }}
+      stats_passwd: {{ stats_passwd }}
+      stats_db: {{ stats_db }}
+      masterVIP: {{ masterVIP }}
+    - require:
+      - pkg: slb-monitor-proxy
+{% else %}
+/home/slb/monitor-proxy/conf/envConf.py:
+  file.managed:
+    - source: salt://tmpl/envConf_new_ha.py
+    - template: jinja
+    - context:
+      xuanyuan_host: {{ xuanyuan_host }}
+      xuanyuan_port: {{ xuanyuan_port }}
+      xuanyuan_user: {{ xuanyuan_user }}
+      xuanyuan_passwd: {{ xuanyuan_passwd }}
+      xuanyuan_db: {{ xuanyuan_db }}
+      stats_host: {{ stats_host }}
+      stats_port: {{ stats_port }}
+      stats_user: {{ stats_user }}
+      stats_passwd: {{ stats_passwd }}
+      stats_db: {{ stats_db }}
+      list_master: {{ list_master }}
+      list_monitor: {{ list_monitor }}
+    - require:
+      - pkg: slb-monitor-proxy
+{% endif %}
+
+service.slb-monitor-proxy:
+  service.running:
+    - name: slb-monitor-proxy
+    - enable: True
+    - require:
+       - pkg: slb-monitor-proxy
+
+monitor-proxy_restart:
+  cmd.wait:
+    - name: /etc/init.d/slb-monitor-proxy restart
+    - watch:
+       - pkg: slb-monitor-proxy
+       - file: /home/slb/monitor-proxy/conf/envConf.py
+
+#############dstat###########################
+/home/slb/slbdstat/conf/slbdstat.conf:
+  file.managed:
+    - source: salt://raw/slbdstat.conf
+    - makedirs: True
+    - require:
+       - pkg: slb-dstat-monitor
+
+service.slb-dstat-monitor:
+  service.running:
+    - name: slb-dstat-monitor
+    - enable: True
+    - require:
+       - pkg: slb-dstat-monitor
+
+slb-dstat-monitor_restart:
+  cmd.wait:
+    - name: service slb-dstat-monitor restart
+    - watch:
+      - pkg: slb-dstat-monitor
+      - file: /home/slb/slbdstat/conf/slbdstat.conf
+
+#############slb-drop-logcache###################
+service.slb-drop-logcache:
+  service.running:
+    - name: slb-drop-logcache
+    - enable: True
+    - require:
+       - pkg: slb-drop-logcache
+
+slb-drop-logcache_restart:
+  cmd.wait:
+    - name: service slb-drop-logcache restart
+    - watch:
+      - pkg: slb-drop-logcache

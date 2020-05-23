@@ -1,0 +1,30 @@
+pick 0d6c7e4e add testcase for wildconf and backend_connect_retries, backend_connect_timeout, customize_header_log
+pick a4e54296 update proxy_pb2.py
+pick 7a7d4621 update common_pb2 response_pb2
+pick 2c10967f fix syntax error
+
+# 变基 cf4f116a..2c10967f 到 2c10967f（4 个提交）
+#
+# 命令:
+# p, pick <提交> = 使用提交
+# r, reword <提交> = 使用提交，但修改提交说明
+# e, edit <提交> = 使用提交，进入 shell 以便进行提交修补
+# s, squash <提交> = 使用提交，但融合到前一个提交
+# f, fixup <提交> = 类似于 "squash"，但丢弃提交说明日志
+# x, exec <命令> = 使用 shell 运行命令（此行剩余部分）
+# b, break = 在此处停止（使用 'git rebase --continue' 继续变基）
+# d, drop <提交> = 删除提交
+# l, label <label> = 为当前 HEAD 打上标记
+# t, reset <label> = 重置 HEAD 到该标记
+# m, merge [-C <commit> | -c <commit>] <label> [# <oneline>]
+# .       创建一个合并提交，并使用原始的合并提交说明（如果没有指定
+# .       原始提交，使用注释部分的 oneline 作为提交说明）。使用
+# .       -c <提交> 可以编辑提交说明。
+#
+# 可以对这些行重新排序，将从上至下执行。
+#
+# 如果您在这里删除一行，对应的提交将会丢失。
+#
+# 然而，如果您删除全部内容，变基操作将会终止。
+#
+# 注意空提交已被注释掉

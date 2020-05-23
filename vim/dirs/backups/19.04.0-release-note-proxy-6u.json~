@@ -1,0 +1,128 @@
+{
+    "main_version":"19.04.0",
+    "compnent_list": [
+        {
+            "role": "Proxy",
+            "rpm_version_list": [
+                {
+                    "rpm": "slb-nginx",
+                    "version": "19.04.0-20190725001058.el6u2.x86_64"
+                },
+                {
+                    "rpm": "slb-kernel-modules-vsock-ali878",
+                    "version": "3.0.0-20190701120514.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-vtoa-ali878",
+                    "version": "2.0.1-20180909212302.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-dstat-7layer",
+                    "version": "1.1.1-20190725013531.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-control-proxy",
+                    "version": "19.04.0-20190731011539.x86_64"
+                },
+                {
+                    "rpm": "slb-monitor-proxy",
+                    "version": "16.10.0-1087867.noarch"
+                },
+                {
+                    "rpm": "quagga",
+                    "version": "0.99.22.4-16.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-role-proxy-vpc",
+                    "version": "17.04.0-1702304.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-drop-logcache",
+                    "version": "0.0.5-1327646.alios6.x86_64"
+                },
+                {
+                    "rpm": "ali-sls-ilogtail",
+                    "version": "0.13.7-1446776.alios6.x86_64"
+                },
+                {
+                    "rpm": "python-simplejson",
+                    "version": "2.0.9-3.1.1.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb_clean_disk",
+                    "version": "16.12.2-1640205.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-common",
+                    "version": "3.5.3-993670.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-libevent",
+                    "version": "2.0.12-10.el6.x86_64"
+                },
+                {
+                    "rpm": "slb-libvsock",
+                    "version": "2.0.0-1779839.alios6.x86_64"
+                },
+                {
+                    "rpm": "slb-pet",
+                    "version": "2.2.0-25.x86_64"
+                },
+                {
+                    "rpm": "slb-python-gevent",
+                    "version": "0.13.6-5.x86_64"
+                },
+                {
+                    "rpm": "slb-python-greenlet",
+                    "version": "0.3.1-2.x86_64"
+                },
+                {
+                    "rpm": "slb-syslog-logconfig",
+                    "version": "1.0-20160516.x86_64"
+                },
+                {
+                    "rpm": "taobao-cronolog",
+                    "version": "1.7.0b-2.el6.x86_64"
+                },
+                {
+                    "rpm": "tops-ntp",
+                    "version": "4.2.6p5-1.x86_64"
+                },
+                {
+                    "rpm": "tsar",
+                    "version": "2.1.13-1000140.2ed45dc.el6.x86_64"
+                },
+                {
+                    "rpm": "slb-sensor-sysmetrics",
+                    "version": "0.0.2-579530.noarch"
+                },
+                {
+                    "rpm": "python26-requests",
+                    "version": "0.13.1-1.noarch"
+                },
+                {
+                    "rpm": "protobuf-python",
+                    "version": "3.4.0-3.alios6.x86_64"
+                },
+                {
+                    "rpm": "python-six",
+                    "version": "1.9.0-2.1.alios6.noarch"
+                }
+            ]
+        }
+    ],
+    "change_list": [
+        "19.04.0",
+        "[Requirement] IPv6支持",
+        "[Requirement] JumboFrame ECS支持",
+        "[Requirement] 健康检查详细信息展示",
+        "[Requirement] 客户端证书信息获取",
+        "[Requirement] 健康检查支持HTTP/1.1",
+        "[Requirement] 自定义Header转发",
+        "[Requirement] agent异步",
+        "[Requirement] Underlay laddr/Overlay laddr分离"
+    ],
+    "bugfix" : [
+        "19.04.0"
+    ]
+}

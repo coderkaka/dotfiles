@@ -1,0 +1,92 @@
+{
+    "main_version":"17.04.1",
+        "compnent_list": [
+        {
+            "role":"Keyserver",
+            "rpm_version_list":[
+            {
+                "rpm": "ali-sls-ilogtail",
+                "version": "0.12.1-1147860.alios7.x86_64"
+            },
+            {
+                "rpm": "python-simplejson",
+                "version": "3.3.3-1.el7.x86_64"
+            },
+            {
+                "rpm": "tops-ntp",
+                "version": "4.2.6p5-1.x86_64"
+            },
+            {
+                "rpm":"ali-jdk",
+                "version":"1.8.0_66-94.alios7.x86_64"
+            },
+            {
+                "rpm": "slb-pet",
+                "version": "2.2.0-25.x86_64"
+            },
+            {
+                "rpm": "slb-common",
+                "version": "3.5.3-993670.el7.x86_64"
+            },
+            {
+                "rpm": "slb-syslog-logconfig",
+                "version": "3.5.3-1162145.alios7.x86_64"
+            },
+            {
+                "rpm": "taobao-cronolog",
+                "version": "1.6.2-15.alios7.x86_64"
+            },
+            {
+                "rpm":"slb-vtoa-ali2008",
+                "version":"1.0.1-1026900.alios7.x86_64"
+            },
+            {
+                "rpm": "slb-sensor-sysmetrics",
+                "version": "0.0.2-991398.noarch"
+            },
+            {
+                "rpm": "slb-dstat-7layer",
+                "version": "1.0.0-20170831152851.alios7.x86_64"
+            },
+            {
+                "rpm":"slb-cert-central-agent",
+                "version":"18.04.2-20190909211710.alios6.x86_64"
+            },
+            {
+                "rpm":"t-coresystem-tengine-jushita",
+                "version":"2.1.1-1673600.el7u2.x86_64"
+            },
+            {
+                "rpm":"key-center",
+                "version":"1.0.2-1473465.alios7.x86_64"
+            },
+            {
+                "rpm":"slb-role-keyserver",
+				"version":"17.04.1-1461506.alios7.x86_64"
+            },
+            {
+                "rpm": "tsar",
+                "version": "2.1.13-1000140.49ccc9d.el7.x86_64"
+            },
+            {
+                "rpm": "curl",
+                "version": "7.29.0-25.1.alios7.x86_64"
+            },
+            {
+                "rpm": "slb_clean_disk",
+				"version": "16.12.1-1440500.alios7.x86_64"
+            },
+            {
+                "rpm":"slb-drop-logcache",
+                "version":"0.0.5-1327646.alios7.x86_64"
+            }
+            ]
+        }
+    ],
+    "change_list": [
+      "keyserver支持7u, 专有云使用版本"
+    ],
+    "bugfix" : [
+      ""
+    ]
+}

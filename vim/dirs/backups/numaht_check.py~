@@ -1,0 +1,82 @@
+#!/home/tops/bin/python2.7
+# -*- coding:UTF-8 -*-
+import os
+import sys
+import commands
+from common import *
+
+def get_numa_status():
+
+    status = 'off'
+    ret, out = exec_local_cmd("lscpu | grep -i 'NUMA node(s):'")
+    numa_node = eval(out.split(':')[1].strip())
+    if numa_node >= 2:
+       status = 'on'
+
+    return status
+
+def get_ht_status():
+
+    status = 'off'
+    ret, out = exec_local_cmd("lscpu | grep -i 'Thread(s) per core:'")
+    thr_num = eval(out.split(':')[1].strip())
+    if thr_num == 2:
+       status = 'on'
+
+    return status
+
+def get_core_num():
+    cmd = "lscpu | grep 'Core(s) per socket' | awk '{print $4}'"
+    ret, out = exec_local_cmd(cmd)
+    if ret:
+        return -1
+
+    core_num = int(out.strip())
+
+    cmd = "lscpu | grep '[Ss]ocket(s)' | awk -F: '{print $2}'"
+    ret, out = exec_local_cmd(cmd)
+    if ret:
+        return -1
+
+    socket_num = int(out.strip())
+
+    return core_num * socket_num
+
+def check_numa_status():
+
+    data = {}
+    status = get_numa_status()
+    if status != 'off':
+        data['benchmark'] = 'off'
+        data['current'] = 'on'
+
+    return data
+
+def check_ht_status():
+
+    data = {}
+    status = get_ht_status()
+    if status != 'off':
+        data['benchmark'] = 'off'
+        data['current'] = 'on'
+
+    return data
+
+if __name__ == '__main__':
+
+    result = {}
+    numa_result = check_numa_status()
+    if numa_result:
+        result['numa'] = numa_result
+
+    #ht_result = check_ht_status()
+    #if ht_result:
+    #   result['ht'] = ht_result
+
+    if result:
+        print 'check numaht failed'
+        print result
+        exit(1)
+
+    print 'check numaht succeed!'
+    exit(0)

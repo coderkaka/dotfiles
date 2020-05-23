@@ -1,0 +1,50 @@
+__author__ = 'zhuo.chencz'
+
+dbConf = {
+    "host": "{{ xuanyuan_host }}",
+    "port": {{ xuanyuan_port }},
+    "user": "{{ xuanyuan_user }}",
+    "passwd": "{{ xuanyuan_passwd }}",
+    "db": "{{ xuanyuan_db }}"
+}
+
+statsDbConf = {
+    "host": "{{ stats_host }}",
+    "port": {{ stats_port }},
+    "user": "{{ stats_user }}",
+    "passwd": "{{ stats_passwd }}",
+    "db": "{{ stats_db }}"
+}
+
+centralNodeConf = {
+    "host": "{{ list_master|join(",") }}",
+    "port": 8888,
+}
+
+LvsMonitorConf = {
+    "monEvent": 20001,
+    "monType": 1,
+    "monInterval": 60
+}
+
+TengineMonitorConf = {
+    "monEvent": 20003,
+    "monType": 1,
+    "monInterval": 60,
+    "ruleEvent": 20004,
+    "ruleType": 1,
+    "ruleInterval": 60,
+    "hcEvent": 20006,
+    "hcType": 1,
+    "hcInterval": 60,
+    "checkVipUrl": "http://127.0.0.1:80/check_vip_stats",
+    "hcUrl": "http://127.0.0.1:80/check_healthcheck_status?format=csv",
+    "ruleUrl": "http://127.0.0.1:80/check_rule_stats"
+}
+
+handlers = {
+    "20001": "lvsMonHandler",
+    "20003": "proxyMonHandler",
+    "20004": "ruleMonHandler",
+    "20006": "proxyHcHandler"
+}

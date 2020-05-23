@@ -1,0 +1,252 @@
+{
+    "AppType": "application", 
+    "AppName": "", 
+    "MonitorTasks": [
+        {
+            "cmd": "slb_mem_stats", 
+            "name": "ApsaraStack-slb_proxy_public-slb_proxy_check_mem_stats-public", 
+            "timeout": 3, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "check_dstat_process_exist.py", 
+            "name": "ApsaraStack-slb_proxy_public-check_dstat_process_exist", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "slb_proxy_default_route", 
+            "name": "ApsaraStack-slb_proxy_public-slb_proxy_default_route_check_pub", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "slb_proxy_bond_slave_num", 
+            "name": "ApsaraStack-slb_proxy_public-slb_proxy_bond_slave_info", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "slb_proxy_process_check.py", 
+            "name": "ApsaraStack-slb_proxy_public-slb_proxy_process_check", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "get_server_process_count -C t-coresystem-te -a master", 
+            "name": "ApsaraStack-slb_proxy_basic-check_process_nginx-master", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "hubble_keyword_script_n /home/slb/logs/slb-controller/info.log-@YEAR@-@MONTH@-@DAY@ \"reload_proxy error\u0001c\" 1392", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_agent_errorlog", 
+            "timeout": 20, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "hubble_keyword_script_n /usr/local/ilogtail/ilogtail.LOG \"inclue in multi config\u0001c\" 1392", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_multi_config", 
+            "timeout": 20, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "slb_tsar", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_tsar", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "slb_proxy_hc_stats", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_hc_check", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "check_slb_proxy_monitor_process", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_monitor_process", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "check_slb_mod_version", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_check_mod_version", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "slb_tengine_fd", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_tengine_fd", 
+            "timeout": 30, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "slb_vxlan_saddr", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_saddr", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "get_nginx_worker_cpu", 
+            "name": "ApsaraStack-slb_proxy_basic-get_nginx_worker_cpu", 
+            "timeout": 10, 
+            "interval": 120
+        }, 
+        {
+            "cmd": "ilogtail_upload_fail_file", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_upload_fail_file", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "check_user_log_config", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_user_log_config", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "check_vxlan_250 proxy", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_250", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "sample_ngx_rss 5242880", 
+            "name": "ApsaraStack-slb_proxy_basic-sample_ngx_rss", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "proxy_to_keyserver_6666_port", 
+            "name": "ApsaraStack-slb_proxy_basic-proxy_to_keyserver_6666_port", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "grep_keywords /usr/local/ilogtail/user_log_config.json slb_proxy_tengine_access_log@@@slb_proxy_vs_stats@@@slb_proxy_tengine_error_log@@@raw_slb_controller_level7_rs_hc_status all 9731", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_logstore_apply_machine", 
+            "timeout": 10, 
+            "interval": 600
+        }, 
+        {
+            "cmd": "grep_keywords /usr/local/ilogtail/ilogtail.LOG WARNING.*slb_proxy_vs_stats@@@ERROR.*slb_proxy_vs_stats@@@ERROR.*slb_proxy_tengine_error_log@@@WARNING.*raw_slb_controller_level7_rs_hc_status@@@ERROR.*raw_slb_controller_level7_rs_hc_status tail 9731", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_log_keyerror", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "slb_proxy_proc_check \"python\" \"agent_main\"", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_check_agent", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "slb_proxy_agent_offline_disable", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_agent_offline_disable", 
+            "timeout": 10, 
+            "interval": 120
+        }, 
+        {
+            "cmd": "check_slb_proxy_ospf_neighbor  ", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_check_ospf_neighbor", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "check_slb_zebra", 
+            "name": "ApsaraStack-slb_proxy_basic-check_slb_zebra", 
+            "timeout": 10, 
+            "interval": 90
+        }, 
+        # {
+        #     "cmd": "slb_monitor_ntp", 
+        #     "name": "ApsaraStack-slb_proxy_basic-slb_monitor_ntp", 
+        #     "timeout": 10, 
+        #     "interval": 300
+        # }, 
+        {
+            "cmd": "slb_proxy_nic_status.py", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_nic_status", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "slb_proxy_tsar", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_tsar_new", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "slb_proxy_check_dyups", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_check_dyups", 
+            "timeout": 10, 
+            "interval": 120
+        }, 
+        {
+            "cmd": "slb_proxy_check_conf_ok", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_proxy_tengine_conf_verify", 
+            "timeout": 10, 
+            "interval": 300
+        }, 
+        {
+            "cmd": "check_local_address_count", 
+            "name": "ApsaraStack-slb_proxy_basic-slb_check_laddr", 
+            "timeout": 10, 
+            "interval": 60
+        }, 
+        # {
+        #     "cmd": "hubble_keyword_script_n /var/log/kern \"Out of memory\u0001c\" 1392", 
+        #     "name": "ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_voice", 
+        #     "timeout": 20, 
+        #     "interval": 60
+        # }, 
+        # {
+        #     "cmd": "hubble_keyword_script_n /var/log/kern \"segfault\u0001c\u0002Machine check events logged\u0001c\u0002page allocation failure\u0001c\" 1392", 
+        #     "name": "ApsaraStack-slb_7layer_basic-slb_7layer_kern_error", 
+        #     "timeout": 20, 
+        #     "interval": 60
+        # }, 
+        {
+            "cmd": "slb_mem_stats", 
+            "name": "ApsaraStack-slb_7layer_basic-slb_7layer_check_mem_stats", 
+            "timeout": 3, 
+            "interval": 60
+        }, 
+        {
+            "cmd": "slb_cpu_proc_stat", 
+            "name": "ApsaraStack-slb_7layer_basic-slb_7layer_check_cpu_proc_stat_5s", 
+            "timeout": 3, 
+            "interval": 5
+        }, 
+        # {
+        #     "cmd": "slb_7layer_network_voice", 
+        #     "name": "ApsaraStack-slb_7layer_basic-slb_7layer_nic_traffic_voice", 
+        #     "timeout": 10, 
+        #     "interval": 60
+        # }, 
+        {
+            "cmd": "slb_7layer_coredump storcli64,telnet,staragent", 
+            "name": "ApsaraStack-slb_7layer_basic-slb_7layer_coredump", 
+            "timeout": 10, 
+            "interval": 60
+        },
+        {
+            "cmd": "slb_7layer_coredump storcli64,telnet,staragent", 
+            "name": "ApsaraStack-slb_7layer_basic-slb_7layer_coredump", 
+            "timeout": 10, 
+            "interval": 60
+        },
+        {
+            "cmd": "slb_7layer_coredump storcli64,telnet,staragent", 
+            "name": "ApsaraStack-slb_7layer_basic-slb_7layer_coredump", 
+            "timeout": 10, 
+            "interval": 60
+        },
+        {
+            "cmd": "", 
+            "name": "ApsaraStack-slb_7layer_basic-slb_7layer_coredump", 
+            "timeout": 10, 
+            "interval": 60
+        }
+    ]
+}

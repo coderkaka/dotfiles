@@ -1,0 +1,51 @@
+Release:  %(echo $RELEASE)%{?dist}
+Name:     slb-syslog-logconfig-keyserver
+Version:17.12.0
+Vendor:   slb-dev@list.alibaba-inc.com
+Summary:  slb-syslog-logconfig-keyserver
+URL:      git@gitlab.alibaba-inc.com:slb/slb-ops.git
+Group:    ali/slb
+License:  Commercial
+
+Source0:  %{name}-%{version}.tar.bz2
+Packager: fenghui.zfh
+Conflicts: slb-syslog-logconfig
+
+%description
+CodeUrl:  git@gitlab.alibaba-inc.com:slb/slb-ops.git
+
+%build
+cd $OLDPWD/..
+
+%install
+cd $OLDPWD/../service/slb-syslog-logconfig-keyserver/
+
+%{__install} -d %{buildroot}/etc/syslog-ng/conf.d-%{version}
+%{__install} -m 0644 slb-syslog-keyserver.conf %{buildroot}/etc/syslog-ng/conf.d-%{version}
+%{__install} -m 0644 slb-syslog-tengine.conf %{buildroot}/etc/syslog-ng/conf.d-%{version}
+%{__install} -m 0644 slb-syslog-base.conf %{buildroot}/etc/syslog-ng/conf.d-%{version}
+%{__install} -m 0644 slb-syslog-emcpd.conf %{buildroot}/etc/syslog-ng/conf.d-%{version}
+
+%files
+%defattr(-,root,root)
+/etc/syslog-ng/conf.d-%{version}
+
+%post
+if [ -d /etc/syslog-ng/conf.d ]; then
+	mkdir -p /etc/syslog-ng/conf.d.bak-$(date +%Y%m%d)
+	echo "Backup files:"
+	cp -vrf /etc/syslog-ng/conf.d/* /etc/syslog-ng/conf.d.bak-$(date +%Y%m%d)
+fi
+
+echo "Install files:"
+cp -vrf /etc/syslog-ng/conf.d-%{version}/* /etc/syslog-ng/conf.d/
+/etc/rc.d/init.d/syslog-ng reload 2>/dev/null
+
+%preun
+for i in `ls /etc/syslog-ng/conf.d-%{version}`
+do
+    rm -f /etc/syslog-ng/conf.d/$i
+done
+/etc/rc.d/init.d/syslog-ng reload 2>/dev/null
+
+%changelog

@@ -1,0 +1,37 @@
+#include<iostream>
+#include<map>
+#include<set>
+using namespace std;
+
+int main(){
+    int n, m;
+    cin >> n >> m;
+    long long int num[n];
+    map<int,int> count;
+    set<int> s;
+
+    for(auto i = 0; i < n; i++){
+        cin >> num[i];
+        if(count.count(num[i]) == 1)
+           count[num[i]]++; 
+        else
+           count[num[i]] = 1;
+    }
+
+    map<int,int>::iterator cur = count.begin();
+    for(; cur != count.end();  cur++){
+        cout << cur->second << endl;
+        if (cur->second <= m){
+            s.insert(cur->first);
+        }
+    }
+    for(auto i = 0; i < n-1; i++){
+        if(s.count(num[i])){
+            cout << num[i] << " ";
+        }
+    }
+    if(s.count(num[n-1])){
+        cout << num[n-1] << endl;
+    }
+    
+}

@@ -1,0 +1,10 @@
+#!/bin/bash
+ssh -t -oHostKeyAlgorithms=+ssh-dss  taofang.tf@11.159.210.225   "\
+export PATH=$PATH:/opt/taobao/install/nodejs/bin ; \
+if [ -d /home/taofang.tf/aiTesterServer ]; then 
+    cd  /home/taofang.tf/aiTesterServer/ &&  git pull && tnpm i && tnpm run dev;
+else
+    git clone  http://gitlab.alibaba-inc.com/iz/aiTesterServer.git
+    cd /home/taofang.tf/aiTesterServer/ && tnpm i && tnpm run dev;
+fi
+"

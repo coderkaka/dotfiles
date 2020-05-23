@@ -1,0 +1,101 @@
+#!/home/tops/bin/python2.7
+# -*- coding:UTF-8 -*-
+import os
+import commands
+import sys
+import json
+import time
+import yaml
+
+KERNEL_6U = '6u'
+KERNEL_7U = '7u'
+
+def exec_local_cmd(cmd):
+    ret = commands.getstatusoutput(cmd)
+    print "exec cmd: %s, ret: %d, info: %s" % (cmd, ret[0], ret[1])
+    return ret[0], ret[1]
+
+def get_kernel_type():
+    '''only can be KERNEL_6U or KERNEL_7U'''
+
+    kernel_type = ''
+
+    cmd = "uname -r"
+    ret, out = exec_local_cmd("uname -r")
+    kernel_version = out.strip()
+    if 'el6' in kernel_version:
+        kernel_type = KERNEL_6U
+
+    if 'alios7' in kernel_version:
+        kernel_type = KERNEL_7U
+
+    return kernel_type
+
+def get_online_rpm_version(rpm_name):
+    ret, out = exec_local_cmd("rpm -qa %s" % rpm_name)
+    if ret:
+        return None
+    start = out.find('slb')+len(rpm_name)+len('-')
+    end = out.find('.x86_64')
+    return out[start:end]
+
+def get_expected_rpm_version(rpm_name):
+    global kernel_type
+    if kernel_type == KERNEL_6U:
+        rpm_path = '%s/alios6u' % rpm_root_path
+
+    if kernel_type == KERNEL_7U:
+        rpm_path = '%s/alios7u' % rpm_root_path
+
+    ret, out = exec_local_cmd("ls %s |grep %s" % (rpm_path, rpm_name))
+    if ret:
+        return None
+    start = out.find('slb')+len(rpm_name)+len('-')
+    end = out.find('.x86_64')
+    return out[start:end]
+
+def rpm_install_or_upgrade(rpm_name):
+    online_rpm_version = get_online_rpm_version(rpm_name)
+    expected_rpm_version = get_expected_rpm_version(rpm_name)
+    if online_rpm_version == expected_rpm_version:
+        print 'skip: expected version == online version'
+        return 0
+
+    if online_rpm_version:
+        ecmd = "rpm -e %s" % rpm_name
+        ret, out = exec_local_cmd(ecmd)
+        if ret:
+            print 'do %s failed' % ecmd
+            return out
+
+    global kernel_type
+    if kernel_type == KERNEL_6U:
+        icmd = "rpm -ivh %s/alios6u/%s*" % (rpm_root_path, rpm_name)
+    if kernel_type == KERNEL_7U:
+        icmd = "rpm -ivh %s/alios7u/%s*" % (rpm_root_path, rpm_name)
+
+    ret, out = exec_local_cmd(icmd)
+    if ret:
+        print 'do %s failed' % icmd
+        return out
+
+    return 0
+
+if __name__ == '__main__':
+
+    #全局变量赋值
+    global kernel_type
+    kernel_type = get_kernel_type()
+
+    global rpm_root_path
+    fdir, fname = os.path.split(os.path.abspath(sys.argv[0]))
+    rpm_root_path = fdir + '/rpms'
+
+    rpm_name = 'slb_proxy_post_check'
+    ret = rpm_install_or_upgrade(rpm_name)
+    if ret != 0:
+        print "install or upgrade %s failed" % rpm_name
+        exit(1)
+    
+    print "install or upgrade %s succeed" % rpm_name
+    exit(0)

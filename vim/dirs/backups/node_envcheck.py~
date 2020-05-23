@@ -1,0 +1,128 @@
+#!/home/tops/bin/python2.7
+# -*- coding:UTF-8 -*-
+
+import os
+import commands
+import logging
+import yaml
+from command import *
+
+KERNEL_6U = '6u'
+KERNEL_7U = '7u'
+KERNEL_VERSION_6U = ['2.6.32-220.23.2.ali878.el6.x86_64']
+KERNEL_VERSION_7U = ['4.19.48-4.alios7.aarch64', '4.19.48-006.ali4000.alios7.aarch64', '3.10.0-327.ali2008.alios7.x86_64']
+
+def check_kernel_version():
+    cmd = "uname -r"
+    ret, out = exec_local_cmd("uname -r")
+    kernel_version = out.strip()
+    #'2.6.32-220.23.2.ali301_vpc.el6.x86_64是否有支持？
+    if kernel_version not in KERNEL_VERSION_6U and kernel_version not in KERNEL_VERSION_7U:
+        return 0
+
+    return 1
+
+def get_kernel_type():
+    '''only can be KERNEL_6U or KERNEL_7U'''
+
+    kernel_type = ''
+
+    cmd = "uname -r"
+    ret, out = exec_local_cmd("uname -r")
+    kernel_version = out.strip()
+    if kernel_version in KERNEL_VERSION_6U:
+        kernel_type = KERNEL_6U
+
+    if kernel_version in KERNEL_VERSION_7U:
+        kernel_type = KERNEL_7U
+
+    return kernel_type
+
+def get_ConnectX_speed():
+    eth_40g = 0
+    eth_10g = 0
+
+    pcilist_cmd ="lspci |grep Ethernet| grep ConnectX | awk '{print $1}'"
+    ret,out = exec_local_cmd(pcilist_cmd)
+
+    pcilist = out.strip().split("\n")
+    for i in pcilist:
+        j="0000:"+i
+        cmd="find /sys/devices/ -name 'speed' | grep %s | xargs cat" % j
+        ret,out = exec_local_cmd(cmd)
+        #echo $result
+        if out.strip() == "40000":
+            eth_40g = eth_40g + 1
+    
+        if out.strip() == "10000":
+            eth_10g = eth_10g + 1
+        if eth_40g > 0:
+            return '40g'
+        if eth_10g > 0:
+            return '10g'
+
+    return ''
+
+def get_route_type():
+
+    cmd = 'lspci |grep Ether |grep 40GbE | wc -l'
+    ret, out = exec_local_cmd(cmd)
+    if int(out.strip()) == 2 or int(out.strip()) == 4:
+        return 'BGP'
+
+    cmd = "lspci | grep Ether | grep 'Device 1584' | wc -l"
+    ret, out = exec_local_cmd(cmd)
+    if int(out.strip()) == 2:
+        return 'BGP'
+
+    cmd = 'lspci |grep Ether |grep "82599\|ConnectX-4" | wc -l'
+    ret, out = exec_local_cmd(cmd)
+    if int(out.strip()) > 0:
+        protocol_type = 'OSPF'
+        if get_ConnectX_speed() == '40g':
+            protocol_type = 'BGP'
+            return protocol_type
+
+        if os.path.exists("/usr/local/etc/route_type_10g.conf"):
+            content = open("/usr/local/etc/route_type_10g.conf").read().split("=")[1].split('"')[1]
+            if content == 'bgp':
+                protocol_type = 'BGP'
+        return protocol_type
+
+    return ''
+
+def get_res_yaml_path():
+    fdir = './conf.global/services/slb-proxy/user/'
+    fpath = '%s/SlbProxy.yaml' % fdir
+    cmd = "ls %s" % fpath
+    ret, out = exec_local_cmd(cmd)
+    if ret == 0:
+        return fpath
+
+    logger.info('%s not exist, try to find BGP/OSPF yaml' % fpath)
+
+    f_temp = ''
+    route_type = get_route_type()
+    assert route_type != ''
+    logger.info("route_type: %s" % route_type)
+    if route_type == 'BGP':
+        f_temp = '%s/SlbProxy-bgp.yaml' % fdir
+    elif route_type == 'OSPF':
+        f_temp = '%s/SlbProxy-ospf.yaml' % fdir
+
+    assert f_temp != ''
+
+    cmd = 'ls %s' % f_temp
+    ret, out = exec_local_cmd(cmd)
+    if ret != 0:
+        logger.error("%s also not exist" % f_temp)
+        raise Exception("%s also not exist" % f_temp)
+
+    cmd = 'cp -f %s %s' % (f_temp, fpath)
+    ret, out = exec_local_cmd(cmd)
+    assert ret == 0
+
+    return fpath
+
+if __name__ == '__main__':
+    print get_res_yaml_path()

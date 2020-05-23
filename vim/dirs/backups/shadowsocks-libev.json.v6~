@@ -1,0 +1,9 @@
+{
+    "server":"2400:8901::f03c:91ff:fe90:d9ef",
+    "server":"139.162.63.36",
+    "server_port":17652,
+    "local_port":1100,
+    "password":"zqwyfqQFYW",
+    "timeout":600,
+    "method":"chacha20-ietf-poly1305"
+}

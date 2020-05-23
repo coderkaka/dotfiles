@@ -1,0 +1,171 @@
+#!/usr/bin/env python
+'''use /usr/bin/env because of MySQLdb'''
+
+import os
+import commands
+import sys
+import time
+import json
+from common.master_api import *
+from common.command import *
+
+import MySQLdb
+import MySQLdb.cursors
+
+def query_db(pillar_path, sql):
+    yaml_info = yaml.load(file(pillar_path))
+    db = yaml_info['database']
+
+    conn = None
+    data = None
+    try:
+        conn = MySQLdb.connect(host=db['xuanyuan_host'],
+                               user=db['xuanyuan_user'],
+                               passwd=db['xuanyuan_passwd'],
+                               db=db['xuanyuan_db'],
+                               port=db['xuanyuan_port'],
+                               cursorclass=MySQLdb.cursors.DictCursor,
+                               charset='utf8'
+                               )
+        conn.autocommit(True)
+        cur = conn.cursor()
+        cur.execute(sql)
+        data = cur.fetchall()
+        cur.close()
+        return data
+    finally:
+        if conn:
+            conn.close()
+
+    return None
+
+def get_master_version(pillar_path):
+    sql = 'select version from version'
+    data = query_db(pillar_path, sql)
+    if len(data) != 1:
+        raise Exception('table version in master db is null or row num not equal 1')
+
+    version = data[0]['version']
+    return version
+
+def get_up_rs_num():
+    up_rs = 0
+    up_rs_avg = 0
+    for i in range(3):
+        cmd = 'sudo curl -s localhost/check_healthcheck_status | grep up | wc -l'
+        ret, out = exec_local_cmd(cmd)
+        if ret != 0:
+            return -1
+        up_rs = up_rs + int(out.strip())
+        time.sleep(10)
+    up_rs_avg = up_rs / 3
+    return up_rs_avg
+
+def is_master_upgrade_from_low_to_v38(pillar_path):
+    sql = "SELECT * FROM information_schema.COLUMNS WHERE TABLE_NAME='amber_info' and  TABLE_SCHEMA='xuanyuan'"
+    data = query_db(pillar_path, sql)
+    if len(data) < 0:
+        return False
+
+    sql = "select * from amber_info where up_task = '' and task_name='docker_v38_upgrade'"
+    data = query_db(pillar_path, sql)
+    if len(data) == 1 and data[0]['status'] != 'success':
+        return True
+
+    return False
+
+
+class disableNode:
+    def __init__(self, type, pillar_path):
+        self.pillar_path = pillar_path
+        self.masterapi = masterApi(type, pillar_path)
+        pass
+
+    def iptables_set(self):
+        common = "sudo iptables -S | grep INPUT | grep tcp | grep \"FIN,SYN,RST,PSH,ACK,URG SYN\""
+        find_cmd = common + " | grep 81 | grep DROP"
+        ret, out = exec_local_cmd(find_cmd)
+        if ret:
+            cmd = "sudo iptables -A INPUT -p tcp --dport 81 --tcp-flags ALL SYN -j DROP"
+            ret, out = exec_local_cmd(cmd)
+            if ret:
+                logger.error('iptables set failed')
+                return 1
+
+        cmd = "sudo service iptables save"
+        ret, out = exec_local_cmd(cmd)
+        if ret:
+            logger.error("save iptables rules failed")
+            return 2
+
+        cmd = "sudo chkconfig --level 2345 iptables on"
+        ret, out = exec_local_cmd(cmd)
+        if ret:
+            logger.error("chkconfig iptables failed")
+            return 3
+
+        return 0
+
+    def disable(self):
+
+        if is_master_upgrade_from_low_to_v38(self.pillar_path):
+            logger.debug('upgrade from low to v3.8')
+            if get_master_version(self.pillar_path) != '17.12.0':
+                logger.debug('upgrade from low to v3.8 and master version not equal to 17.12.0, please wait...')
+                time.sleep(10)
+                return 1
+
+            up_rs = get_up_rs_num()
+            if up_rs == -1:
+                logger.error("disable_node.py: get up rs failed")
+                return 1
+    
+            logger.info("up rs num is %d in disable" % up_rs)
+            f = open("/home/admin/up_rs","w+")
+            f.write(str(up_rs))
+            f.close()
+
+            cmd = 'sudo /etc/init.d/slb-control-proxy disable'
+            ret, out = exec_local_cmd(cmd)
+            if ret != 0:
+                logger.error("disable_node.py: disable node failed")
+                return 1
+
+        else:
+            #0: fail; 1: succeed
+            if not self.masterapi.disable_node():
+                logger.error("disable_node.py: disable node failed")
+                return 1
+
+        #drop in ApsaraStack
+        #if self.iptables_set():
+        #    logger.error("disable_node.py: forbid port 81 failed")
+        #    return 2
+
+        logger.info("wait...180s")
+        time.sleep(180)
+
+        return 0
+
+if __name__ == '__main__':
+
+    if len(sys.argv) != 2:
+        logger.error("disable_node.py: params error, need one param: pillar path")
+        exit(1)
+
+    pillar_path = sys.argv[1].strip()
+    if not os.path.exists(pillar_path):
+        logger.error("disable_node.py: %s not exist" % pillar_path)
+        exit(2)
+
+    logger.info("disable node ...")
+    diab = disableNode('proxy', pillar_path)
+    ret = diab.disable()
+    if ret:
+        msg = json.dumps(dict(msg="call %s, ret %d" % (sys.argv[0], ret), \
+                    ts=time.time(), logpath="/var/log/proxy_deploy.log"))
+        logger.error("disable_node.py: " + str(msg))
+        exit(3)
+
+    logger.info("disable node ok!")
+    exit(0)

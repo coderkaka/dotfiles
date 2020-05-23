@@ -1,0 +1,58 @@
+%define role keyserver
+
+Name:slb-%{role}
+Version:18.04.1
+Release: %(echo $RELEASE)%{?dist}
+Summary: All-in-one package of keyserver
+Group: Applications/System
+URL: git@gitlab.alibaba-inc.com:slb/slb-release.git
+Source:%{name}-%{version}.tar.gz
+Provides:%{name}-%{version}-%{release}
+License:GPL
+BuildRequires: createrepo, python-simplejson
+
+# Disable the auto-strip by rpm-build, keep debuginfo
+%global __os_install_post %{nil}
+
+%description
+
+%prep
+
+%build
+cd $OLDPWD/../
+
+./scripts/get_role_package.py ./release-notes/%{version}-release-note-%{role}.json %{role}
+
+%install
+cd $OLDPWD/../
+%{__install} -d %{buildroot}/home/slb/release/%{version}/%{role}
+
+cp -rf %{role}/* %{buildroot}/home/slb/release/%{version}/%{role}
+
+# Remove link file
+rm -rf %{buildroot}/home/slb/release/%{version}/%{role}/scripts/common
+cp -rf common %{buildroot}/home/slb/release/%{version}/%{role}/scripts/
+
+chmod 0755 %{buildroot}/home/slb/release/%{version}/%{role}/scripts/
+chmod 0755 %{buildroot}/home/slb/release/%{version}/%{role}/scripts/common
+
+#create repo
+cd %{buildroot}/home/slb/release/%{version}/%{role}/rpms
+createrepo -v -o . . 
+
+%post
+
+%preun
+
+%postun
+
+%clean
+rm -rf $RPM_BUILD_ROOT
+
+%files
+%defattr(0755,admin,admin)
+/home/slb/release/%{version}/%{role}/*
+
+%changelog
+* Thu Jun 30 2016 jinshuai.js@alibaba-inc.com
+- first create package

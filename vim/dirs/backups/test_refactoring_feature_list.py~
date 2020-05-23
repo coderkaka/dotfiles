@@ -1,0 +1,1502 @@
+# encoding: utf-8
+# owner: 天暴
+# 测试点：
+#1. qps default：默认和非默认qps在dyconf设置正确
+#2. 限速逻辑优化： device_count在dyconf配置正确，涉及新建和更新device_count配置
+#3. tcp/udp端口扩大, 测试端口能被监听，dyaccept配置Ok，via header正确显示
+#4. upstream keepalive， 测试超时、max_requests和基本功能 
+#5. 健康检查http版本可配置
+#6. xff, xforwardedport xforwardedclientport监听和规则的变配
+#7. 弹性ppu测试
+#8. Ipv6 rs
+#9. async agent 
+#10. increamtental update for dyups rules
+#11. test malicious http request
+
+import json
+import string
+import random
+import slbqat
+import alitest
+import threading
+from slb_ops    import *
+from slbqat     import api
+from random     import randint
+from slbqat.api import db as apidb
+from alitest import http_util, system_util
+from slbqat.master import db as masterdb
+import requests
+import common_pb2
+import loadbalancer_pb2
+import proxy_pb2
+import response_pb2
+import socket
+
+from slb_ops_ref    import *
+logging.getLogger("requests").setLevel(logging.WARNING)
+
+slb_ops_ref = slb_ops_ref()
+slb_obj = slb_ops()
+def setup_module(module):
+    slb_ops_ref.start_proxy_via_reload()
+    time.sleep(10)
+    pass
+
+def execute_local_cmd(cmd):
+    (ret, out, err) = system_util.execute_cmd(cmd)
+    return (ret, out, err)
+
+@marker.function
+def add_rules(l7srv, idx):
+    rule = slb_ops_ref.build_rule(l7srv,'rule' + str(idx),'www.abc.com','/abc',proxy_pb2.HttpRule.CREATED)
+    rs = slb_ops_ref.build_rule_rs(rule,"1.1.1.1", 8080,common_pb2.Realserver.CREATED,0)
+
+def start_proxy_via_reload_1():
+    tup = slb_obj.proxy_laddr_mask[0]
+    addr = tup['ip']
+    mask = tup['mask']
+    
+    reload =  proxy_pb2.ReloadProxyMessage()
+
+    loadbalancer = slb_ops_ref.build_reload_lb(reload, '12.12.12.12', 'hangzhou', 1,1000 )
+    loadbalancer = slb_ops_ref.build_reload_lb(reload, '112.112.112.112', 'beijing', 1, 1110 )
+    port = slb_ops_ref.get_test_port() 
+    listen       = slb_ops_ref.build_reload_listen(reload, "17.7.7.71", port, 'http', 'beijing', 'li2004', 1,0)
+    rs           = slb_ops_ref.build_listen_rs(listen, "8.8.8.8", 3, common_pb2.Realserver.CREATED, 45)
+    
+    rule         = slb_ops_ref.build_rule(listen, "rule001", "ice", "http://valar",common_pb2.Realserver.CREATED)
+
+    #specific
+    rule.config.wild_config['name'] = 'RuleTaoBao'
+    rule.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    rule.config.sticky_session.timeout = 3
+    rule.config.sla_config.cps =1288
+
+    rs           = slb_ops_ref.build_rule_rs(rule, "88.88.88.88", 388, common_pb2.Realserver.CREATED, 4588)    
+    
+    port = slb_ops_ref.get_test_port() 
+    listen       = slb_ops_ref.build_reload_listen(reload, "117.7.7.71", port, 'https', 'hangzhou', 'li20044', 99,0)
+    #specific
+    listen.config.wild_config['name'] = 'TaoBaoooo'
+    listen.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    listen.config.sticky_session.timeout = 3
+    slb_ops_ref.append_cert(listen)
+    rs           = slb_ops_ref.build_listen_rs(listen, "18.18.18.118", 3, common_pb2.Realserver.DELETED, 4588)
+   
+    #build large port range 
+    reload.device_group.site_name = 'vo'
+    reload.device_group.start_port = 40000
+    reload.device_group.end_port = 60000#only one fake severer
+    reload.device_group.device_count.plugged_count = 8
+    reload.device_group.version = 1
+    slb_ops_ref.build_reload_device(reload, addr, mask,1) 
+
+    s_str = reload.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'reload',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+#1808 default qps configurable
+@marker.function
+@pytest.mark.test_way('''
+    创建lb，http_listen,rule，rule_rs，测试默认和非默认qps在dyconf设置正确
+''')
+@pytest.mark.test_points(
+    "lb未设置qps，使用默认值（40000），验证默认qps在dyconf设置正确",
+    "lb设置qps值：6666，验证非默认qps在dyconf设置正确"
+)
+def test_default_qps_configurable():
+    port = slb_ops_ref.get_test_port()
+    # lb with no qps 
+    lb = slb_ops_ref.build_lb( '12.12.12.12', 'lb-0001',2, None) 
+    s_str = lb.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/lb',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    vms = slb_obj.get_physical_servers()
+    vm = vms[0]
+    l7srv = slb_ops_ref.build_listen("17.7.7.73",port,'http','lb-0001','ls_0001',1, 23)
+    rule         = slb_ops_ref.build_rule(l7srv, "rule1", "www.abc.com", "/",common_pb2.Realserver.CREATED)
+    rs           = slb_ops_ref.build_rule_rs(rule, vm["ALI_IP"], 8082, common_pb2.Realserver.CREATED, 0)  
+    
+    s_str = l7srv.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "sudo cat /etc/proxy/conf/vip/"+str(port))
+    # default value is 5000 * 8
+    assert out.find("rate=40000") > 0
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl 127.0.0.1:8089/config?vip="+str(port))
+    # default value in dyconf is 5000 * 8
+    assert out.find('"rate_limit":"40000"}') > 0
+    #(ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl 127.0.0.1:8089/config?vip=device_count")
+    #assert out.find('"dc":"8"') > 0
+
+    # lb with qps
+    port = slb_ops_ref.get_test_port()
+    lb = slb_ops_ref.build_lb( '12.12.12.12', 'lb-0002',2, 6666)
+    s_str = lb.SerializeToString()
+    
+    res = requests.put(slb_ops_ref.url + 'create/lb',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    vms = slb_obj.get_physical_servers()
+    vm = vms[0]
+    l7srv = slb_ops_ref.build_listen("17.7.7.73",port,'http','lb-0002','ls_0002',1, 23)
+    rule         = slb_ops_ref.build_rule(l7srv, "rule1", "www.abc.com", "/",common_pb2.Realserver.CREATED)
+    rs           = slb_ops_ref.build_rule_rs(rule, vm["ALI_IP"], 8082, common_pb2.Realserver.CREATED, 0)
+    
+    s_str = l7srv.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)    
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "sudo cat /etc/proxy/conf/vip/"+str(port))
+    assert out.find("rate=6666") > 0
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl 127.0.0.1:8089/config?vip="+str(port))
+    assert out.find('"rate_limit":"6666"}') > 0
+@marker.function
+@pytest.mark.test_way('''
+    创建lb，http_listen,rule，rule_rs，测试默认device_count在dyconf配置正确以及更新device_count后配置正确
+''')
+@pytest.mark.test_points(
+    "验证默认device_count(dc:8)在dyconf配置正确",
+    "更新device_count=9，验证更新device_count后，在dyconf配置正确",
+    "更新device_count=7，验证更新device_count后，在dyconf配置正确"
+)
+def test_qps_opt():
+    #device count from reload 
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl 127.0.0.1:8089/config?vip=device_count")
+    assert out.find('"dc":"8"') > 0
+
+    #device count from update
+    dg = proxy_pb2.ProxyDeviceGroupConfigurationMessage ()
+    dg.site_name = 'vo'
+    dg.start_port = 50111
+    dg.end_port = 52222
+    dg.device_count.plugged_count = 9
+    dg.version = 2
+    dg.is_incremental =0
+    dg.ssl_session_key.current_key = '2234567890abcdef0e6f4659a0d38f1259be0268b61e6254'
+    dg.ssl_session_key.previous_key = '9c4769c2a42304a548048f56d0f271a6bade390b69a3e25a'
+    s_str =dg.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'update/device_group',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)    
+       
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl 127.0.0.1:8089/config?vip=device_count")
+    assert out.find('"dc":"9"') > 0
+
+    dg.device_count.plugged_count = 7
+    dg.version = 3
+    dg.is_incremental =0
+    dg.ssl_session_key.current_key = '2234567890abcdef0e6f4659a0d38f1259be0268b61e6254'
+    dg.ssl_session_key.previous_key = '9c4769c2a42304a548048f56d0f271a6bade390b69a3e25a'
+    s_str =dg.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'update/device_group',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)    
+       
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl 127.0.0.1:8089/config?vip=device_count")
+    assert out.find('"dc":"7"') > 0
+@marker.function
+@pytest.mark.test_way('''
+    构造大端口范围（40000-60000），dyaccept配置数据，使用netstat命令检测端口是否被监听，
+    curl 指定http post方式发送请求，并查看dyaccept配置是否正确，
+    via header显示是否正确
+''')
+@pytest.mark.test_points(
+    "netstat命令验证端口能被监听",
+    "curl 指定http post方式，端口：40000，发送请求，查看dyaccept配置正确",
+    "curl 指定http post方式，端口：60000，发送请求，查看dyaccept配置正确",
+    "curl 指定http post方式，端口：39999，发送请求，查看dyaccept配置错误",
+    "curl 指定http post方式，端口：60001，发送请求，查看dyaccept配置错误",
+    "curl http 指定范围内端口 30001，via header显示是否正确"
+    "curl http 指定范围内端口 59999，via header显示是否正确"
+)
+def test_3w_listening_port_range():
+    start_proxy_via_reload_1()
+    time.sleep(10)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "sudo netstat -nap  | grep 40000")
+    assert out.find('nginx') > 0
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "sudo netstat -nap  | grep 60000")
+    assert out.find('nginx') > 0
+
+    #dyaccept
+    content ='' 
+    dyaccept_encodings = {}
+    dyaccept_encodings['splice'] = 'splice off;'
+    dyaccept_encodings['https'] = 'ssl on;'
+    dyaccept_encodings['http2'] = 'http2 on;'
+    dyaccept_encodings['ssl_verify_client'] = 'ssl_verify_client  on;'
+    dyaccept_encodings['gzip_etag'] = 'gzip_etag on;'
+    dyaccept_encodings['ssl_protocols'] = 'ssl_protocols TLSv1.0 TLSv1.1 TLSv1.2;'
+    dyaccept_encodings['proxy_http_version'] = 'proxy_http_version 1.0;'
+    dyaccept_encodings['slb_proxy_read_timeout'] = 'proxy_read_timeout 60;'
+    dyaccept_encodings['keepalive_timeout'] = 'keepalive_timeout 666;'
+    for k,v in dyaccept_encodings.items():
+        content += dyaccept_encodings[k]  + ' '
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl -X POST 127.0.0.1:6677/dyaccept/40000 -d '%s' -v -L" % content)
+   
+    time.sleep(1)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl 127.0.0.1:6677/dyaccept/40000")
+    assert out.find('ssl on') > 0
+
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl -X POST 127.0.0.1:6677/dyaccept/60000 -d '%s' -v -L" % content)
+
+    time.sleep(1)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl 127.0.0.1:6677/dyaccept/60000")
+    assert out.find('ssl on') > 0
+
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl -X POST 127.0.0.1:6677/dyaccept/39999 -d '%s' -v -L" % content)
+    
+    time.sleep(1)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl 127.0.0.1:6677/dyaccept/39999")
+    assert out.find('ssl on') <= 0
+
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl -X POST 127.0.0.1:6677/dyaccept/60001 -d '%s' -v -L" % content)
+   
+    time.sleep(1)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl 127.0.0.1:6677/dyaccept/60001")
+    assert out.find('ssl on') <= 0
+
+    ip = slb_ops_ref.get_proxy()
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl http://%s:40001 -v -L" % ip)
+    assert err.find('SLB') > 0
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl http://%s:59999 -v -L" % ip)
+    assert err.find('SLB') > 0
+
+def print_proxy_vip_conf(port):
+    for proxy in slb_obj.proxy_hosts:
+        rsp = slb_obj.execute_remote_cmd(proxy, "curl 127.0.0.1:80/list")
+        assert rsp[0] == 0
+        logger.debug("\nall list: %s" % rsp[1])
+        # print "\nall list: "
+        # print rsp[1]
+
+        rsp = system_util.execute_cmd(
+            '''ssh root@%s "cat /etc/proxy/conf/vip/%s"''' % (
+            proxy, port))
+        assert rsp[0] == 0
+        logger.debug(rsp[1])
+        # print rsp[1]
+
+def print_curl_conf(port):
+    for proxy in slb_obj.proxy_hosts:
+        resp = slb_obj.execute_remote_cmd(proxy, "curl -v 127.0.0.1:8089/config?vip=%s" % (port))
+        assert resp[0] == 0
+        # print resp[1]
+        logger.debug(resp[1])
+
+def check_result(vms, client, eip, vport, in_vid, lb_id):
+    __vport4__ = 60080
+    __bport4__ = 80
+    __sticky_session_timeout__ = 100
+    __concurrency__ = 321#100
+    slb_obj.wait_lvs_config_ready(eip, vport, in_vid)
+
+    # print proxy config
+    proxy_vip_port = slb_obj.get_lvs_config_port(eip, vport, in_vid)
+    assert proxy_vip_port > 0
+    print_proxy_vip_conf(proxy_vip_port)
+
+    # print proxy config
+    print_proxy_vip_conf(proxy_vip_port)
+
+    # check curl vip
+    resp  =  system_util.execute_cmd(
+            '''ssh root@%s "for  i  in  \$(seq  1  %s);  do  (curl  -I  -s  -k  'http://%s:%s'  -w  1  &);  done"'''  %  (client, __concurrency__,  eip,  __vport4__)
+    )
+    for proxy in slb_obj.proxy_hosts:    
+        # rm temp log
+        resp  =  system_util.execute_cmd(
+                '''ssh root@%s "sudo rm -f /home/admin/tengine/logs/*"'''  %  (proxy)
+        )
+        # dump upstream
+        resp  =  system_util.execute_cmd(
+                '''ssh root@%s "curl -s 127.0.0.1:6677/upstream/%s"'''  %  (proxy,proxy_vip_port)
+        )
+        time.sleep(1)
+        # basic function
+        resp  =  system_util.execute_cmd(
+                '''ssh root@%s "grep cache_2_free /home/admin/tengine/logs/ -R| grep -v tout | wc -l"'''  %  (proxy)
+        )
+        a = resp[1]
+        resp  =  system_util.execute_cmd(
+                '''ssh root@%s "grep 'cache_2_free 0' /home/admin/tengine/logs/ -R |  wc -l"'''  %  (proxy)
+        )
+        b = resp[1]
+        assert int(a) > int(b) 
+
+        #max requests
+        resp  =  system_util.execute_cmd(
+                '''ssh root@%s "grep not_keepalive_max_requests /home/admin/tengine/logs/ -R| grep -v tout | wc -l"'''  %  (proxy)
+        )
+        a = resp[1]
+        resp  =  system_util.execute_cmd(
+                '''ssh root@%s "grep 'not_keepalive_max_requests 0' /home/admin/tengine/logs/ -R |  wc -l"'''  %  (proxy)
+        )
+        b = resp[1]
+        assert int(a) > int(b)
+ 
+        #time out 
+        time.sleep(10)
+        resp  =  system_util.execute_cmd(
+                '''ssh root@%s "curl -s 127.0.0.1:6677/upstream/%s"'''  %  (proxy,proxy_vip_port)
+        )
+        time.sleep(1)
+        resp  =  system_util.execute_cmd(
+                '''ssh root@%s "grep cache_2_free_tout /home/admin/tengine/logs/ -R|  wc -l"'''  %  (proxy)
+        )
+        a = resp[1]
+        resp  =  system_util.execute_cmd(
+                '''ssh root@%s "grep 'cache_2_free_tout 0' /home/admin/tengine/logs/ -R |  wc -l"'''  %  (proxy)
+        )
+        b = resp[1]
+        assert int(a) > int(b)
+@marker.function
+@pytest.mark.test_way('''
+    创建lb，http_listen,rs_pool,classic_rs,通过grep lb_id找到ls_id
+    通过ls_id，更新监听keepalive相关配置，测试超时、max_requests和基本功能 
+''')
+@pytest.mark.test_points(
+    "验证keepalive基本功能正常",
+    "验证keepalive max requests配置生效",
+    "验证keepalive timeout配置生效"
+)
+def test_upstream_keepalive():
+    __vport4__ = 60080
+    __bport4__ = 80
+    __sticky_session_timeout__ = 100
+    __concurrency__ = 100
+
+    client1 = slb_obj.get_physical_clients()[0]["ALI_IP"]
+    vms = slb_obj.get_spec_char_servers()
+    in_vid = 0
+
+    (lb_id, eip) = slb_obj.create_classic_lb()
+    # rs pool
+    rs_pool_name = data_generator.gen_str('<l,10>')
+    slb_obj.create_http_rs_pool(__bport4__, rs_pool_name)
+
+    slb_obj.create_vip(lb_id,
+                       __vport4__,
+                       __bport4__,
+                       protocol="http",
+                       rs_pool_name=rs_pool_name,
+                       scheduler="wrr")
+    for vm in vms:
+        slb_obj.add_classic_rs_to_rs_pool(rs_pool_name, vm["ALI_IP"], 100,8082)
+    # get listener id 
+    time.sleep(5)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), 'grep %s /etc/proxy/conf/vip -R' % lb_id)
+    out = out.strip()
+    out = out.split('@')
+    out = out[1].split('"')
+    lsid = lb_id + '@' +  out[0]
+    #print 'grep %s /etc/proxy/conf/vip -R |      awk -F@ "{print \$2}" |  awk -F\" "{print \$1}"' % lb_id
+   
+    # hack for upstream keepalive  
+    listen = proxy_pb2.LayerSevenServiceMessage()
+    listen.address = '1.1.1.1'
+    listen.protocol = 'http'
+    listen.loadbalancer_id  = lb_id
+    listen.listener_id  = lsid
+    listen.version = 99
+    listen.tunnel_id  = 0
+    listen.upstream_keepalive.keepalive = 100
+    listen.upstream_keepalive.keepalive_timeout = 10
+    listen.upstream_keepalive.keepalive_requests = 10 #todo 
+    listen.upstream_keepalive.enable = common_pb2.ON
+    listen.version =3 
+    listen.is_incremental = 1
+    listen.port = int(slb_obj.get_lvs_config_port(eip, __vport4__, in_vid))
+    s_str = listen.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'update/listener',data=s_str)
+    rsp = response_pb2.Response()
+    try:
+        check_result(vms, client1, eip, __vport4__, in_vid, lb_id)
+    finally:
+        slb_obj.delete_lb(lb_id)
+        slb_obj.delete_rs_pool(rs_pool_name)
+@marker.function
+@pytest.mark.test_way('''
+    创建lb，http_listen,http_hc，更新健康检查http版本，测试健康检查http版本可配置
+''')
+@pytest.mark.test_points(
+    "配置健康检查http1.0版本，验证vipconf配置中健康检查http版本正确",
+    "更新配置健康检查http1.1版本，验证vipconf配置以及dumptcp抓包文件中健康检查http版本正确"
+)
+def test_http_hc_version():
+    __pcap_file__ = "server.pcap"
+    port = slb_ops_ref.get_test_port()
+    # lb with no qps 
+    lb = slb_ops_ref.build_lb( '12.12.12.12', 'lb-0003',2, None) 
+    s_str = lb.SerializeToString()
+    
+    res = requests.put(slb_ops_ref.url + 'create/lb',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+
+    vms = slb_obj.get_spec_char_servers()
+    vm = vms[0]
+    listen = proxy_pb2.LayerSevenServiceMessage()
+    listen.address = "17.7.7.71"
+    listen.port = port
+    listen.protocol = 'http'
+    listen.loadbalancer_id  = 'lb-0003'
+    listen.listener_id  = 'li-0003'
+    listen.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    listen.config.sticky_session.timeout = 3
+    listen.tunnel_id =23
+    realserver = listen.realserver.add()#repeated
+    realserver.address = vm["ALI_IP"]
+    realserver.port = 80
+    realserver.state = common_pb2.Realserver.CREATED #enum
+    realserver.weight = 100
+    realserver.tunnel_id = 0 
+    listen.config.check.check_type = common_pb2.HealthCheck.HTTP
+    listen.config.check.timeout =2
+    listen.config.check.interval = 2
+    listen.config.check.up = 6
+    listen.config.check.down = 7
+    listen.config.check.domain = "www.173.com"
+    listen.config.check.uri = "/"
+    listen.config.check.http_status_code = "http_2xx"
+    listen.config.check.http_check_version = common_pb2.HealthCheck.HTTP10 
+    listen.version = 3
+    listen.is_incremental = 0 #full
+    s_str = listen.SerializeToString()
+
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)    
+
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), 'grep "HTTP/1.0" /etc/proxy/conf/vip/%s' % port)
+    assert out.find("HTTP/1.0") > 0
+
+    listen.config.check.http_check_version = common_pb2.HealthCheck.HTTP11
+    listen.version = 4
+    listen.is_incremental = 1 #not full
+    s_str = listen.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'update/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), 'grep "HTTP/1.1" /etc/proxy/conf/vip/%s' % port)
+    assert out.find("HTTP/1.1") > 0
+
+    #let's pcap
+    (ret, out, err) = slb_obj.execute_remote_cmd(vm["ALI_IP"], "sudo rm -rf /tmp/*.pcap")
+    slb_obj.execute_remote_cmd(vm["ALI_IP"], "sudo killall tcpdump")
+    time.sleep(1)
+
+    slb_obj.execute_remote_cmd(vm["ALI_IP"], "sudo nohup tcpdump -i any -nn port 80 -w /tmp/%s >/dev/null 2>&1 &" %(__pcap_file__))
+
+    time.sleep(10)
+
+    # grep health check in pcap files
+    slb_obj.execute_remote_cmd(vm["ALI_IP"], "sudo killall tcpdump")
+    time.sleep(1)
+
+    resp = slb_obj.execute_remote_cmd(vm["ALI_IP"], '''sudo grep -i 'HEAD / HTTP/1.1' /tmp/%s''' % __pcap_file__)
+    assert resp[0] == 0
+    assert resp[1].find("matches") > -1
+@marker.function
+@pytest.mark.test_way('''
+    创建listen，listen_rs,启用xforwarded_port xforwarded_clientport，
+    增加rule，rule_rs，启用xforwarded_for, xforwarded_port xforwarded_clientport，
+    更新listen，rule配置，xforwarded_port xforwarded_clientport均为off，
+    测试xforwarded_port xforwarded_clientport监听和规则的变配
+''')
+@pytest.mark.test_points(
+    "启用xforwarded_port xforwarded_clientport，验证vipconf中的配置正确，curl dyconf 返回配置信息正确",
+    "更新xforwarded_port xforwarded_clientport配置为off，验证vipconf中的配置正确，curl dyconf 返回配置信息正确"
+)
+def test_xforwarded_port():
+    slb_ops_ref.start_proxy_via_reload()
+    time.sleep(10)
+    port = slb_ops_ref.get_test_port()
+    vms = slb_obj.get_physical_servers()
+    vm = vms[0]
+    l7srv = slb_ops_ref.build_listen("17.7.7.71",port,'http','hangzhou','ls-0005',3, 10000)
+    rs           =  slb_ops_ref.build_listen_rs(l7srv, vm["ALI_IP"], 8082, common_pb2.Realserver.CREATED, 0) 
+
+    # add rule 
+    rule         =  slb_ops_ref.build_rule(l7srv, "rule1", "www.abc.com", "/test",common_pb2.Realserver.CREATED)
+    rs           =  slb_ops_ref.build_rule_rs(rule, vm["ALI_IP"], 8082, common_pb2.Realserver.CREATED, 0) 
+
+    l7srv.config.x_forwarded_for = common_pb2.ON
+    l7srv.x_forwarded_port = common_pb2.ON
+    l7srv.x_forwarded_client_port = common_pb2.ON
+
+    rule.config.x_forwarded_for = common_pb2.ON
+    rule.x_forwarded_port = common_pb2.ON
+    rule.x_forwarded_client_port = common_pb2.ON
+    
+    s_str = l7srv.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), 'grep -c X-Forwarded-For /etc/proxy/conf/vip/%s' % port)
+    out.strip()
+    assert int(out) == 2
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), 'grep -c X-Forwarded-Port /etc/proxy/conf/vip/%s' % port)
+    out.strip()
+    assert int(out) == 2
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), 'grep -c X-Forwarded-Client-Port /etc/proxy/conf/vip/%s' % port)
+    out.strip()
+    assert int(out) == 2
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl 127.0.0.1:8089/config?vip="+str(port))
+    assert out.find('"X-Forwarded-For":"on"') > 0
+    assert out.find('"X-Forwarded-Port":"on"') > 0
+    assert out.find('"X-Forwarded-Client-Port":"on"') > 0
+
+    # turn off config 
+    l7srv.version = 4
+    l7srv.is_incremental = 1
+    l7srv.config.x_forwarded_for = common_pb2.OFF
+    l7srv.x_forwarded_port = common_pb2.OFF
+    l7srv.x_forwarded_client_port = common_pb2.OFF
+
+    rule.config.x_forwarded_for = common_pb2.OFF
+    rule.x_forwarded_port = common_pb2.OFF
+    rule.x_forwarded_client_port = common_pb2.OFF
+    s_str = l7srv.SerializeToString()
+    
+    res = requests.put(slb_ops_ref.url + 'update/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), 'grep -c X-Forwarded-For /etc/proxy/conf/vip/%s' % port)
+    out.strip() 
+    assert int(out) == 0
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), 'grep -c X-Forwarded-Port /etc/proxy/conf/vip/%s' % port)
+    out.strip() 
+    assert int(out) == 0
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), 'grep -c X-Forwarded-Client-Port /etc/proxy/conf/vip/%s' % port)
+    out.strip() 
+    assert int(out) == 0
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl 127.0.0.1:8089/config?vip="+str(port))
+    assert out.find('"x_forwarded_for":"on"') <= 0
+    assert out.find('"X-Forwarded-Port":"on"') <= 0
+    assert out.find('"X-Forwarded-Client-Port":"on"') <= 0
+#build eppu listen in reload message
+def start_proxy_via_reload_eppu():
+    tup = slb_obj.proxy_laddr_mask[0]
+    addr = tup['ip']
+    mask = tup['mask']
+    
+    reload =  proxy_pb2.ReloadProxyMessage()
+
+    loadbalancer = slb_ops_ref.build_reload_lb(reload, '12.12.12.12', 'hangzhou', 1,1000 )
+    loadbalancer = slb_ops_ref.build_reload_lb(reload, '112.112.112.112', 'beijing', 1, 1110 )
+    port = 50001
+    listen       = slb_ops_ref.build_reload_listen(reload, "17.7.7.71", port, 'http', 'beijing', 'li2004', 1,0)
+    rs           = slb_ops_ref.build_listen_rs(listen, "8.8.8.8", 3, common_pb2.Realserver.CREATED, 45)
+    
+    rule         = slb_ops_ref.build_rule(listen, "rule001", "ice", "http://valar",common_pb2.Realserver.CREATED)
+
+    #specific
+    rule.config.wild_config['name'] = 'RuleTaoBao'
+    rule.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    rule.config.sticky_session.timeout = 3
+    rule.config.sla_config.cps =1288
+
+    rs           = slb_ops_ref.build_rule_rs(rule, "88.88.88.88", 388, common_pb2.Realserver.CREATED, 4588)    
+    #eppu part
+    ppu = listen.layer_seven_port_info.add()
+    ppu.device_group_name  = "proxy_pool-4_29f09983-8d7a-11e7-a96c-2c44fd7aab84"
+    ppu.port = 50002
+    ppu.plug_count =2
+    ppu = listen.layer_seven_port_info.add()
+    ppu.device_group_name  = "pool-2"
+    ppu.port = 50002
+    ppu.plug_count =2
+    ppu = listen.layer_seven_port_info.add()
+    ppu.device_group_name  =  "pool-3"
+    ppu.port = 50003
+    ppu.plug_count =2
+    ppu = listen.layer_seven_port_info.add()
+    ppu.device_group_name  = "pool-4"
+    ppu.port = 50003
+    ppu.plug_count =2
+   
+    port = 50010
+    listen       = slb_ops_ref.build_reload_listen(reload, "117.7.7.71", port, 'https', 'hangzhou', 'li20044', 99,0)
+    #specific
+    listen.config.wild_config['name'] = 'TaoBaoooo'
+    listen.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    listen.config.sticky_session.timeout = 3
+    slb_ops_ref.append_cert(listen)
+    rule         = slb_ops_ref.build_rule(listen, "rule001", "ice", "http://valar",common_pb2.Realserver.CREATED)
+
+    #specific
+    rule.config.wild_config['name'] = 'RuleTaoBao'
+    rule.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    rule.config.sticky_session.timeout = 3
+    rule.config.sla_config.cps =1288
+    rs           = slb_ops_ref.build_listen_rs(listen, "18.18.18.118", 3, common_pb2.Realserver.DELETED, 4588)
+   
+    ppu = listen.layer_seven_port_info.add()
+    ppu.device_group_name  = "proxy_pool-4_29f09983-8d7a-11e7-a96c-2c44fd7aab84"
+    ppu.port = 50012
+    ppu.plug_count =2
+    ppu = listen.layer_seven_port_info.add()
+    ppu.device_group_name  = "pool-2"
+    ppu.port = 50012
+    ppu.plug_count =2
+    ppu = listen.layer_seven_port_info.add()
+    ppu.device_group_name  =  "pool-3"
+    ppu.port = 50013
+    ppu.plug_count =2
+    ppu = listen.layer_seven_port_info.add()
+    ppu.device_group_name  = "pool-4"
+    ppu.port = 50013
+    ppu.plug_count =2
+    #build large port range 
+    reload.device_group.site_name = 'vo'
+    reload.device_group.start_port = 40000
+    reload.device_group.end_port = 60000#only one fake severer
+    reload.device_group.device_count.plugged_count = 2
+    reload.device_group.version = 1
+    reload.device_group.device_group_name  = "proxy_pool-4_29f09983-8d7a-11e7-a96c-2c44fd7aab84"
+    slb_ops_ref.build_reload_device(reload, addr, mask,1) 
+
+    s_str = reload.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'reload',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+#check cfg for dyups,dyconf,dycert and config file
+def check_result_2(vip, https):
+    ##cfg 
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "sudo grep slb_info /etc/proxy/conf/vip -R")
+    assert out.find("/etc/proxy/conf/vip/" + vip) >= 0
+    ##dyups  
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl -s 127.0.0.1:6677/list")
+    assert out.find(vip) >= 0
+    assert out.find(vip + "_rule001") >= 0
+    ##dyconf 
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl -s 127.0.0.1:8089/config?vip="+vip)
+    assert out.find('"status":200') >= 0
+    ##dycert
+    if https:
+        (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl -s 127.0.0.1:8090/dycert/config?vip="+vip)
+        assert out.find('"status":200') >= 0
+
+#should cover both listen and rule case
+#should check consistence for cfg and dyconf, dyups
+#check cases
+#1. eppu listen in reload messge
+#2. create eppu listen
+#3. update eppu listen
+#4. delete eppu listen
+
+@marker.function
+@pytest.mark.test_way('''
+    弹性ppu测试
+''')
+@pytest.mark.test_points(
+    "在reload message中构建eppu listen（http/https)成功，并验证vipconf,dyups,dyconf,dycert配置正确",
+    "创建eppu listen（http),验证vipconf,dyups,dyconf配置正确",
+    "更新eppu listen(http) ppu配置，验证vipconf,dyups,dyconf配置正确"
+    "删除eppu listen(http)，验证vipconf,dyups,dyconf配置正确"
+)
+def test_eppu():
+    #reload case
+    time.sleep(3)
+    start_proxy_via_reload_eppu()
+    #check relaod case
+    check_result_2("50002", 0)
+    check_result_2("50012", 1)
+    #create case
+    port = 51001
+    listen       = slb_ops_ref.build_listen("17.7.7.71", port, 'http', 'beijing', 'li2004', 1,0)
+    rs           = slb_ops_ref.build_listen_rs(listen, "8.8.8.8", 3, common_pb2.Realserver.CREATED, 45)
+    
+    rule         = slb_ops_ref.build_rule(listen, "rule001", "ice", "http://valar",common_pb2.Realserver.CREATED)
+
+    #specific
+    rule.config.wild_config['name'] = 'RuleTaoBao'
+    rule.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    rule.config.sticky_session.timeout = 3
+    rule.config.sla_config.cps =1288
+
+    rs           = slb_ops_ref.build_rule_rs(rule, "88.88.88.88", 388, common_pb2.Realserver.CREATED, 4588)    
+    ppu = listen.layer_seven_port_info.add()
+    ppu.device_group_name  = "proxy_pool-4_29f09983-8d7a-11e7-a96c-2c44fd7aab84"
+    ppu.port = 51012
+    ppu.plug_count =2
+    ppu = listen.layer_seven_port_info.add()
+    ppu.device_group_name  = "pool-2"
+    ppu.port = 51012
+    ppu.plug_count =2
+    ppu = listen.layer_seven_port_info.add()
+    ppu.device_group_name  =  "pool-3"
+    ppu.port = 51013
+    ppu.plug_count =2
+    ppu = listen.layer_seven_port_info.add()
+    ppu.device_group_name  = "pool-4"
+    ppu.port = 51013
+    ppu.plug_count =2
+    s_str = listen.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+    check_result_2("51012", 0)
+
+    #update case, scaling out 
+    rs           = slb_ops_ref.build_rule_rs(rule, "188.88.88.88", 388, common_pb2.Realserver.CREATED, 4588)    
+    listen.version = 2
+    ppu = listen.layer_seven_port_info.add()
+    ppu.device_group_name  = "pool-5"
+    ppu.port = 51014
+    ppu.plug_count =2
+    ppu = listen.layer_seven_port_info.add()
+    ppu.device_group_name  = "pool-6"
+    ppu.port = 51014
+    ppu.plug_count =2
+    s_str = listen.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'update/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert rsp.code == response_pb2.Response.OK
+    check_result_2("51012", 0)
+    #delete case
+    s_str = listen.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'delete/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+    vip = '51012'
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "sudo grep slb_info /etc/proxy/conf/vip -R")
+    assert out.find("/etc/proxy/conf/vip/" + vip) < 0
+    ##dyups  
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl -s 127.0.0.1:6677/list")
+    assert out.find(vip + "_rule001") < 0
+    ##dyconf 
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), "curl -s 127.0.0.1:8089/config?vip="+vip)
+    assert out.find('"status":200') >= 0#stub config
+
+@marker.function
+@pytest.mark.test_way('''
+    重载proxy，依次增加rs并配置Ip地址类型： Ipv4 ，Ipv6 address,
+    测试Ipv6 rs是否正常
+''')
+@pytest.mark.test_points(
+    "正常增加Ipv4 address，命令ip a 查看，address配置成功"
+    "正常增加Ipv6 address，命令ip a 查看，address配置成功"
+)
+def test_refactoring_reload_ipv6():
+    tup = slb_obj.proxy_laddr_mask[0]
+    addr = tup['ip']
+    mask = tup['mask']
+    
+    reload =  proxy_pb2.ReloadProxyMessage()
+    reload.device_group.site_name = 'vo'
+    reload.device_group.start_port = 40000
+    reload.device_group.end_port = 60000#only one fake severer
+    reload.device_group.device_count.plugged_count = 8
+    reload.device_group.version = 1
+
+    reload.device.local_address.network_addr = "11.239.122.16"#addr
+    reload.device.local_address.mask = 29#int(mask)
+    reload.device.version = 1
+    s_str = reload.SerializeToString()
+    res = requests.put("http://10.101.23.95:12000/" + 'reload',data=s_str)
+    #res = requests.put(slb_ops_ref.url + 'reload',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+    
+    time.sleep(3)
+    resp  =  system_util.execute_cmd(
+            '''ssh root@%s "ip a"'''  %  ("10.101.23.95")#(proxy)
+    )
+    out = resp[1]
+    assert out.find("11.239.122.16") > 0
+
+    #add ipv4 overlay addr
+    #reload.device.local_address.network_addr = "0.0.0.0"
+    #reload.device.local_address.mask = 0
+    #overlay_laddr = reload.device.overlay_laddr.add()
+    #overlay_laddr.network_addr = "100.239.122.144"
+    #overlay_laddr.mask = 29
+    #s_str = reload.SerializeToString()
+    #res = requests.put("http://10.101.23.96:12000/" + 'reload',data=s_str) 
+    #rsp = response_pb2.Response()
+    #rsp.ParseFromString(res.content)
+    #assert(rsp.code == response_pb2.Response.OK)
+    #
+    #time.sleep(3)
+    #resp  =  system_util.execute_cmd(
+    #        '''ssh root@%s "ip a"'''  %  ("10.101.23.96")#(proxy)
+    #)
+    #out = resp[1]
+    #assert out.find("100.239.122.144") > 0\
+
+    #add ipv6 overlay addr
+    reload.device.local_address.network_addr = "11.239.122.16"
+    reload.device.local_address.mask = 29
+    #overlay_laddr = reload.device.overlay_laddr.add()
+    #overlay_laddr.network_addr = "11.239.122.128"
+    #overlay_laddr.mask = 29
+    #underlay_laddr  = reload.device.underlay_laddr.add()
+    #underlay_laddr.network_addr = "11.239.122.128"
+    #underlay_laddr.mask = 29
+    overlay_laddr = reload.device.overlay_laddr.add()
+    overlay_laddr.network_addr = "2001:0db8:0:f101::"
+    overlay_laddr.mask = 125
+    underlay_laddr  = reload.device.underlay_laddr.add()
+    underlay_laddr.network_addr = "11.239.122.16"
+    underlay_laddr.mask = 29
+    s_str = reload.SerializeToString()
+    res = requests.put("http://%s:12000/reload" % slb_ops_ref.get_proxy(), data=s_str) 
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+    
+    time.sleep(3)
+    resp  =  system_util.execute_cmd(
+            '''ssh root@%s "ip a"'''  %  slb_ops_ref.get_proxy()
+    )
+    out = resp[1]
+    assert out.find("2001:db8:0:f101::1") > 0
+
+def update_listen(l7srv,version):
+   l7srv.version = version
+   s_str = l7srv.SerializeToString()
+   res = requests.put(slb_ops_ref.url + 'update/listener',data=s_str)
+   rsp = response_pb2.Response()
+   rsp.ParseFromString(res.content)
+
+@marker.function
+@pytest.mark.test_way('''
+    构建lb，https_listen,增加10个rule，并依次绑定rs，多线程并发执行更新listen的version信息操作，
+    测试async agent 
+''')
+@pytest.mark.test_points(
+    "多线程并发执行更新后，查询监听version信息，测试async agent正常"
+)
+def test_async_agent():
+   lb = loadbalancer_pb2.LoadbalancerMessage()
+   lb.address = '12.12.12.12'
+   lb.loadbalancer_id = 'lb4update1'
+   lb.version=4
+   lb.sla_config.qps=10000
+   s_str =lb.SerializeToString()
+   
+   res = requests.put(slb_ops_ref.url + 'create/lb',data=s_str)
+   rsp = response_pb2.Response()
+   rsp.ParseFromString(res.content)
+   assert(rsp.code == response_pb2.Response.OK)
+   l7srv = proxy_pb2.LayerSevenServiceMessage()
+   l7srv.address = "17.7.7.71"
+   l7srv.port = 50033
+   l7srv.protocol = 'https'
+   l7srv.loadbalancer_id  = 'lb4update1'
+   l7srv.listener_id  = 'li3331'
+   l7srv.tunnel_id = 213
+   l7srv.version = 1
+   for j in range(0,10): #rules
+       rule = l7srv.http_rule.add()#repeated
+       rule.name = 'vala' + str(j)
+       rule.domain = 'www.x.com' + str(j)
+       rule.url = '/'
+       rule.state = proxy_pb2.HttpRule.CREATED
+       for k in range(0,10):
+           realserver = rule.realserver.add()
+           realserver.address = "188.188.188."  +  str(k)
+           realserver.port = 133
+           realserver.tunnel_id = 133
+           realserver.state = common_pb2.Realserver.CREATED #enum
+           realserver.weight = 100
+           realserver.tunnel_id =23
+           realserver.vgw_ip = '0.0.0.0'
+   s_str = l7srv.SerializeToString()
+   res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+   rsp = response_pb2.Response()
+   rsp.ParseFromString(res.content)
+   assert(rsp.code == response_pb2.Response.OK)
+   thread_list = []
+   version = 1
+   for i in range(0,10):
+       sthread = threading.Thread(target =update_listen,args=(l7srv,(version)))
+       sthread.setDaemon(True)
+       sthread.start()
+       thread_list.append(sthread)
+       version += 1
+   for i in  range(len(thread_list)):
+       thread_list[i].join()
+   # check the version
+   query = common_pb2.QueryConfigMessage()
+   query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+   query.listener_id =  "li3331"
+   s_str =query.SerializeToString()        
+   res = requests.put(slb_ops_ref.url + 'query/listener/detail',data =s_str)
+   rsp = response_pb2.QueryLayerSevenServiceResponse()
+   rsp.ParseFromString(res.content)
+   assert(rsp.data[0].version == 10)
+
+@marker.function
+@pytest.mark.test_way('''
+    构建listen，增加rs并配置rs ip地址为ipv6类型，测试rs配置ipv6，curl http+端口，可正常转发
+''')
+@pytest.mark.test_points(
+    "rs配置ipv6，curl http+端口，可正常转发"
+)
+def test_ipv6_curl_ok():
+    tup = slb_obj.proxy_laddr_mask[0]
+    addr = tup['ip']
+    mask = tup['mask']
+    reload =  proxy_pb2.ReloadProxyMessage()
+    reload.device_group.site_name = 'vo'
+    reload.device_group.start_port = 40000
+    reload.device_group.end_port = 60000#only one fake severer
+    reload.device_group.device_count.plugged_count = 8
+    reload.device_group.version = 1
+    overlay_laddr = reload.device.overlay_laddr.add()
+    overlay_laddr.network_addr = "2001:0db8:0:f101::"
+    overlay_laddr.mask = 125
+    reload.device.local_address.network_addr = str(addr)
+    reload.device.local_address.mask = int(mask)
+    reload.device.version = 1
+    slb_ops_ref.build_reload_lb(reload, '12.12.12.12', 'hangzhou', 1,1000 )
+    s_str = reload.SerializeToString()
+    res = requests.put("http://%s:12000/reload" % slb_ops_ref.get_proxy(), data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+    
+    time.sleep(10)
+    port = slb_ops_ref.get_test_port()
+    vms = slb_obj.get_physical_servers()
+    vm = vms[0]
+    listen = slb_ops_ref.build_listen("17.7.7.71",port,'http','hangzhou','ls-0005',3, 10000)
+    realserver = listen.realserver.add()#repeated
+    realserver.address = "3001::3"
+    realserver.port = 6666
+    realserver.state = common_pb2.Realserver.CREATED
+    realserver.weight = 100
+    realserver.tunnel_id = 10000
+    vms = slb_obj.get_ipv6_vpc_servers()
+    vm = vms[0]
+    realserver.vgw_ip = vm["VGW_IP"]
+    realserver.is_backup = 0
+    s_str = listen.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+    time.sleep(2)
+    cmd =  'curl http://%s:%s' % (slb_ops_ref.get_proxy(),port)
+    (ret, out, err) = execute_local_cmd(cmd)
+    assert out.find("IP") > 0  
+@marker.function
+@pytest.mark.test_way('''
+    构建lb，http_listen，增加10个rule，rule_rs,更新一个rule，统计更新前后 curl 数量，比较curl增量，
+    测试增量更新rule
+''')
+@pytest.mark.test_points(
+    "验证增量更新rule正常"
+)
+def test_incr_update_rules():
+    port = slb_ops_ref.get_test_port()
+    lb = slb_ops_ref.build_lb( '12.12.12.12', 'lb-0004',2, None) 
+    s_str = lb.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'create/lb',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)  
+ 
+    listen = proxy_pb2.LayerSevenServiceMessage()
+    listen.address = "17.7.7.71"
+    listen.port = port
+    listen.protocol = 'http'
+    listen.loadbalancer_id  = 'lb-0004'
+    listen.listener_id  = 'li-0004'
+    listen.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    listen.config.sticky_session.timeout = 3
+    listen.tunnel_id =23
+    listen.version = 3
+    #let's create 100 rules:
+    for i in range(0,10):
+        rule         = slb_ops_ref.build_rule(listen, "rule" + str(i), "www.abc.com", "/",common_pb2.Realserver.CREATED)
+        rs           = slb_ops_ref.build_rule_rs(rule, '1.1.1.1', 8082, common_pb2.Realserver.CREATED, 0)
+    s_str = listen.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'create/listener',data=s_str)
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)  
+
+    #let's udpate 1 rules 
+    ##record curl number 
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), 'grep -c curl /home/slb/logs/slb-controller/info.log*')
+    out.strip()
+    time.sleep(3) 
+    listen = proxy_pb2.LayerSevenServiceMessage()
+    listen.address = "17.7.7.71"
+    listen.port = port
+    listen.protocol = 'http'
+    listen.loadbalancer_id  = 'lb-0004'
+    listen.listener_id  = 'li-0004'
+    listen.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+    listen.config.sticky_session.timeout = 3
+    listen.tunnel_id =23
+    listen.is_incremental =1
+    rule         = slb_ops_ref.build_rule(listen, "rule9", "www.abc.com", "/",common_pb2.Realserver.CREATED)
+    rule.url = '/abc'
+    listen.version = 4
+    s_str = listen.SerializeToString()
+    res = requests.put(slb_ops_ref.url + 'update/listener',data=s_str) 
+    rsp = response_pb2.Response()
+    rsp.ParseFromString(res.content)
+    assert(rsp.code == response_pb2.Response.OK)
+    ##record curl number 
+    (ret, out1, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), 'grep -c curl /home/slb/logs/slb-controller/info.log*')
+    out1.strip() 
+    assert(int(out1) - int(out) < 10) #constent number 10  means not too many updates here
+
+@marker.function
+@pytest.mark.test_way('''
+    创建简单的lb，并增加health_heck，配置健康检查端口为没有开启的监听端口，测试health_heck状态
+'''
+)
+@pytest.mark.test_points(
+    "grep -c 命令计算0x02000003 列数，验证health_check状态异常"
+)
+def test_http_hc_status():
+    health_check={
+            "type": "http",
+            "port": 17777,#unopenned port
+            "up": 1,
+            "down": 1,
+            "timeout": 1,
+            "interval": 1,
+            "http_status_code": "http_2xx,http_3xx"
+        }
+    all_config = {}
+    try:
+        ret = slb_obj.build_simple_service(all_config, health_check=health_check)
+        assert ret == True
+        time.sleep(5)
+        #check 17777 0 0x02000003
+        (ret, out1, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),'grep -c 0x02000003 /home/slb/logs/slbdstat/slb_healthcheck.*')
+        out1.strip()
+        assert int(out1) > 0
+    finally:
+        try:
+            slb_obj.delete_lb(all_config["lb_id"])
+        finally:
+            slb_obj.delete_rs_pool(all_config["rs_pool_name"])
+
+@marker.function
+@pytest.mark.test_way('''
+    send malicious http request to listening port
+    ''')
+@pytest.mark.test_points(
+    "check whether there is a core triggered"
+)
+def test_malicious_http():
+     malicious_http = """GET / HTTP/11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111.0\r\n\
+\r\n"""
+     address = (slb_ops_ref.get_proxy(), 59991)
+     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+     s.connect(address)
+     s.send(malicious_http)
+     s.close()
+     slb_obj.check_proxy_coredump(slb_ops_ref.get_proxy())
+
+def check_slbdstat(pos, vip):
+    time.sleep(51) #wait dstat report
+    hit = 0
+    for proxy in slb_obj.proxy_hosts:
+        resp = slb_obj.execute_remote_cmd(proxy, ("cat /home/slb/logs/slbdstat/slb_vipqps.out | grep %s" % vip))
+        assert resp[0] == 0
+        lines = resp[1].strip().split("\n")
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            fragments = line.split(" ")     
+            if (int(fragments[pos]) > 0):
+                hit = 1
+    assert hit == 1
+
+@marker.v1908
+@marker.function
+@pytest.mark.test_way('''
+    test cps statistics
+'''
+)
+@pytest.mark.test_points(
+    "check data via curl 127.0.0.1/check_vip_stats"
+)
+def test_alb_oms():
+    ''' make dstat ready'''
+    keyserver = slb_obj.keyserver_ip_list[0]
+    for proxy in slb_obj.proxy_hosts:
+        resp = slb_obj.execute_remote_cmd(proxy, "echo > /home/slb/logs/slbdstat/slb_vipqps.out")
+        assert resp[0] == 0
+        resp = slb_obj.execute_remote_cmd(proxy, '''sed -i 's/slb_upstream_keepalive off;/set \$slb_info "0_139.224.38.200:80#lb-uf6lq8q035iqtt82k53ba#http#lb-uf6lq8q035iqtt82k53ba@26062";/g' /etc/proxy/conf/vip/50041''')
+        assert resp[0] == 0
+        resp = slb_obj.execute_remote_cmd(proxy, '''sed -i 's/slb_upstream_keepalive off;/set \$slb_info "0_139.224.38.200:80#lb-uf6lq8q035iqtt82k53ba#http#lb-uf6lq8q035iqtt82k53ba@26062";/g' /etc/proxy/conf/vip/50051''')
+        assert resp[0] == 0
+        resp = slb_obj.execute_remote_cmd(proxy, '''sed -i 's/slb_upstream_keepalive off;/set \$slb_info "0_139.224.38.200:80#lb-uf6lq8q035iqtt82k53ba#http#lb-uf6lq8q035iqtt82k53ba@26062";/g' /etc/proxy/conf/vip/50061''')
+        assert resp[0] == 0
+    time.sleep(51)#sleep one period of dstat
+    '''test for ecc'''
+    #push config
+    cmd_dyconf = "curl -s -X POST 127.0.0.1:8089/config?vip=50041 -d '%s'" % 'server {ssl      on;    location / {ups 888;}}'
+    cert = """;-----BEGIN CERTIFICATE-----
+MIICPzCCAaECCQDnFXDlCyomAzAKBggqhkjOPQQDAjBkMQswCQYDVQQGEwJUQjEL
+MAkGA1UECAwCVEIxCzAJBgNVBAcMAlRCMQswCQYDVQQKDAJUQjELMAkGA1UECwwC
+VEIxCzAJBgNVBAMMAlRCMRQwEgYJKoZIhvcNAQkBFgVULmNvbTAeFw0xOTA5MTIx
+MTU1MjlaFw0yMDA5MTExMTU1MjlaMGQxCzAJBgNVBAYTAlRCMQswCQYDVQQIDAJU
+QjELMAkGA1UEBwwCVEIxCzAJBgNVBAoMAlRCMQswCQYDVQQLDAJUQjELMAkGA1UE
+AwwCVEIxFDASBgkqhkiG9w0BCQEWBVQuY29tMIGbMBAGByqGSM49AgEGBSuBBAAj
+A4GGAAQASblKb2gJPlsUhFkuarqm8I68ZWq1v1h3F2ZsfTu1z8thHdKTbwLCN98s
+y4TyZStaD464cb2oYnBA7iGmRwww8j8BXYHAwIXTUj0pJvx2Hj4wA2R1Q8Hso8wt
+Z4JlnadrlnWW5A4Q/7W1A/qG5tn3TiyvFBCO5+k/+pG7ZUKulU+zEhkwCgYIKoZI
+zj0EAwIDgYsAMIGHAkIBY5WEpO6Cctc+XPwq//84KKbNpz+eYqN+pykZK4na55C7
+rqIEVlJSTK7yhTq9LmzDimZ67dDCnnpVpWQ2DeDSzKkCQRJW2MMe7tVocKaiX+z+
+fJVMrIedkIHuYI9NTwkTMnfYPvrdi1l7XTg3e3YK/yg9BSmOj0K3sGbJ28nbT6vY
+3z92
+-----END CERTIFICATE-----;"""
+    vms = slb_obj.get_physical_servers()
+    vm = vms[0]
+    cmd_dyaccept = "curl -s -X POST 127.0.0.1:6677/dyaccept/50041 -d 'ssl on;'"
+    cmd_dyups = "curl -s  -X POST 127.0.0.1:6677/upstream/888 -d 'server " + vm["ALI_IP"] + ":80" + " max_fails=0 weight=100;'"
+    cmd_vipkeyserver = "curl -s  -X POST 127.0.0.1:6677/upstream/keyserver_vips -d  'server %s:6666 max_fails=0 weight=100;'" % keyserver
+    cmd_dycert = "curl -s -X POST 127.0.0.1:8090/dycert/config?vip=50041 -d '%s'" % cert
+    key = """-----BEGIN EC PRIVATE KEY-----
+MIHcAgEBBEIApj+nq2rz0TJtcZxXBR5j5mqd6/kkMgGmac00t6P8Be5Jr3OYOL7h
+6u18Z2c6CEt6Ppm+20Wdu0OUOdLRxpgbJ82gBwYFK4EEACOhgYkDgYYABABJuUpv
+aAk+WxSEWS5quqbwjrxlarW/WHcXZmx9O7XPy2Ed0pNvAsI33yzLhPJlK1oPjrhx
+vahicEDuIaZHDDDyPwFdgcDAhdNSPSkm/HYePjADZHVDweyjzC1ngmWdp2uWdZbk
+DhD/tbUD+obm2fdOLK8UEI7n6T/6kbtlQq6VT7MSGQ==
+-----END EC PRIVATE KEY-----"""
+    cmd_keyserver = "curl -s -X POST http://127.0.0.1/privatekey/ -d '%s'" % key
+    cmd_keyserver_pre = "sudo iptables -F"
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_dyconf)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_dycert)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_dyups)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_vipkeyserver)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_dyaccept)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_vipkeyserver)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(keyserver,cmd_keyserver_pre)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(keyserver,cmd_keyserver)
+    #send traffic
+    time.sleep(2)
+    cmd = "curl -s https://%s:50041 -k" % slb_ops_ref.get_proxy()
+    (ret, out, err) = execute_local_cmd(cmd)
+    #check result
+    cmd = "curl -s 127.0.0.1//check_vip_reqstat | grep 50041"
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), cmd)
+    out = out.strip('\n').split(',')
+    #print (out[70], out[69], out[68], out[67], out[66],out[65])
+    assert(int(out[67]) > 0)
+    check_slbdstat(67,"50041")
+
+    ''' test for rsa '''
+    cert = """;-----BEGIN CERTIFICATE-----
+MIIDlTCCAn2gAwIBAgIBADANBgkqhkiG9w0BAQsFADBmMQswCQYDVQQGEwJDTjEL
+MAkGA1UECAwCQkoxCzAJBgNVBAcMAkJKMQswCQYDVQQKDAJUQjELMAkGA1UECwwC
+VEIxCzAJBgNVBAMMAlRCMRYwFAYJKoZIhvcNAQkBFgdUQGIuY29tMB4XDTE5MDcy
+NDA3NDQzOFoXDTIwMDcyMzA3NDQzOFowWTELMAkGA1UEBhMCQ04xCzAJBgNVBAgM
+AkJKMQswCQYDVQQKDAJUQjELMAkGA1UECwwCVEIxCzAJBgNVBAMMAlRCMRYwFAYJ
+KoZIhvcNAQkBFgdUQGIuY29tMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDN
+o+GgLg9ZykKSFlg7WwZslceeQXPOtOIxapgoC2sU+W9N0NCQCauHBAiOZjXnuAFg
+10PKHWduz57UiHwYVYT/hnzi+a0vgxkzhLBXNXccZBBZBBa0qkmgzhC4CNMu4wW5
++Ncloza5oJp9+MuuAeykGXCyuagPUXZcMDRs/3NZ8wIDAQABo4HeMIHbMAkGA1Ud
+EwQCMAAwLAYJYIZIAYb4QgENBB8WHU9wZW5TU0wgR2VuZXJhdGVkIENlcnRpZmlj
+YXRlMB0GA1UdDgQWBBRvSJtYHjqv2z4gkeaFQfYSytohAzCBgAYDVR0jBHkwd6Fq
+pGgwZjELMAkGA1UEBhMCQ04xCzAJBgNVBAgMAkJKMQswCQYDVQQHDAJCSjELMAkG
+A1UECgwCVEIxCzAJBgNVBAsMAlRCMQswCQYDVQQDDAJUQjEWMBQGCSqGSIb3DQEJ
+ARYHVEBiLmNvbYIJAPSD+zUNNGMeMA0GCSqGSIb3DQEBCwUAA4IBAQBcH0dtqYM2
+7tnaWgYQkSkWvAc7WvVUQB8zw4zCyOCKb0M6LLPP24/iLVkJc0h/yiHxxZWvFLkj
+C2iktStAJRHYRffuJtLinpUjcdfuBYRwLwRs2n3bNqlUcolMyQDn19QVhAVJbGXD
+voHarj08G8EvRd/tLBPhpoVDYRikuTrioUCHN/bgIknIHJ6rurkM1fJXkzlg97cg
+uKxxAh9xDxwJX5Ly0EmCukGXBTVlxGMdsqrMzWKL+ZEBH8d75l3TAISkTB6g+7CX
+6WrNjquYebQzZRh6O/wACoYw6tVqcLb41HL2a0GjN/xiDSHwkKI4IBXOosR/6XS1
+8g7HV+b68gg0
+-----END CERTIFICATE-----;"""
+    key = """-----BEGIN RSA PRIVATE KEY-----
+MIICXQIBAAKBgQDNo+GgLg9ZykKSFlg7WwZslceeQXPOtOIxapgoC2sU+W9N0NCQ
+CauHBAiOZjXnuAFg10PKHWduz57UiHwYVYT/hnzi+a0vgxkzhLBXNXccZBBZBBa0
+qkmgzhC4CNMu4wW5+Ncloza5oJp9+MuuAeykGXCyuagPUXZcMDRs/3NZ8wIDAQAB
+AoGBAJriMSElL/iwB13iqIfkMj18voHqyF/LC4auw3V9zCRbDsMsYLnsHp4toogm
+YblqdNdMq0lCxlHG3Nk1B0qItwcoHK4xEzv22yCudrvljn2uUcG04nzJuRd0mz/F
+K2WajT3b2wRc+bx6PFtUIxXhuS+G0AcrDd6yegckM+2AnZKBAkEA9KP/aGvrYxT4
+9VvGFAcLZe+quYArSY2LuhFoQwd4rH42FFSuJzV0dcI/xEF+kE9/ByYcnc76R2S/
+4e39XPvXQQJBANcwSq//O/N18Lrok4kZYF/4QkH/oMBYKu9GWJzyntQNlWf7hMGR
+alJwCDlPG7n/mDzuGXoSduhn9CkAQG0heDMCQBsDxR9901d0qG1Hvh7WDE8sYRjs
+61rK86QPagkE2TGLGmOyWizgPUUHt0zvwo8jCC786WoPwhmCKaJESpcrBEECQQDP
+nRoSH9C5niq6SjY96ivfq+hRQM7ZhLc3z8ki87ploQ1rG3IER8Yq70gf8sEvfPhm
+oNoXusTaiaE6BbIjGE2dAkAv8Gb4WoX/EbyqxRhE1MxaPDbI2sOAbR94YNEHnsl/
+Qcq+iYE1kejVFn0UWT0VytPDrG1fZv/oCpjzvDpomU3B
+-----END RSA PRIVATE KEY-----"""    
+    cmd_dycert = "curl -s -X POST 127.0.0.1:8090/dycert/config?vip=50051 -d '%s'" % cert
+    cmd_dyaccept = "curl -s -X POST 127.0.0.1:6677/dyaccept/50051 -d 'ssl on;'"
+    cmd_dyconf = "curl -s -X POST 127.0.0.1:8089/config?vip=50051 -d '%s'" % 'server {ssl      on;    location / {ups 888;}}'
+    cmd_keyserver = "curl -s -X POST http://127.0.0.1/privatekey/ -d '%s'" % key
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_dyconf)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_dycert)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_dyups)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_vipkeyserver)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_dyaccept)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_vipkeyserver)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(keyserver,cmd_keyserver)
+    #send traffic
+    time.sleep(2)
+    cmd = "curl -s https://%s:50051 -k" % slb_ops_ref.get_proxy()
+    (ret, out, err) = execute_local_cmd(cmd)
+    #check result
+    cmd = "curl -s 127.0.0.1//check_vip_reqstat | grep 50051"
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), cmd)
+    out = out.strip('\n').split(',')
+    #print (out[70], out[69], out[68], out[67], out[66],out[65])
+    assert(int(out[65]) > 0)    
+    check_slbdstat(65,"50051")
+
+    cmd_dyaccept = "curl -s -X POST 127.0.0.1:6677/dyaccept/50051 -d 'ssl on;bk_https 1;'"
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_dyaccept)
+    #send traffic
+    cmd = "curl -s https://%s:50051 -k" % slb_ops_ref.get_proxy()
+    (ret, out, err) = execute_local_cmd(cmd)
+    #check result
+    cmd = "curl -s 127.0.0.1//check_vip_reqstat | grep 50051"
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), cmd)
+    out = out.strip('\n').split(',')
+    #print (out[70], out[69], out[68], out[67], out[66],out[65])
+    assert(int(out[69]) > 0)    
+    check_slbdstat(69,"50051")
+
+
+    cmd_dyconf = "curl -s -X POST 127.0.0.1:8089/config?vip=50061 -d '%s'" % '''server {                                                                                  
+slb_keepalive_timeout 15;
+slb_limit_req_rate 40000;
+slb_proxy_read_timeout 60;
+prio_location 2147483647 {
+ups 888;
+slb_hide_cookie upstream=52680;
+}
+prio_location 10000 {
+match_variables 0 "host" "00012*.aliyun.com";
+match_variables 1 "uri" "00002/*";
+match_variables 0 "http_cookie" "00022*beta_user=new_user_a*";
+slb_upstream_keepalive off;
+ups 52680_r_1056_;
+slb_hide_cookie upstream=52680_r_1056_;
+}
+
+prio_location 10001 {
+match_variables 0 "host" "00012*.aliyun.com";
+match_variables 1 "uri" "00002/*";
+match_variables 0 "http_cookie" "00022*beta_user=new_user_a*";
+slb_upstream_keepalive off;
+ups 52680_r_1056_;
+slb_hide_cookie upstream=52680_r_1056_;
+}
+
+prio_location 10002 {
+match_variables 0 "host" "00012*.aliyun.com";
+match_variables 1 "uri" "00002/*";
+match_variables 0 "http_cookie" "00022*beta_user=new_user_a*";
+slb_upstream_keepalive off;
+ups 52680_r_1056_;
+slb_hide_cookie upstream=52680_r_1056_;
+}
+
+prio_location 10003 {
+match_variables 0 "host" "00012*.aliyun.com";
+match_variables 1 "uri" "00002/*";
+match_variables 0 "http_cookie" "00022*beta_user=new_user_a*";
+slb_upstream_keepalive off;
+ups 52680_r_1056_;
+slb_hide_cookie upstream=52680_r_1056_;
+}
+
+prio_location 10004 {
+match_variables 0 "host" "00012*.aliyun.com";
+match_variables 1 "uri" "00002/*";
+match_variables 0 "http_cookie" "00022*beta_user=new_user_a*";
+slb_upstream_keepalive off;
+ups 52680_r_1056_;
+slb_hide_cookie upstream=52680_r_1056_;
+}
+
+
+prio_location 10005 {
+match_variables 0 "host" "00012*.aliyun.com";
+match_variables 1 "uri" "00002/*";
+match_variables 0 "http_cookie" "00022*beta_user=new_user_a*";
+slb_upstream_keepalive off;
+ups 52680_r_1056_;
+slb_hide_cookie upstream=52680_r_1056_;
+}
+
+
+prio_location 10006 {
+match_variables 0 "host" "00012*.aliyun.com";
+match_variables 1 "uri" "00002/*";
+match_variables 0 "http_cookie" "00022*beta_user=new_user_a*";
+slb_upstream_keepalive off;
+ups 52680_r_1056_;
+slb_hide_cookie upstream=52680_r_1056_;
+}
+
+
+prio_location 10007 {
+match_variables 0 "host" "00012*.aliyun.com";
+match_variables 1 "uri" "00002/*";
+match_variables 0 "http_cookie" "00022*beta_user=new_user_a*";
+slb_upstream_keepalive off;
+ups 52680_r_1056_;
+slb_hide_cookie upstream=52680_r_1056_;
+}
+
+prio_location 10008 {
+match_variables 0 "host" "00012*.aliyun.com";
+match_variables 1 "uri" "00002/*";
+match_variables 0 "http_cookie" "00022*beta_user=new_user_a*";
+slb_upstream_keepalive off;
+ups 52680_r_1056_;
+slb_hide_cookie upstream=52680_r_1056_;
+}
+
+prio_location 10009 {
+match_variables 0 "host" "00012*.aliyun.com";
+match_variables 1 "uri" "00002/*";
+match_variables 0 "http_cookie" "00022*beta_user=new_user_a*";
+slb_upstream_keepalive off;
+ups 52680_r_1056_;
+slb_hide_cookie upstream=52680_r_1056_;
+}
+
+
+prio_location 10010 {
+match_variables 0 "host" "00012*.aliyun.com";
+match_variables 1 "uri" "00002/*";
+match_variables 0 "http_cookie" "00022*beta_user=new_user_a*";
+slb_upstream_keepalive off;
+ups 52680_r_1056_;
+slb_hide_cookie upstream=52680_r_1056_;
+}
+
+prio_location 10011 {
+match_variables 0 "host" "00012*.aliyun.com";
+match_variables 1 "uri" "00002/*";
+match_variables 0 "http_cookie" "00022*beta_user=new_user_a*";
+slb_upstream_keepalive off;
+ups 52680_r_1056_;
+slb_hide_cookie upstream=52680_r_1056_;
+}
+}'''
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), cmd_dyconf)
+    #cmd_dyaccept = "curl -s -X POST 127.0.0.1:6677/dyaccept/50041 -d 'ssl off;bk_https 1;'"
+    #(ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), cmd_dyaccept)
+    time.sleep(2)
+    #send traffic
+    cmd = "curl -s http://%s:50061" % slb_ops_ref.get_proxy()
+    (ret, out, err) = execute_local_cmd(cmd)
+    #check result
+    cmd = "curl -s 127.0.0.1//check_vip_reqstat | grep 50061"
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(), cmd)
+    out = out.strip('\n').split(',')
+    #print (out[70], out[69], out[68], out[67], out[66],out[65])
+    assert(int(out[70]) > 0)    
+    check_slbdstat(70,"50061")
+
+
+@marker.v1908
+@marker.function
+@pytest.mark.test_way('''
+    test dsl rule
+'''
+)
+@pytest.mark.test_points(
+    "curl and check additional headers are added "
+)
+def test_dsl():
+    __current_dir__ = os.path.dirname(__file__)
+    #push config
+    cmd_dyconf = "curl -s -X POST 127.0.0.1:8089/config?vip=50001 -d '%s'" % 'server {dsl_ex_head on;dsl_ex_foot on;dsl_ex_respond on;    location / {ups 888;}}'
+    vms = slb_obj.get_physical_servers()
+    vm = vms[0]
+    cmd_dyups = "curl -s  -X POST 127.0.0.1:6677/upstream/888 -d 'server " + vm["ALI_IP"] + ":80" + " max_fails=0 weight=100;'"
+    cmd_rule_py = "scp %s root@%s:%s" % (__current_dir__ + "/dsl_rule.py", slb_ops_ref.get_proxy(), "/home/admin/")
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_dyconf)
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_dyups)
+    (ret, out, err) = slb_obj.execute_local_cmd(cmd_rule_py)
+    cmd_dsl_rules = "python /home/admin/dsl_rule.py"
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_dsl_rules)
+    #send traffic
+    cmd = "curl -s http://%s:50001/?_es_dbg=0cc175b9c0f1b6a831c399e269772663  -v -L" % slb_ops_ref.get_proxy()
+    (ret, out, err) = execute_local_cmd(cmd)
+    #check result
+    assert err.find("add_req_header(SLB_PROXY_HEAD,tiabao.tianbao):true") > 0
+    assert err.find("add_req_header(SLB_PROXY_FOOT,tiabao.tianbao):true") > 0
+    assert err.find("add_rsp_header(SLB_PROXY2,tiabao.tianbao):true") > 0
+
+@marker.v1908
+@marker.function
+@pytest.mark.test_way('''
+    test health check optimization
+'''
+)
+@pytest.mark.test_points(
+    "curl and check health check syncing"
+)
+def test_upstream_op():
+    vms = slb_obj.get_physical_servers()
+    vm = vms[0]
+    cmd_dyups = "curl -s -X POST 127.0.0.1:6677/upstream/6999 -d '" \
+      "server %s:80 max_fails=0 weight=100 tunnel_id=2454164 vgw_ip=10.141.183.125;" \
+      "check type=http default_down=false timeout=5000 rise=3 fall=3 interval=2000 server_address=118.190.122.39:666;" \
+      "check_http_expect_alive http_2xx http_3xx;'"  % vm["ALI_IP"]
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_dyups)
+    time.sleep(3)
+    
+    cmd = 'rm -f /home/admin/tengine/logs/*'
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd)
+    
+    cmd = "curl localhost:6677/upstream_hc_dump_peers"
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd)
+    time.sleep(1)
+    
+    cmd = "grep '%s' /home/admin/tengine/logs/* | wc -l" % (vm["ALI_IP"] + ":80,up")
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd)
+    #assert(int(out.strip('\n')) == 31)
+    
+    cmd = 'rm -f /home/admin/tengine/logs/*'
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd)
+    
+    cmd_dyups1 = "curl -s -X POST 127.0.0.1:6677/upstream/6999 -d '" \
+      "server 1.1.1.1:1111 max_fails=0 weight=100 tunnel_id=2454164 vgw_ip=10.141.183.125;" \
+      "server %s:80 max_fails=0 weight=100 tunnel_id=2454164 vgw_ip=10.141.183.125;" \
+      "check type=http default_down=false timeout=2000 rise=3 fall=3 interval=2000 server_address=118.190.122.39:666;" \
+      "check_http_expect_alive http_2xx http_3xx;'" % vm["ALI_IP"]
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd_dyups1)
+    time.sleep(15)
+    
+    cmd = "curl localhost:6677/upstream_hc_dump_peers"
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd)
+    time.sleep(1)
+    
+    cmd = "grep '%s' /home/admin/tengine/logs/* | wc -l" % "1.1.1.1:1111,down"
+    (ret, out, err) = slb_ops_ref.execute_remote_cmd(slb_ops_ref.get_proxy(),cmd)
+    #assert(int(out.strip('\n')) == 31) 
+   

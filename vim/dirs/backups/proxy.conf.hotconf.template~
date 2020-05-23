@@ -1,0 +1,451 @@
+# proxy conf
+user                        root;
+
+worker_rlimit_core          20G;
+pid                         /etc/proxy/nginx.pid;
+error_log                   "pipe:/opt/taobao/install/cronolog/sbin/cronolog -p 10minutes /home/admin/logs/%%Y-%%m-%%d-%%H-%%M-error_log" warn;
+
+# worker_processes            auto;
+worker_processes            %{TENGINE_WORKER_NR};
+worker_cpu_affinity         auto;
+worker_rlimit_nofile        400000;
+upstream_mtu                %{UPSTREAM_MTU};
+mtu                         %{MTU};
+
+events {
+    accept_mutex            off;
+    use                     epoll;
+    # worker_connections      100000;
+    worker_connections      %{TENGINE_WORKERCONN_LIMIT};
+}
+
+
+http {
+    default_type            application/octet-stream;
+
+    sendfile                on;
+    tcp_nopush              on;
+
+    server_tokens           off;
+    more_clear_headers      'Server';
+
+    keepalive_timeout       15s;
+    http2_max_requests      0;
+    #dynamic listening port range
+    slb_listening_port_start %{SLB_PORT_START};
+    slb_listening_port_end   %{SLB_PORT_END};
+    client_header_timeout   1m;
+    send_timeout            1m;
+    client_max_body_size    50g;
+    client_body_buffer_size 64k;
+
+    proxy_request_buffering off;
+    fastcgi_request_buffering off;
+    proxy_buffering         off;
+    proxy_buffer_size       16k;
+    underscores_in_headers  on;
+    ignore_invalid_headers  off;
+
+    server_names_hash_max_size    40000;
+    server_names_hash_bucket_size 128;
+    large_client_header_buffers 4 32k;
+    http2_max_field_size    32k;
+    http2_max_header_size   128k;
+    proxy_connect_timeout 5s;
+    proxy_http_version %{PROXY_HTTP_VERSION};
+
+    index                   index.html index.htm;
+
+    log_format              main    "$remote_addr||$time_iso8601||$request_method||$scheme||$http_host||$request_uri||$request_length||$server_addr||$server_port||$server_protocol||$body_bytes_sent||$http_x_readtime||$http_referer||$http_user_agent||$http_x_real_ip||$http_x_forwarded_for||$status||$request_time||$upstream_addr||$upstream_response_time||$upstream_status||$host||$hostname||$slbid||$vip_addr||$slb_vport||$ssl_cipher||$ssl_protocol||$ssl_session_reused||$ssl_handshake_time||$connection||$connection_requests||$response_fbt_time||$read_request_time||$write_response_time||$tcpinfo_rtt||$ssl_session_reused_type||$ssl_keyless_response_time||$upstream_scheme||$remote_port||$upstream_connect_time||$upstream_header_time||$slb_rule||$slb_pool||$slb_headers||$quic_connection_id||$quic_stream_id||$quic_keyless_response_time||";
+
+    access_log              "pipe:/opt/taobao/install/cronolog/sbin/cronolog -p 10minutes /home/admin/logs/%%Y-%%m-%%d-%%H-%%M-access_log" main;
+    log_not_found           off;
+
+    gzip                    %{GZIP_STATUS};
+    gzip_http_version       1.0;
+    gzip_comp_level         6;
+    gzip_min_length         1024;
+    gzip_proxied            any;
+    gzip_vary               on;
+    gzip_disable            msie6;
+    gzip_buffers            96 8k;
+    gzip_types              text/xml text/plain text/css application/javascript application/x-javascript application/rss+xml application/atom+xml application/xml;
+
+    proxy_redirect          off;
+    proxy_buffers           128 8k;
+    proxy_intercept_errors  off;
+
+    slb_customized_header_len   1k;
+
+    # fight DDoS attack, tune the numbers below according your application!!!
+    slb_limit_req_zone $vip_addr zone=slb_req5k:20m;
+    #Compatible with previous slb-master(previous 3.5.3) versions
+    #limit_req_zone          $server_addr  $server_port  zone=req5k:20m   rate=5000r/s;
+    #limit_req_zone          $server_addr  $server_port  zone=req10k:20m   rate=10000r/s;
+    #limit_req_zone          $server_addr  $server_port  zone=req15k:20m   rate=15000r/s;
+    #limit_req_zone          $server_addr  $server_port  zone=req20k:20m   rate=20000r/s;
+    #limit_req               zone=req  burst=100;
+    #limit_zone              conn $binary_remote_addr  20m;
+    #limit_conn              conn 200;
+
+    # shared memory for perserver and pervip conn limit
+    #limit_conn_zone $server_addr zone=pervip:10m;
+    #limit_conn_zone $server_name zone=perserver:10m;
+
+    #%{INCLUDE_TMD_DOMAIN_CONF}
+    #%{INCLUDE_TMD_HTTP_CONF}
+
+    #%{INCLUDE_WAF_HTTP_CONF}
+    %{PROXY_BIND}
+    %{GRPC_BIND}
+    %{CHECK_BIND}
+
+    %{PROXY_UNDERLAY_BIND}
+    %{CHECK_UNDERLAY_BIND}
+
+    %{MAP_UPGRADE}
+    %{MAX_PEERS}
+    # server for monitoring
+    slb_req_status_zone vip_server "$server_addr:$server_port" 500M;
+
+    check_shm_size 50M;
+    dyups_shm_zone_size 1g; #multiple copys of dyups msg
+    dyups_upstream_conf  /etc/proxy/conf/vip/;
+    dyups_stream_upstream_conf  /etc/proxy/conf/stream_vip/;
+    #include upstreams.conf;
+    #include /etc/proxy/http_pattern.conf;
+    lua_package_path '/home/admin/tengine/modules/dycert/?.lua;/home/admin/tengine/modules/?.lua;;';
+    lua_package_cpath '/home/admin/tengine/modules/dyconf/test/?.so;;';
+    lua_shared_dict dyconf_shared_dict 2g shared;
+    lua_shared_dict dyconf_host_lock 20m shared;
+    lua_shared_dict dycert_dict_conf 1g shared;
+    lua_shared_dict dycert_dict_lock 20m shared;
+
+    lua_shared_dict dsl_cache               1g;
+    lua_shared_dict dsl_lock                1m;
+    lua_shared_dict dsl_notify_shm          1m;
+    #lua_shared_dict dsl_user_shm            100m; 
+    init_by_lua_file /home/admin/tengine/modules/dyconf/loader.lua;
+
+    ssl_session_ticket_key %{ENCDEC_KEY};
+    ssl_session_ticket_key %{DEC_KEY};
+
+    server {
+        set $slb_info "";
+        listen 127.0.0.1:6677 default_server;
+        access_log off;
+        location / {
+            #rewrite_by_lua_file /home/admin/tengine/modules/dyconf/dyconf.lua;
+            #set $vip_addr 1.1.1.1;
+            #set $rate_limit 20000;
+            #slb_rate_limit $rate_limit;
+            #slb_limit_req zone=slb_req5k rate=20000r/s nobucket;
+            dyups_interface;
+        }
+    }
+    server {
+        set $slb_info "";
+        listen 127.0.0.1:80 default_server;
+
+
+        #%{TMD_SWITCH_OFF}
+        #%{WAF_SWITCH_OFF}
+        access_log off;
+        location /check_healthcheck_status {
+             check_status csv;
+
+        }
+# remove mod_ipstat for slb tengine
+#        location /check_vip_stats {
+#            vip_status_show;
+#        }
+
+        location /check_vip_reqstat {
+            slb_req_status vip_server;
+            slb_req_status_show;
+        }   
+
+        location /reqstat_shm_status {
+            slb_req_status vip_server;
+            slb_req_mem_status;
+        }
+
+        location /check_rule_reqstat {
+            slb_req_status vip_server;
+            slb_req_status_rule_show;
+        }
+
+        location = /nginx_status {
+            stub_status     on;
+        }
+#       location / {
+#           rewrite_by_lua_file /home/admin/tengine/modules/dyconf/dyconf.lua;
+#           set $vip_addr 1.1.1.1;
+#           set $rate_limit 20000;
+#           slb_rate_limit $rate_limit;
+#           slb_limit_req zone=slb_req5k rate=20000r/s nobucket;
+#           dyups_interface;
+#       }
+        location = /debug_pool {
+            debug_pool;
+        }
+
+        location = /ssl_cache_status {
+            ssl_session_cache_status on;
+        }
+    }
+
+    server {
+        listen 127.0.0.1:503 default_server backlog=4096;
+        access_log off;
+        location / {
+            return 503;
+        }
+    }
+
+    server {
+        listen %{HEALTH_CHECK_IPADDR}:81;
+        set $vip_addr %{HEALTH_CHECK_IPADDR};
+        #%{TMD_SWITCH_OFF}
+        #%{WAF_SWITCH_OFF}
+        access_log off;
+        location / {
+            root /home/slb/control-proxy;
+        }
+    }
+
+    # add for hotconf
+    # dyconf config interface
+    server {
+    	listen 127.0.0.1:8089 default_server backlog=4096;
+        set $vip_addr %{HEALTH_CHECK_IPADDR};
+    	client_body_buffer_size 32m;
+        access_log off;
+    	location / {
+        	content_by_lua_file /home/admin/tengine/modules/dyconf/dyconf_api.lua;      
+    	}
+    }
+
+    # dycert config interface 
+    server {
+        listen 127.0.0.1:8090 default_server backlog=4096;
+    	client_body_buffer_size 32m;
+        access_log off;
+        location / {
+            content_by_lua_file /home/admin/tengine/modules/dycert/dycert/dycert_api.lua;
+        }
+    }
+
+    # dsl trans server config 
+    server {
+        listen 127.0.0.1:6678 default_server backlog=4096;
+        location = / {
+            content_by_lua '
+                package.path = package.path..";/home/admin/tengine/modules/dyconf/test/?.lua"
+                local config = require "dyconf.test.test_dsl_ex_config"
+
+                if not ngx.var.arg_app or ngx.var.arg_app ~= "dsl" then
+                   ngx.exit(400)
+                end
+
+                local key = ngx.var.arg_key
+                if not key then
+                   ngx.exit(400)
+                end
+
+                ngx.header["Content-Md5"] = "61ba18698deba7fb360e59780f6020ea"
+                ngx.header["Content-Version"] = "8267857"
+                ngx.header["Pipe-App"] = "dsl"
+                ngx.header["Pipe-Key"] = key
+
+                local conf_str
+                if key == "test2.dslex.com" then
+                    conf_str = "invalid json"
+                elseif key == "test3.dslex.com" then
+                    conf_str = [[ [{"functionId":1, "functionName":"dsl-ex"}] ]]
+                else
+                    conf_str = config.get_conf_str(key)
+                end
+
+                if not conf_str then
+                    ngx.exit(404)
+                end
+                ngx.say(conf_str)
+                ngx.exit(200)
+            ';
+        }
+    }
+
+    # vip template	
+    server {
+        include quic_listen.conf;
+        include listen.conf;
+        # default part
+        proxy_set_header RemoteIp $remote_addr;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_pass_request_headers on;
+        %{PROXY_SET_UPGRADE}
+        # upstream keepalive
+        set $upstream_keepalive "close";
+        proxy_set_header Connection $upstream_keepalive;
+ 
+        # default part for ssl & keyless
+        # ssl      on;#hotconf
+        ssl_keyless on;
+        # fake keyless server
+        ssl_keyless_server 0.0.0.0:6666;
+        ssl_keyless_certificate /home/slb/control-proxy/conf/client.crt;
+        ssl_keyless_certificate_key /home/slb/control-proxy/conf/client.key;
+        ssl_keyless_verify off; 
+        ssl_keyless_server_ca /home/slb/control-proxy/conf/ca.crt;
+        ssl_keyless_session_reuse on;
+        ssl_keyless_keepalive 500;
+        ssl_keyless_keepalive_requests 100;
+        ssl_keyless_slbinfo on;
+        ssl_session_cache shared:SSL:8096m;
+        # fake certificate
+        ssl_certificate /home/slb/control-proxy/conf/client.crt;
+        ssl_protocols      TLSv1 TLSv1.1 TLSv1.2;
+        ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-SHA256:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:AES256-SHA256:ECDHE-ECDSA-AES128-SHA:ECDHE-ECDSA-AES256-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:AES128-SHA:AES256-SHA:DES-CBC3-SHA:RSA+3DES:!aNULL:!eNULL:!LOW:!MD5:!EXP:!DSS:!PSK:!SRP:!kECDH:!CAMELLIA:!IDEA:!SEED;
+        ssl_prefer_server_ciphers  on;
+        # ssl_verify_client on; #hotconf
+        ssl_verify_depth 3;
+        # ssl_client_certificate #hotconf
+        ssl_certificate_by_lua_file '/home/admin/tengine/modules/dycert/dycert/dycert.lua';
+        #accept_by_lua_file /home/admin/tengine/modules/dycert/dycert/dyaccept_ssl.lua;
+
+        quic_post_enable on;
+        quic_certificate_by_lua_file '/home/admin/tengine/modules/dycert/dycert/quic_dycert.lua';
+
+        # upstream https
+        proxy_ssl_protocols      TLSv1 TLSv1.1 TLSv1.2;
+        proxy_ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-SHA256:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:AES256-SHA256:ECDHE-ECDSA-AES128-SHA:ECDHE-ECDSA-AES256-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:AES128-SHA:AES256-SHA:DES-CBC3-SHA:RSA+3DES:!aNULL:!eNULL:!LOW:!MD5:!EXP:!DSS:!PSK:!SRP:!kECDH:!CAMELLIA:!IDEA:!SEED;
+        proxy_ssl_session_reuse off;
+
+        # hotconf for gzip module
+        set $gzip_enable off; 
+        gzip_switch $gzip_enable;
+        
+        # hotconf for gzip json
+        set $gzip_json_enable off;
+        gzip_json_switch $gzip_json_enable;
+
+        # rate limit log
+        slb_limit_req_log_level  info;
+
+        # proxy_set_header #hotconf
+        # hotconf for limit_req 
+        set $rate_limit 5000;
+        slb_rate_limit $rate_limit;
+        slb_limit_req zone=slb_req5k rate=5000r/s nobucket;
+        set $device_count 8;
+        slb_limit_device_count $device_count;
+        #set $xff $proxy_add_x_forwarded_for;
+        location / {
+            set $ups stub;
+            set $ups_scheme "http";
+            set $hide_cookie "none";
+            set $secure_cookie "off";
+            set $httponly_cookie "off";
+            set $proxy_upstream_tries 0;
+            set $proxy_connect_timeout 5000;
+            set $rule_id  "none";
+            set $pool_id  "none";
+            #set $upstream_keepalive "close";
+            set $customized_headers "off";
+            #proxy_set_header Connection $upstream_keepalive;
+            set $rule_v2_hit 0;
+            rewrite_by_lua_file /home/admin/tengine/modules/dyconf/dyconf.lua;
+            header_filter_by_lua_file /home/admin/tengine/modules/dyconf/dyconf_header_filter.lua;
+            slb_hide_cookie $hide_cookie;
+            slb_secure_cookie $secure_cookie;
+            slb_httponly_cookie $httponly_cookie;
+            slb_proxy_upstream_tries $proxy_upstream_tries;
+            slb_proxy_connect_timeout $proxy_connect_timeout;
+            slb_req_status_rule_v2_hit $rule_v2_hit;
+            slb_rule_id $rule_id;
+            slb_pool_id $pool_id;
+            slb_customized_headers $customized_headers;
+            # sticky module need this to make filter work
+            session_sticky_hide_cookie  upstream=stub;
+            if ( $app_proto = "grpc" ){
+                grpc_pass grpc://$ups;
+            }
+            if ( $app_proto != "grpc" ){
+                proxy_pass $ups_scheme://$ups;
+            }
+            # hotconf for session_sticky_hide_cookie 
+        }
+    }
+    upstream stub {
+        server 127.0.0.1:503 max_fails=0 weight=100;
+    }
+}
+
+stream {
+    %{PROXY_BIND}
+    %{CHECK_BIND}
+    %{PROXY_UNDERLAY_BIND}
+    %{CHECK_UNDERLAY_BIND}
+    %{MAX_PEERS}
+    stream_check_shm_size 50M;
+    lua_package_path '/home/admin/tengine/modules/dycert/?.lua;/home/admin/tengine/modules/?.lua;;';
+    lua_package_cpath '/home/admin/tengine/modules/dyconf/test/?.so;;';
+    lua_shared_dict dyconf_shared_dict 2g shared;
+    lua_shared_dict dyconf_host_lock 20m shared;
+    lua_shared_dict dycert_dict_conf 1g shared;
+    lua_shared_dict dycert_dict_lock 20m shared; 
+    lua_shared_dict dsl_cache               1g shared;
+    lua_shared_dict dsl_lock                1m shared;
+    lua_shared_dict dsl_notify_shm          1m shared;
+    #lua_shared_dict dsl_user_shm            100m shared; 
+    init_by_lua_file /home/admin/tengine/modules/dyconf/loader.lua;
+
+    log_format main "$remote_addr||$remote_port||$time_iso8601||$server_addr||$server_port||$bytes_sent||$bytes_received||$status||$session_time||$upstream_addr||$upstream_bytes_sent||$upstream_bytes_received||$upstream_connect_time||$upstream_first_byte_time||$upstream_session_time||$hostname||$slbid||$vip_addr||$slb_vport||$ssl_cipher||$ssl_protocol||$ssl_session_reused||$ssl_handshake_time||$connection||$tcpinfo_rtt||$ssl_session_reused_type||$ssl_keyless_response_time||";
+
+    access_log              "pipe:/opt/taobao/install/cronolog/sbin/cronolog -p 10minutes /home/admin/logs/%%Y-%%m-%%d-%%H-%%M-access_stream_log" main;
+
+    server {
+        include stream_listen.conf;
+        ssl_keyless on;
+        ssl_keyless_server 0.0.0.0:6666;
+        ssl_keyless_certificate /home/slb/control-proxy/conf/client.crt;
+        ssl_keyless_certificate_key /home/slb/control-proxy/conf/client.key;
+        ssl_keyless_verify off;
+        ssl_keyless_server_ca /home/slb/control-proxy/conf/ca.crt;
+        ssl_keyless_session_reuse on;
+        ssl_keyless_keepalive 500;
+        ssl_keyless_keepalive_requests 100;
+        ssl_keyless_slbinfo on;
+        ssl_session_cache shared:SSL:8096m;
+        ssl_certificate /home/slb/control-proxy/conf/client.crt;
+        ssl_protocols      TLSv1 TLSv1.1 TLSv1.2;
+        ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-SHA256:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:AES256-SHA256:ECDHE-ECDSA-AES128-SHA:ECDHE-ECDSA-AES256-SHA:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:AES128-SHA:AES256-SHA:DES-CBC3-SHA:RSA+3DES:!aNULL:!eNULL:!LOW:!MD5:!EXP:!DSS:!PSK:!SRP:!kECDH:!CAMELLIA:!IDEA:!SEED;
+        ssl_prefer_server_ciphers  on;
+        # ssl_verify_client on; #hotconf
+        ssl_verify_depth 3;
+        # ssl_client_certificate #hotconf
+        ssl_certificate_by_lua_file '/home/admin/tengine/modules/dycert/dycert/stream_dycert.lua';
+        proxy_pass $server_port;
+    }
+
+    upstream stub {
+        server 127.0.0.1:503 max_fails=0 weight=100;
+    }
+}
+
+async_ssl_sessionid %{ASYNC_SSL_SESSIONID};
+tcp {
+    ipport_sessionid_sync_list %{SESSIONID_SYNC_LIST};
+    tcp_sslsync_connect_timeout 5000;
+    
+    #use ssl_session_cache shared:SSL:4096m to save sync session
+    tcp_sslsync_session_zone SSL;
+    tcp_sslsync_time 30;
+    server {
+        listen %{HEALTH_CHECK_IPADDR}:65535;
+        tcp_async_ssl_session;
+    }
+}
+

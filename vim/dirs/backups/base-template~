@@ -1,0 +1,2495 @@
+loghub:
+-   enable: true
+    name: slbproxy
+    store: slbproxy
+    logType: apsara_log
+    filePattern: tianjimon-business.log*
+    logPath: /cloud/log/slb-proxy/SlbProxy#
+    filters: []
+    regex: ''
+    timeFormat: ''
+    logBeginRegex: \[\d+-\d+-\d+ \d+:\d+:\d+.\d+\].*
+    key: []
+    localStorage: true
+loghub_metrics: []
+metrics:
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_check_mem_stats-public_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._ITEM) as _ITEM,value(t._VALUE) as _VALUE from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_check_mem_stats-public' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_check_mem_stats-public_host TumblingWindow 60 by ts select t.host as host, value(t._ITEM) as _ITEM,value(t._VALUE) as _VALUE from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_check_mem_stats-public' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_check_mem_stats-public_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._ITEM) as _ITEM,value(t._VALUE) as _VALUE from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_check_mem_stats-public' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_check_mem_stats-public_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._ITEM) as _ITEM,value(t._VALUE) as _VALUE from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_check_mem_stats-public' group by t.cluster
+
+-   enable: true
+    description: 通过sudo service slb-dstat-monitor restart命令重启进程即可，可通过cat /home/slb/logs/slbdstat/slbdstat.log查询进程退出的原因
+    sql: create metric ApsaraStack-slb_proxy_public-check_dstat_process_exist_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._process_num) as _process_num,std(t._process_num) as _process_num_std,max(t._process_num) as _process_num_max,sum(t._process_num) as _process_num_sum,avg(t._process_num) as _process_num_avg,min(t._process_num) as _process_num_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-check_dstat_process_exist' group by t.serverrole,t.host
+-   enable: true
+    description: 通过sudo service slb-dstat-monitor restart命令重启进程即可，可通过cat /home/slb/logs/slbdstat/slbdstat.log查询进程退出的原因
+    sql: create metric ApsaraStack-slb_proxy_public-check_dstat_process_exist_host TumblingWindow 60 by ts select t.host as host, value(t._process_num) as _process_num,std(t._process_num) as _process_num_std,max(t._process_num) as _process_num_max,sum(t._process_num) as _process_num_sum,avg(t._process_num) as _process_num_avg,min(t._process_num) as _process_num_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-check_dstat_process_exist' group by t.host
+-   enable: true
+    description: 通过sudo service slb-dstat-monitor restart命令重启进程即可，可通过cat /home/slb/logs/slbdstat/slbdstat.log查询进程退出的原因
+    sql: create metric ApsaraStack-slb_proxy_public-check_dstat_process_exist_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._process_num) as _process_num,std(t._process_num) as _process_num_std,max(t._process_num) as _process_num_max,sum(t._process_num) as _process_num_sum,avg(t._process_num) as _process_num_avg,min(t._process_num) as _process_num_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-check_dstat_process_exist' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    description: 通过sudo service slb-dstat-monitor restart命令重启进程即可，可通过cat /home/slb/logs/slbdstat/slbdstat.log查询进程退出的原因
+    sql: create metric ApsaraStack-slb_proxy_public-check_dstat_process_exist_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._process_num) as _process_num,std(t._process_num) as _process_num_std,max(t._process_num) as _process_num_max,sum(t._process_num) as _process_num_sum,avg(t._process_num) as _process_num_avg,min(t._process_num) as _process_num_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-check_dstat_process_exist' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_default_route_check_pub_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._msg) as _msg,value(t._destination) as _destination,value(t._gateway) as _gateway,value(t._cnt) as _cnt,value(t._nic_num) as _nic_num,value(t._iface) as _iface,value(t._d_value_rate) as _d_value_rate,value(t._d_value) as _d_value from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_default_route_check_pub' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_default_route_check_pub_host TumblingWindow 60 by ts select t.host as host, value(t._msg) as _msg,value(t._destination) as _destination,value(t._gateway) as _gateway,value(t._cnt) as _cnt,value(t._nic_num) as _nic_num,value(t._iface) as _iface,value(t._d_value_rate) as _d_value_rate,value(t._d_value) as _d_value from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_default_route_check_pub' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_default_route_check_pub_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._msg) as _msg,value(t._destination) as _destination,value(t._gateway) as _gateway,value(t._cnt) as _cnt,value(t._nic_num) as _nic_num,value(t._iface) as _iface,value(t._d_value_rate) as _d_value_rate,value(t._d_value) as _d_value from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_default_route_check_pub' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_default_route_check_pub_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._msg) as _msg,value(t._destination) as _destination,value(t._gateway) as _gateway,value(t._cnt) as _cnt,value(t._nic_num) as _nic_num,value(t._iface) as _iface,value(t._d_value_rate) as _d_value_rate,value(t._d_value) as _d_value from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_default_route_check_pub' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_bond_slave_info_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._slave_num) as _slave_num,value(t._slave_type) as _slave_type from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_bond_slave_info' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_bond_slave_info_host TumblingWindow 60 by ts select t.host as host, value(t._slave_num) as _slave_num,value(t._slave_type) as _slave_type from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_bond_slave_info' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_bond_slave_info_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._slave_num) as _slave_num,value(t._slave_type) as _slave_type from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_bond_slave_info' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_bond_slave_info_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._slave_num) as _slave_num,value(t._slave_type) as _slave_type from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_bond_slave_info' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_process_check_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._key) as _key,value(t._value) as _value from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_process_check' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_process_check_host TumblingWindow 60 by ts select t.host as host, value(t._key) as _key,value(t._value) as _value from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_process_check' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_process_check_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._key) as _key,value(t._value) as _value from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_process_check' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_public-slb_proxy_process_check_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._key) as _key,value(t._value) as _value from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_public-slb_proxy_process_check' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-check_process_nginx-master_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._procs_count) as _procs_count from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-check_process_nginx-master' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-check_process_nginx-master_host TumblingWindow 60 by ts select t.host as host, value(t._procs_count) as _procs_count from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-check_process_nginx-master' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-check_process_nginx-master_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._procs_count) as _procs_count from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-check_process_nginx-master' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-check_process_nginx-master_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._procs_count) as _procs_count from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-check_process_nginx-master' group by t.cluster
+
+-   enable: true
+    description: slb proxy agent批量reload时变配失败
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_agent_errorlog_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._keyname) as _keyname,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._type) as _type from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_agent_errorlog' group by t.serverrole,t.host
+-   enable: true
+    description: slb proxy agent批量reload时变配失败
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_agent_errorlog_host TumblingWindow 60 by ts select t.host as host, value(t._keyname) as _keyname,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._type) as _type from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_agent_errorlog' group by t.host
+-   enable: true
+    description: slb proxy agent批量reload时变配失败
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_agent_errorlog_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._keyname) as _keyname,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._type) as _type from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_agent_errorlog' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    description: slb proxy agent批量reload时变配失败
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_agent_errorlog_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._keyname) as _keyname,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._type) as _type from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_agent_errorlog' group by t.cluster
+
+-   enable: true
+    description: 同一个日志文件应用到不同的logstore，到SLS中去取消勾选
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_multi_config_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._keyname) as _keyname,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._type) as _type from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_multi_config' group by t.serverrole,t.host
+-   enable: true
+    description: 同一个日志文件应用到不同的logstore，到SLS中去取消勾选
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_multi_config_host TumblingWindow 60 by ts select t.host as host, value(t._keyname) as _keyname,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._type) as _type from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_multi_config' group by t.host
+-   enable: true
+    description: 同一个日志文件应用到不同的logstore，到SLS中去取消勾选
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_multi_config_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._keyname) as _keyname,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._type) as _type from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_multi_config' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    description: 同一个日志文件应用到不同的logstore，到SLS中去取消勾选
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_multi_config_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._keyname) as _keyname,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._type) as _type from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_multi_config' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_tsar_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._load15_cores) as _load15_cores,max(t._load15_cores) as _load15_cores_max,avg(t._load15_cores) as _load15_cores_avg,min(t._load15_cores) as _load15_cores_min,value(t._load5_cores) as _load5_cores,max(t._load5_cores) as _load5_cores_max,avg(t._load5_cores) as _load5_cores_avg,min(t._load5_cores) as _load5_cores_min,value(t._load1_cores) as _load1_cores,max(t._load1_cores) as _load1_cores_max,avg(t._load1_cores) as _load1_cores_avg,min(t._load1_cores) as _load1_cores_min,value(t._cpu_core) as _cpu_core,value(t._cpu) as _cpu,max(t._cpu) as _cpu_max,avg(t._cpu) as _cpu_avg,min(t._cpu) as _cpu_min,value(t._mem) as _mem,max(t._mem) as _mem_max,avg(t._mem) as _mem_avg,min(t._mem) as _mem_min,value(t._load1) as _load1,max(t._load1) as _load1_max,avg(t._load1) as _load1_avg,min(t._load1) as _load1_min,value(t._load5) as _load5,max(t._load5) as _load5_max,avg(t._load5) as _load5_avg,min(t._load5) as _load5_min,value(t._load15) as _load15,max(t._load15) as _load15_max,avg(t._load15) as _load15_avg,min(t._load15) as _load15_min,value(t._sda) as _sda,max(t._sda) as _sda_max,avg(t._sda) as _sda_avg,min(t._sda) as _sda_min,value(t._ifin) as _ifin,max(t._ifin) as _ifin_max,avg(t._ifin) as _ifin_avg,min(t._ifin) as _ifin_min,value(t._ifout) as _ifout,max(t._ifout) as _ifout_max,avg(t._ifout) as _ifout_avg,min(t._ifout) as _ifout_min,value(t._TCPretr) as _TCPretr,max(t._TCPretr) as _TCPretr_max,avg(t._TCPretr) as _TCPretr_avg,min(t._TCPretr) as _TCPretr_min,value(t._df_) as _df_,max(t._df_) as _df__max,avg(t._df_) as _df__avg,min(t._df_) as _df__min,value(t._df_boot) as _df_boot,max(t._df_boot) as _df_boot_max,avg(t._df_boot) as _df_boot_avg,min(t._df_boot) as _df_boot_min,value(t._df_home) as _df_home,max(t._df_home) as _df_home_max,avg(t._df_home) as _df_home_avg,min(t._df_home) as _df_home_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_tsar' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_tsar_host TumblingWindow 60 by ts select t.host as host, value(t._load15_cores) as _load15_cores,max(t._load15_cores) as _load15_cores_max,avg(t._load15_cores) as _load15_cores_avg,min(t._load15_cores) as _load15_cores_min,value(t._load5_cores) as _load5_cores,max(t._load5_cores) as _load5_cores_max,avg(t._load5_cores) as _load5_cores_avg,min(t._load5_cores) as _load5_cores_min,value(t._load1_cores) as _load1_cores,max(t._load1_cores) as _load1_cores_max,avg(t._load1_cores) as _load1_cores_avg,min(t._load1_cores) as _load1_cores_min,value(t._cpu_core) as _cpu_core,value(t._cpu) as _cpu,max(t._cpu) as _cpu_max,avg(t._cpu) as _cpu_avg,min(t._cpu) as _cpu_min,value(t._mem) as _mem,max(t._mem) as _mem_max,avg(t._mem) as _mem_avg,min(t._mem) as _mem_min,value(t._load1) as _load1,max(t._load1) as _load1_max,avg(t._load1) as _load1_avg,min(t._load1) as _load1_min,value(t._load5) as _load5,max(t._load5) as _load5_max,avg(t._load5) as _load5_avg,min(t._load5) as _load5_min,value(t._load15) as _load15,max(t._load15) as _load15_max,avg(t._load15) as _load15_avg,min(t._load15) as _load15_min,value(t._sda) as _sda,max(t._sda) as _sda_max,avg(t._sda) as _sda_avg,min(t._sda) as _sda_min,value(t._ifin) as _ifin,max(t._ifin) as _ifin_max,avg(t._ifin) as _ifin_avg,min(t._ifin) as _ifin_min,value(t._ifout) as _ifout,max(t._ifout) as _ifout_max,avg(t._ifout) as _ifout_avg,min(t._ifout) as _ifout_min,value(t._TCPretr) as _TCPretr,max(t._TCPretr) as _TCPretr_max,avg(t._TCPretr) as _TCPretr_avg,min(t._TCPretr) as _TCPretr_min,value(t._df_) as _df_,max(t._df_) as _df__max,avg(t._df_) as _df__avg,min(t._df_) as _df__min,value(t._df_boot) as _df_boot,max(t._df_boot) as _df_boot_max,avg(t._df_boot) as _df_boot_avg,min(t._df_boot) as _df_boot_min,value(t._df_home) as _df_home,max(t._df_home) as _df_home_max,avg(t._df_home) as _df_home_avg,min(t._df_home) as _df_home_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_tsar' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_tsar_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._load15_cores) as _load15_cores,max(t._load15_cores) as _load15_cores_max,avg(t._load15_cores) as _load15_cores_avg,min(t._load15_cores) as _load15_cores_min,value(t._load5_cores) as _load5_cores,max(t._load5_cores) as _load5_cores_max,avg(t._load5_cores) as _load5_cores_avg,min(t._load5_cores) as _load5_cores_min,value(t._load1_cores) as _load1_cores,max(t._load1_cores) as _load1_cores_max,avg(t._load1_cores) as _load1_cores_avg,min(t._load1_cores) as _load1_cores_min,value(t._cpu_core) as _cpu_core,value(t._cpu) as _cpu,max(t._cpu) as _cpu_max,avg(t._cpu) as _cpu_avg,min(t._cpu) as _cpu_min,value(t._mem) as _mem,max(t._mem) as _mem_max,avg(t._mem) as _mem_avg,min(t._mem) as _mem_min,value(t._load1) as _load1,max(t._load1) as _load1_max,avg(t._load1) as _load1_avg,min(t._load1) as _load1_min,value(t._load5) as _load5,max(t._load5) as _load5_max,avg(t._load5) as _load5_avg,min(t._load5) as _load5_min,value(t._load15) as _load15,max(t._load15) as _load15_max,avg(t._load15) as _load15_avg,min(t._load15) as _load15_min,value(t._sda) as _sda,max(t._sda) as _sda_max,avg(t._sda) as _sda_avg,min(t._sda) as _sda_min,value(t._ifin) as _ifin,max(t._ifin) as _ifin_max,avg(t._ifin) as _ifin_avg,min(t._ifin) as _ifin_min,value(t._ifout) as _ifout,max(t._ifout) as _ifout_max,avg(t._ifout) as _ifout_avg,min(t._ifout) as _ifout_min,value(t._TCPretr) as _TCPretr,max(t._TCPretr) as _TCPretr_max,avg(t._TCPretr) as _TCPretr_avg,min(t._TCPretr) as _TCPretr_min,value(t._df_) as _df_,max(t._df_) as _df__max,avg(t._df_) as _df__avg,min(t._df_) as _df__min,value(t._df_boot) as _df_boot,max(t._df_boot) as _df_boot_max,avg(t._df_boot) as _df_boot_avg,min(t._df_boot) as _df_boot_min,value(t._df_home) as _df_home,max(t._df_home) as _df_home_max,avg(t._df_home) as _df_home_avg,min(t._df_home) as _df_home_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_tsar' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_tsar_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._load15_cores) as _load15_cores,max(t._load15_cores) as _load15_cores_max,avg(t._load15_cores) as _load15_cores_avg,min(t._load15_cores) as _load15_cores_min,value(t._load5_cores) as _load5_cores,max(t._load5_cores) as _load5_cores_max,avg(t._load5_cores) as _load5_cores_avg,min(t._load5_cores) as _load5_cores_min,value(t._load1_cores) as _load1_cores,max(t._load1_cores) as _load1_cores_max,avg(t._load1_cores) as _load1_cores_avg,min(t._load1_cores) as _load1_cores_min,value(t._cpu_core) as _cpu_core,value(t._cpu) as _cpu,max(t._cpu) as _cpu_max,avg(t._cpu) as _cpu_avg,min(t._cpu) as _cpu_min,value(t._mem) as _mem,max(t._mem) as _mem_max,avg(t._mem) as _mem_avg,min(t._mem) as _mem_min,value(t._load1) as _load1,max(t._load1) as _load1_max,avg(t._load1) as _load1_avg,min(t._load1) as _load1_min,value(t._load5) as _load5,max(t._load5) as _load5_max,avg(t._load5) as _load5_avg,min(t._load5) as _load5_min,value(t._load15) as _load15,max(t._load15) as _load15_max,avg(t._load15) as _load15_avg,min(t._load15) as _load15_min,value(t._sda) as _sda,max(t._sda) as _sda_max,avg(t._sda) as _sda_avg,min(t._sda) as _sda_min,value(t._ifin) as _ifin,max(t._ifin) as _ifin_max,avg(t._ifin) as _ifin_avg,min(t._ifin) as _ifin_min,value(t._ifout) as _ifout,max(t._ifout) as _ifout_max,avg(t._ifout) as _ifout_avg,min(t._ifout) as _ifout_min,value(t._TCPretr) as _TCPretr,max(t._TCPretr) as _TCPretr_max,avg(t._TCPretr) as _TCPretr_avg,min(t._TCPretr) as _TCPretr_min,value(t._df_) as _df_,max(t._df_) as _df__max,avg(t._df_) as _df__avg,min(t._df_) as _df__min,value(t._df_boot) as _df_boot,max(t._df_boot) as _df_boot_max,avg(t._df_boot) as _df_boot_avg,min(t._df_boot) as _df_boot_min,value(t._df_home) as _df_home,max(t._df_home) as _df_home_max,avg(t._df_home) as _df_home_avg,min(t._df_home) as _df_home_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_tsar' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._desc) as _desc,value(t._down_cnt) as _down_cnt,max(t._down_cnt) as _down_cnt_max,sum(t._down_cnt) as _down_cnt_sum,min(t._down_cnt) as _down_cnt_min,value(t._rs) as _rs,max(t._rs) as _rs_max,sum(t._rs) as _rs_sum,min(t._rs) as _rs_min,value(t._up_cnt) as _up_cnt,max(t._up_cnt) as _up_cnt_max,sum(t._up_cnt) as _up_cnt_sum,min(t._up_cnt) as _up_cnt_min,value(t._rs_avail) as _rs_avail,max(t._rs_avail) as _rs_avail_max,sum(t._rs_avail) as _rs_avail_sum,min(t._rs_avail) as _rs_avail_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_hc_check' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_host TumblingWindow 60 by ts select t.host as host, value(t._desc) as _desc,value(t._down_cnt) as _down_cnt,max(t._down_cnt) as _down_cnt_max,sum(t._down_cnt) as _down_cnt_sum,min(t._down_cnt) as _down_cnt_min,value(t._rs) as _rs,max(t._rs) as _rs_max,sum(t._rs) as _rs_sum,min(t._rs) as _rs_min,value(t._up_cnt) as _up_cnt,max(t._up_cnt) as _up_cnt_max,sum(t._up_cnt) as _up_cnt_sum,min(t._up_cnt) as _up_cnt_min,value(t._rs_avail) as _rs_avail,max(t._rs_avail) as _rs_avail_max,sum(t._rs_avail) as _rs_avail_sum,min(t._rs_avail) as _rs_avail_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_hc_check' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._desc) as _desc,value(t._down_cnt) as _down_cnt,max(t._down_cnt) as _down_cnt_max,sum(t._down_cnt) as _down_cnt_sum,min(t._down_cnt) as _down_cnt_min,value(t._rs) as _rs,max(t._rs) as _rs_max,sum(t._rs) as _rs_sum,min(t._rs) as _rs_min,value(t._up_cnt) as _up_cnt,max(t._up_cnt) as _up_cnt_max,sum(t._up_cnt) as _up_cnt_sum,min(t._up_cnt) as _up_cnt_min,value(t._rs_avail) as _rs_avail,max(t._rs_avail) as _rs_avail_max,sum(t._rs_avail) as _rs_avail_sum,min(t._rs_avail) as _rs_avail_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_hc_check' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._desc) as _desc,value(t._down_cnt) as _down_cnt,max(t._down_cnt) as _down_cnt_max,sum(t._down_cnt) as _down_cnt_sum,min(t._down_cnt) as _down_cnt_min,value(t._rs) as _rs,max(t._rs) as _rs_max,sum(t._rs) as _rs_sum,min(t._rs) as _rs_min,value(t._up_cnt) as _up_cnt,max(t._up_cnt) as _up_cnt_max,sum(t._up_cnt) as _up_cnt_sum,min(t._up_cnt) as _up_cnt_min,value(t._rs_avail) as _rs_avail,max(t._rs_avail) as _rs_avail_max,sum(t._rs_avail) as _rs_avail_sum,min(t._rs_avail) as _rs_avail_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_hc_check' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_monitor_process_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._multiprocess) as _multiprocess,value(t._vsz) as _vsz,value(t._command) as _command,value(t._cpu) as _cpu,value(t._pid) as _pid,value(t._user) as _user,value(t._noprocess) as _noprocess,value(t._stat) as _stat from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_monitor_process' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_monitor_process_host TumblingWindow 60 by ts select t.host as host, value(t._multiprocess) as _multiprocess,value(t._vsz) as _vsz,value(t._command) as _command,value(t._cpu) as _cpu,value(t._pid) as _pid,value(t._user) as _user,value(t._noprocess) as _noprocess,value(t._stat) as _stat from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_monitor_process' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_monitor_process_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._multiprocess) as _multiprocess,value(t._vsz) as _vsz,value(t._command) as _command,value(t._cpu) as _cpu,value(t._pid) as _pid,value(t._user) as _user,value(t._noprocess) as _noprocess,value(t._stat) as _stat from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_monitor_process' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_monitor_process_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._multiprocess) as _multiprocess,value(t._vsz) as _vsz,value(t._command) as _command,value(t._cpu) as _cpu,value(t._pid) as _pid,value(t._user) as _user,value(t._noprocess) as _noprocess,value(t._stat) as _stat from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_monitor_process' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_mod_version_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._module) as _module,value(t._status) as _status from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_mod_version' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_mod_version_host TumblingWindow 60 by ts select t.host as host, value(t._module) as _module,value(t._status) as _status from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_mod_version' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_mod_version_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._module) as _module,value(t._status) as _status from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_mod_version' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_mod_version_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._module) as _module,value(t._status) as _status from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_mod_version' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_tengine_fd_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._desc) as _desc,value(t._pid) as _pid,value(t._max_open_files) as _max_open_files,value(t._open_files) as _open_files,max(t._open_files) as _open_files_max,sum(t._open_files) as _open_files_sum,avg(t._open_files) as _open_files_avg,min(t._open_files) as _open_files_min,value(t._open_socket) as _open_socket,max(t._open_socket) as _open_socket_max,sum(t._open_socket) as _open_socket_sum,avg(t._open_socket) as _open_socket_avg,min(t._open_socket) as _open_socket_min,value(t._open_files_util) as _open_files_util,max(t._open_files_util) as _open_files_util_max,sum(t._open_files_util) as _open_files_util_sum,avg(t._open_files_util) as _open_files_util_avg,min(t._open_files_util) as _open_files_util_min,value(t._open_socket_util) as _open_socket_util,max(t._open_socket_util) as _open_socket_util_max,sum(t._open_socket_util) as _open_socket_util_sum,avg(t._open_socket_util) as _open_socket_util_avg,min(t._open_socket_util) as _open_socket_util_min,value(t._max_usage) as _max_usage,max(t._max_usage) as _max_usage_max,sum(t._max_usage) as _max_usage_sum,avg(t._max_usage) as _max_usage_avg,min(t._max_usage) as _max_usage_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_tengine_fd' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_tengine_fd_host TumblingWindow 60 by ts select t.host as host, value(t._desc) as _desc,value(t._pid) as _pid,value(t._max_open_files) as _max_open_files,value(t._open_files) as _open_files,max(t._open_files) as _open_files_max,sum(t._open_files) as _open_files_sum,avg(t._open_files) as _open_files_avg,min(t._open_files) as _open_files_min,value(t._open_socket) as _open_socket,max(t._open_socket) as _open_socket_max,sum(t._open_socket) as _open_socket_sum,avg(t._open_socket) as _open_socket_avg,min(t._open_socket) as _open_socket_min,value(t._open_files_util) as _open_files_util,max(t._open_files_util) as _open_files_util_max,sum(t._open_files_util) as _open_files_util_sum,avg(t._open_files_util) as _open_files_util_avg,min(t._open_files_util) as _open_files_util_min,value(t._open_socket_util) as _open_socket_util,max(t._open_socket_util) as _open_socket_util_max,sum(t._open_socket_util) as _open_socket_util_sum,avg(t._open_socket_util) as _open_socket_util_avg,min(t._open_socket_util) as _open_socket_util_min,value(t._max_usage) as _max_usage,max(t._max_usage) as _max_usage_max,sum(t._max_usage) as _max_usage_sum,avg(t._max_usage) as _max_usage_avg,min(t._max_usage) as _max_usage_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_tengine_fd' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_tengine_fd_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._desc) as _desc,value(t._pid) as _pid,value(t._max_open_files) as _max_open_files,value(t._open_files) as _open_files,max(t._open_files) as _open_files_max,sum(t._open_files) as _open_files_sum,avg(t._open_files) as _open_files_avg,min(t._open_files) as _open_files_min,value(t._open_socket) as _open_socket,max(t._open_socket) as _open_socket_max,sum(t._open_socket) as _open_socket_sum,avg(t._open_socket) as _open_socket_avg,min(t._open_socket) as _open_socket_min,value(t._open_files_util) as _open_files_util,max(t._open_files_util) as _open_files_util_max,sum(t._open_files_util) as _open_files_util_sum,avg(t._open_files_util) as _open_files_util_avg,min(t._open_files_util) as _open_files_util_min,value(t._open_socket_util) as _open_socket_util,max(t._open_socket_util) as _open_socket_util_max,sum(t._open_socket_util) as _open_socket_util_sum,avg(t._open_socket_util) as _open_socket_util_avg,min(t._open_socket_util) as _open_socket_util_min,value(t._max_usage) as _max_usage,max(t._max_usage) as _max_usage_max,sum(t._max_usage) as _max_usage_sum,avg(t._max_usage) as _max_usage_avg,min(t._max_usage) as _max_usage_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_tengine_fd' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_tengine_fd_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._desc) as _desc,value(t._pid) as _pid,value(t._max_open_files) as _max_open_files,value(t._open_files) as _open_files,max(t._open_files) as _open_files_max,sum(t._open_files) as _open_files_sum,avg(t._open_files) as _open_files_avg,min(t._open_files) as _open_files_min,value(t._open_socket) as _open_socket,max(t._open_socket) as _open_socket_max,sum(t._open_socket) as _open_socket_sum,avg(t._open_socket) as _open_socket_avg,min(t._open_socket) as _open_socket_min,value(t._open_files_util) as _open_files_util,max(t._open_files_util) as _open_files_util_max,sum(t._open_files_util) as _open_files_util_sum,avg(t._open_files_util) as _open_files_util_avg,min(t._open_files_util) as _open_files_util_min,value(t._open_socket_util) as _open_socket_util,max(t._open_socket_util) as _open_socket_util_max,sum(t._open_socket_util) as _open_socket_util_sum,avg(t._open_socket_util) as _open_socket_util_avg,min(t._open_socket_util) as _open_socket_util_min,value(t._max_usage) as _max_usage,max(t._max_usage) as _max_usage_max,sum(t._max_usage) as _max_usage_sum,avg(t._max_usage) as _max_usage_avg,min(t._max_usage) as _max_usage_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_tengine_fd' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_saddr_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._status) as _status,value(t._vxlan_saddr) as _vxlan_saddr,value(t._nf_vxlan_addr) as _nf_vxlan_addr from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_saddr' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_saddr_host TumblingWindow 60 by ts select t.host as host, value(t._status) as _status,value(t._vxlan_saddr) as _vxlan_saddr,value(t._nf_vxlan_addr) as _nf_vxlan_addr from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_saddr' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_saddr_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._status) as _status,value(t._vxlan_saddr) as _vxlan_saddr,value(t._nf_vxlan_addr) as _nf_vxlan_addr from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_saddr' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_saddr_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._status) as _status,value(t._vxlan_saddr) as _vxlan_saddr,value(t._nf_vxlan_addr) as _nf_vxlan_addr from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_saddr' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-get_nginx_worker_cpu_serverrole TumblingWindow 120 by ts select t.serverrole as serverrole,t.host as host, value(t._cpu_num) as _cpu_num,undefined(t._cpu_num) as _cpu_num_undefined,value(t._rate) as _rate,undefined(t._rate) as _rate_undefined,value(t._worker_num) as _worker_num,undefined(t._worker_num) as _worker_num_undefined,value(t._nginx_cpu) as _nginx_cpu,undefined(t._nginx_cpu) as _nginx_cpu_undefined from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-get_nginx_worker_cpu' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-get_nginx_worker_cpu_host TumblingWindow 120 by ts select t.host as host, value(t._cpu_num) as _cpu_num,undefined(t._cpu_num) as _cpu_num_undefined,value(t._rate) as _rate,undefined(t._rate) as _rate_undefined,value(t._worker_num) as _worker_num,undefined(t._worker_num) as _worker_num_undefined,value(t._nginx_cpu) as _nginx_cpu,undefined(t._nginx_cpu) as _nginx_cpu_undefined from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-get_nginx_worker_cpu' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-get_nginx_worker_cpu_cluster_serverrole TumblingWindow 120 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._cpu_num) as _cpu_num,undefined(t._cpu_num) as _cpu_num_undefined,value(t._rate) as _rate,undefined(t._rate) as _rate_undefined,value(t._worker_num) as _worker_num,undefined(t._worker_num) as _worker_num_undefined,value(t._nginx_cpu) as _nginx_cpu,undefined(t._nginx_cpu) as _nginx_cpu_undefined from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-get_nginx_worker_cpu' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-get_nginx_worker_cpu_cluster TumblingWindow 120 by ts select t.cluster as cluster, value(t._cpu_num) as _cpu_num,undefined(t._cpu_num) as _cpu_num_undefined,value(t._rate) as _rate,undefined(t._rate) as _rate_undefined,value(t._worker_num) as _worker_num,undefined(t._worker_num) as _worker_num_undefined,value(t._nginx_cpu) as _nginx_cpu,undefined(t._nginx_cpu) as _nginx_cpu_undefined from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-get_nginx_worker_cpu' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_upload_fail_file_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._flag_rpm) as _flag_rpm,value(t._process_num) as _process_num,value(t._file_num) as _file_num,sum(t._file_num) as _file_num_sum from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_upload_fail_file' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_upload_fail_file_host TumblingWindow 60 by ts select t.host as host, value(t._flag_rpm) as _flag_rpm,value(t._process_num) as _process_num,value(t._file_num) as _file_num,sum(t._file_num) as _file_num_sum from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_upload_fail_file' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_upload_fail_file_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._flag_rpm) as _flag_rpm,value(t._process_num) as _process_num,value(t._file_num) as _file_num,sum(t._file_num) as _file_num_sum from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_upload_fail_file' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_upload_fail_file_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._flag_rpm) as _flag_rpm,value(t._process_num) as _process_num,value(t._file_num) as _file_num,sum(t._file_num) as _file_num_sum from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_upload_fail_file' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_user_log_config_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._msg) as _msg,value(t._log_store_num) as _log_store_num,value(t._status) as _status,value(t._project_num) as _project_num from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_user_log_config' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_user_log_config_host TumblingWindow 60 by ts select t.host as host, value(t._msg) as _msg,value(t._log_store_num) as _log_store_num,value(t._status) as _status,value(t._project_num) as _project_num from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_user_log_config' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_user_log_config_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._msg) as _msg,value(t._log_store_num) as _log_store_num,value(t._status) as _status,value(t._project_num) as _project_num from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_user_log_config' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_user_log_config_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._msg) as _msg,value(t._log_store_num) as _log_store_num,value(t._status) as _status,value(t._project_num) as _project_num from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_user_log_config' group by t.cluster
+    
+-   enable: true
+    description: 检查slb机器vxlan的参数, 对proxy检查vxlan目的端口250且use_another_dport等于1,如果不是则报警,可以手动改一下内核参数
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_250_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._result) as _result from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_250' group by t.serverrole,t.host
+-   enable: true
+    description: 检查slb机器vxlan的参数, 对proxy检查vxlan目的端口250且use_another_dport等于1,如果不是则报警,可以手动改一下内核参数
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_250_host TumblingWindow 60 by ts select t.host as host, value(t._result) as _result from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_250' group by t.host
+-   enable: true
+    description: 检查slb机器vxlan的参数, 对proxy检查vxlan目的端口250且use_another_dport等于1,如果不是则报警,可以手动改一下内核参数
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_250_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._result) as _result from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_250' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    description: 检查slb机器vxlan的参数, 对proxy检查vxlan目的端口250且use_another_dport等于1,如果不是则报警,可以手动改一下内核参数
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_250_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._result) as _result from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_250' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-sample_ngx_rss_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._num) as _num,value(t._max_rss) as _max_rss,value(t._msg) as _msg from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-sample_ngx_rss' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-sample_ngx_rss_host TumblingWindow 60 by ts select t.host as host, value(t._num) as _num,value(t._max_rss) as _max_rss,value(t._msg) as _msg from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-sample_ngx_rss' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-sample_ngx_rss_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._num) as _num,value(t._max_rss) as _max_rss,value(t._msg) as _msg from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-sample_ngx_rss' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-sample_ngx_rss_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._num) as _num,value(t._max_rss) as _max_rss,value(t._msg) as _msg from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-sample_ngx_rss' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-proxy_to_keyserver_6666_port_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._msg) as _msg from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-proxy_to_keyserver_6666_port' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-proxy_to_keyserver_6666_port_host TumblingWindow 60 by ts select t.host as host, value(t._msg) as _msg from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-proxy_to_keyserver_6666_port' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-proxy_to_keyserver_6666_port_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._msg) as _msg from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-proxy_to_keyserver_6666_port' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-proxy_to_keyserver_6666_port_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._msg) as _msg from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-proxy_to_keyserver_6666_port' group by t.cluster
+
+-   enable: true
+    description: 监控机器上是否有“7层qps数据”、“健康检查日志”等相关SLS的采集配置
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_logstore_apply_machine_serverrole TumblingWindow 600 by ts select t.serverrole as serverrole,t.host as host, value(t._regexp) as _regexp,value(t._count) as _count,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_logstore_apply_machine' group by t.serverrole,t.host
+-   enable: true
+    description: 监控机器上是否有“7层qps数据”、“健康检查日志”等相关SLS的采集配置
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_logstore_apply_machine_host TumblingWindow 600 by ts select t.host as host, value(t._regexp) as _regexp,value(t._count) as _count,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_logstore_apply_machine' group by t.host
+-   enable: true
+    description: 监控机器上是否有“7层qps数据”、“健康检查日志”等相关SLS的采集配置
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_logstore_apply_machine_cluster_serverrole TumblingWindow 600 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._regexp) as _regexp,value(t._count) as _count,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_logstore_apply_machine' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    description: 监控机器上是否有“7层qps数据”、“健康检查日志”等相关SLS的采集配置
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_logstore_apply_machine_cluster TumblingWindow 600 by ts select t.cluster as cluster, value(t._regexp) as _regexp,value(t._count) as _count,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_logstore_apply_machine' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_log_keyerror_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._regexp) as _regexp,value(t._count) as _count,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_log_keyerror' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_log_keyerror_host TumblingWindow 60 by ts select t.host as host, value(t._regexp) as _regexp,value(t._count) as _count,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_log_keyerror' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_log_keyerror_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._regexp) as _regexp,value(t._count) as _count,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_log_keyerror' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_log_keyerror_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._regexp) as _regexp,value(t._count) as _count,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_log_keyerror' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_agent_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._RSS_MEM) as _RSS_MEM,value(t._CURR_CNT) as _CURR_CNT,value(t._CMD) as _CMD,value(t._PID) as _PID,value(t._PCPU) as _PCPU,value(t._FD_NUM) as _FD_NUM from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_agent' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_agent_host TumblingWindow 60 by ts select t.host as host, value(t._RSS_MEM) as _RSS_MEM,value(t._CURR_CNT) as _CURR_CNT,value(t._CMD) as _CMD,value(t._PID) as _PID,value(t._PCPU) as _PCPU,value(t._FD_NUM) as _FD_NUM from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_agent' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_agent_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._RSS_MEM) as _RSS_MEM,value(t._CURR_CNT) as _CURR_CNT,value(t._CMD) as _CMD,value(t._PID) as _PID,value(t._PCPU) as _PCPU,value(t._FD_NUM) as _FD_NUM from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_agent' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_agent_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._RSS_MEM) as _RSS_MEM,value(t._CURR_CNT) as _CURR_CNT,value(t._CMD) as _CMD,value(t._PID) as _PID,value(t._PCPU) as _PCPU,value(t._FD_NUM) as _FD_NUM from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_agent' group by t.cluster
+
+-   enable: true
+    description: "如果是status =0，则登陆机器重启agent进程\r\n如果service_enabled不为enabled，则需要掉有cli接口重新enable\r\n如果enabled字段不为1，则需要掉cli接口重新enable"
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_agent_offline_disable_serverrole TumblingWindow 120 by ts select t.serverrole as serverrole,t.host as host, value(t._host) as _host,value(t._port) as _port,value(t._enabled) as _enabled,value(t._status) as _status,value(t._lvs_group_id) as _lvs_group_id,value(t._type) as _type,value(t._service_enabled) as _service_enabled from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_agent_offline_disable' group by t.serverrole,t.host
+-   enable: true
+    description: "如果是status =0，则登陆机器重启agent进程\r\n如果service_enabled不为enabled，则需要掉有cli接口重新enable\r\n如果enabled字段不为1，则需要掉cli接口重新enable"
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_agent_offline_disable_host TumblingWindow 120 by ts select t.host as host, value(t._host) as _host,value(t._port) as _port,value(t._enabled) as _enabled,value(t._status) as _status,value(t._lvs_group_id) as _lvs_group_id,value(t._type) as _type,value(t._service_enabled) as _service_enabled from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_agent_offline_disable' group by t.host
+-   enable: true
+    description: "如果是status =0，则登陆机器重启agent进程\r\n如果service_enabled不为enabled，则需要掉有cli接口重新enable\r\n如果enabled字段不为1，则需要掉cli接口重新enable"
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_agent_offline_disable_cluster_serverrole TumblingWindow 120 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._host) as _host,value(t._port) as _port,value(t._enabled) as _enabled,value(t._status) as _status,value(t._lvs_group_id) as _lvs_group_id,value(t._type) as _type,value(t._service_enabled) as _service_enabled from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_agent_offline_disable' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    description: "如果是status =0，则登陆机器重启agent进程\r\n如果service_enabled不为enabled，则需要掉有cli接口重新enable\r\n如果enabled字段不为1，则需要掉cli接口重新enable"
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_agent_offline_disable_cluster TumblingWindow 120 by ts select t.cluster as cluster, value(t._host) as _host,value(t._port) as _port,value(t._enabled) as _enabled,value(t._status) as _status,value(t._lvs_group_id) as _lvs_group_id,value(t._type) as _type,value(t._service_enabled) as _service_enabled from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_agent_offline_disable' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_ospf_neighbor_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._interface) as _interface,value(t._msg) as _msg,value(t._lsw_ip) as _lsw_ip,value(t._lsw_route_id) as _lsw_route_id,value(t._state) as _state,value(t._ospf_neighbor_state) as _ospf_neighbor_state,value(t._ospf_neighbor_count) as _ospf_neighbor_count from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_ospf_neighbor' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_ospf_neighbor_host TumblingWindow 60 by ts select t.host as host, value(t._interface) as _interface,value(t._msg) as _msg,value(t._lsw_ip) as _lsw_ip,value(t._lsw_route_id) as _lsw_route_id,value(t._state) as _state,value(t._ospf_neighbor_state) as _ospf_neighbor_state,value(t._ospf_neighbor_count) as _ospf_neighbor_count from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_ospf_neighbor' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_ospf_neighbor_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._interface) as _interface,value(t._msg) as _msg,value(t._lsw_ip) as _lsw_ip,value(t._lsw_route_id) as _lsw_route_id,value(t._state) as _state,value(t._ospf_neighbor_state) as _ospf_neighbor_state,value(t._ospf_neighbor_count) as _ospf_neighbor_count from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_ospf_neighbor' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_ospf_neighbor_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._interface) as _interface,value(t._msg) as _msg,value(t._lsw_ip) as _lsw_ip,value(t._lsw_route_id) as _lsw_route_id,value(t._state) as _state,value(t._ospf_neighbor_state) as _ospf_neighbor_state,value(t._ospf_neighbor_count) as _ospf_neighbor_count from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_ospf_neighbor' group by t.cluster
+
+-   enable: true
+    description: 摘流，重启失败的对应服务
+    sql: create metric ApsaraStack-slb_proxy_basic-check_slb_zebra_serverrole TumblingWindow 90 by ts select t.serverrole as serverrole,t.host as host, value(t._description) as _description,value(t._port_status) as _port_status,value(t._status) as _status from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-check_slb_zebra' group by t.serverrole,t.host
+-   enable: true
+    description: 摘流，重启失败的对应服务
+    sql: create metric ApsaraStack-slb_proxy_basic-check_slb_zebra_host TumblingWindow 90 by ts select t.host as host, value(t._description) as _description,value(t._port_status) as _port_status,value(t._status) as _status from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-check_slb_zebra' group by t.host
+-   enable: true
+    description: 摘流，重启失败的对应服务
+    sql: create metric ApsaraStack-slb_proxy_basic-check_slb_zebra_cluster_serverrole TumblingWindow 90 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._description) as _description,value(t._port_status) as _port_status,value(t._status) as _status from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-check_slb_zebra' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    description: 摘流，重启失败的对应服务
+    sql: create metric ApsaraStack-slb_proxy_basic-check_slb_zebra_cluster TumblingWindow 90 by ts select t.cluster as cluster, value(t._description) as _description,value(t._port_status) as _port_status,value(t._status) as _status from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-check_slb_zebra' group by t.cluster
+
+-   enable: true
+    description: ntp没有从ntp服务器同步时钟，需service ntpd restart恢复。
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_monitor_ntp_serverrole TumblingWindow 300 by ts select t.serverrole as serverrole,t.host as host, value(t._offset) as _offset,value(t._sync) as _sync from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_monitor_ntp' group by t.serverrole,t.host
+-   enable: true
+    description: ntp没有从ntp服务器同步时钟，需service ntpd restart恢复。
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_monitor_ntp_host TumblingWindow 300 by ts select t.host as host, value(t._offset) as _offset,value(t._sync) as _sync from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_monitor_ntp' group by t.host
+-   enable: true
+    description: ntp没有从ntp服务器同步时钟，需service ntpd restart恢复。
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_monitor_ntp_cluster_serverrole TumblingWindow 300 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._offset) as _offset,value(t._sync) as _sync from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_monitor_ntp' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    description: ntp没有从ntp服务器同步时钟，需service ntpd restart恢复。
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_monitor_ntp_cluster TumblingWindow 300 by ts select t.cluster as cluster, value(t._offset) as _offset,value(t._sync) as _sync from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_monitor_ntp' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_nic_status_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._duplex) as _duplex,value(t._link) as _link,value(t._speed) as _speed,value(t._desc) as _desc,value(t._bonding) as _bonding from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_nic_status' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_nic_status_host TumblingWindow 60 by ts select t.host as host, value(t._duplex) as _duplex,value(t._link) as _link,value(t._speed) as _speed,value(t._desc) as _desc,value(t._bonding) as _bonding from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_nic_status' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_nic_status_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._duplex) as _duplex,value(t._link) as _link,value(t._speed) as _speed,value(t._desc) as _desc,value(t._bonding) as _bonding from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_nic_status' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_nic_status_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._duplex) as _duplex,value(t._link) as _link,value(t._speed) as _speed,value(t._desc) as _desc,value(t._bonding) as _bonding from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_nic_status' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_tsar_new_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._df_home) as _df_home,max(t._df_home) as _df_home_max,avg(t._df_home) as _df_home_avg,min(t._df_home) as _df_home_min,value(t._df_boot) as _df_boot,max(t._df_boot) as _df_boot_max,avg(t._df_boot) as _df_boot_avg,min(t._df_boot) as _df_boot_min,value(t._df_) as _df_,max(t._df_) as _df__max,avg(t._df_) as _df__avg,min(t._df_) as _df__min,value(t._TCPretr) as _TCPretr,max(t._TCPretr) as _TCPretr_max,avg(t._TCPretr) as _TCPretr_avg,min(t._TCPretr) as _TCPretr_min,value(t._ifout) as _ifout,max(t._ifout) as _ifout_max,avg(t._ifout) as _ifout_avg,min(t._ifout) as _ifout_min,value(t._ifin) as _ifin,max(t._ifin) as _ifin_max,avg(t._ifin) as _ifin_avg,min(t._ifin) as _ifin_min,value(t._sda) as _sda,max(t._sda) as _sda_max,avg(t._sda) as _sda_avg,min(t._sda) as _sda_min,value(t._load15) as _load15,max(t._load15) as _load15_max,avg(t._load15) as _load15_avg,min(t._load15) as _load15_min,value(t._load5) as _load5,max(t._load5) as _load5_max,avg(t._load5) as _load5_avg,min(t._load5) as _load5_min,value(t._load1) as _load1,max(t._load1) as _load1_max,avg(t._load1) as _load1_avg,min(t._load1) as _load1_min,value(t._mem) as _mem,max(t._mem) as _mem_max,avg(t._mem) as _mem_avg,min(t._mem) as _mem_min,value(t._cpu) as _cpu,max(t._cpu) as _cpu_max,avg(t._cpu) as _cpu_avg,min(t._cpu) as _cpu_min,value(t._cpu_core) as _cpu_core,value(t._load1_cores) as _load1_cores,max(t._load1_cores) as _load1_cores_max,avg(t._load1_cores) as _load1_cores_avg,min(t._load1_cores) as _load1_cores_min,value(t._load5_cores) as _load5_cores,max(t._load5_cores) as _load5_cores_max,avg(t._load5_cores) as _load5_cores_avg,min(t._load5_cores) as _load5_cores_min,value(t._load15_cores) as _load15_cores,max(t._load15_cores) as _load15_cores_max,avg(t._load15_cores) as _load15_cores_avg,min(t._load15_cores) as _load15_cores_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_tsar_new' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_tsar_new_host TumblingWindow 60 by ts select t.host as host, value(t._df_home) as _df_home,max(t._df_home) as _df_home_max,avg(t._df_home) as _df_home_avg,min(t._df_home) as _df_home_min,value(t._df_boot) as _df_boot,max(t._df_boot) as _df_boot_max,avg(t._df_boot) as _df_boot_avg,min(t._df_boot) as _df_boot_min,value(t._df_) as _df_,max(t._df_) as _df__max,avg(t._df_) as _df__avg,min(t._df_) as _df__min,value(t._TCPretr) as _TCPretr,max(t._TCPretr) as _TCPretr_max,avg(t._TCPretr) as _TCPretr_avg,min(t._TCPretr) as _TCPretr_min,value(t._ifout) as _ifout,max(t._ifout) as _ifout_max,avg(t._ifout) as _ifout_avg,min(t._ifout) as _ifout_min,value(t._ifin) as _ifin,max(t._ifin) as _ifin_max,avg(t._ifin) as _ifin_avg,min(t._ifin) as _ifin_min,value(t._sda) as _sda,max(t._sda) as _sda_max,avg(t._sda) as _sda_avg,min(t._sda) as _sda_min,value(t._load15) as _load15,max(t._load15) as _load15_max,avg(t._load15) as _load15_avg,min(t._load15) as _load15_min,value(t._load5) as _load5,max(t._load5) as _load5_max,avg(t._load5) as _load5_avg,min(t._load5) as _load5_min,value(t._load1) as _load1,max(t._load1) as _load1_max,avg(t._load1) as _load1_avg,min(t._load1) as _load1_min,value(t._mem) as _mem,max(t._mem) as _mem_max,avg(t._mem) as _mem_avg,min(t._mem) as _mem_min,value(t._cpu) as _cpu,max(t._cpu) as _cpu_max,avg(t._cpu) as _cpu_avg,min(t._cpu) as _cpu_min,value(t._cpu_core) as _cpu_core,value(t._load1_cores) as _load1_cores,max(t._load1_cores) as _load1_cores_max,avg(t._load1_cores) as _load1_cores_avg,min(t._load1_cores) as _load1_cores_min,value(t._load5_cores) as _load5_cores,max(t._load5_cores) as _load5_cores_max,avg(t._load5_cores) as _load5_cores_avg,min(t._load5_cores) as _load5_cores_min,value(t._load15_cores) as _load15_cores,max(t._load15_cores) as _load15_cores_max,avg(t._load15_cores) as _load15_cores_avg,min(t._load15_cores) as _load15_cores_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_tsar_new' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_tsar_new_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._df_home) as _df_home,max(t._df_home) as _df_home_max,avg(t._df_home) as _df_home_avg,min(t._df_home) as _df_home_min,value(t._df_boot) as _df_boot,max(t._df_boot) as _df_boot_max,avg(t._df_boot) as _df_boot_avg,min(t._df_boot) as _df_boot_min,value(t._df_) as _df_,max(t._df_) as _df__max,avg(t._df_) as _df__avg,min(t._df_) as _df__min,value(t._TCPretr) as _TCPretr,max(t._TCPretr) as _TCPretr_max,avg(t._TCPretr) as _TCPretr_avg,min(t._TCPretr) as _TCPretr_min,value(t._ifout) as _ifout,max(t._ifout) as _ifout_max,avg(t._ifout) as _ifout_avg,min(t._ifout) as _ifout_min,value(t._ifin) as _ifin,max(t._ifin) as _ifin_max,avg(t._ifin) as _ifin_avg,min(t._ifin) as _ifin_min,value(t._sda) as _sda,max(t._sda) as _sda_max,avg(t._sda) as _sda_avg,min(t._sda) as _sda_min,value(t._load15) as _load15,max(t._load15) as _load15_max,avg(t._load15) as _load15_avg,min(t._load15) as _load15_min,value(t._load5) as _load5,max(t._load5) as _load5_max,avg(t._load5) as _load5_avg,min(t._load5) as _load5_min,value(t._load1) as _load1,max(t._load1) as _load1_max,avg(t._load1) as _load1_avg,min(t._load1) as _load1_min,value(t._mem) as _mem,max(t._mem) as _mem_max,avg(t._mem) as _mem_avg,min(t._mem) as _mem_min,value(t._cpu) as _cpu,max(t._cpu) as _cpu_max,avg(t._cpu) as _cpu_avg,min(t._cpu) as _cpu_min,value(t._cpu_core) as _cpu_core,value(t._load1_cores) as _load1_cores,max(t._load1_cores) as _load1_cores_max,avg(t._load1_cores) as _load1_cores_avg,min(t._load1_cores) as _load1_cores_min,value(t._load5_cores) as _load5_cores,max(t._load5_cores) as _load5_cores_max,avg(t._load5_cores) as _load5_cores_avg,min(t._load5_cores) as _load5_cores_min,value(t._load15_cores) as _load15_cores,max(t._load15_cores) as _load15_cores_max,avg(t._load15_cores) as _load15_cores_avg,min(t._load15_cores) as _load15_cores_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_tsar_new' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_tsar_new_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._df_home) as _df_home,max(t._df_home) as _df_home_max,avg(t._df_home) as _df_home_avg,min(t._df_home) as _df_home_min,value(t._df_boot) as _df_boot,max(t._df_boot) as _df_boot_max,avg(t._df_boot) as _df_boot_avg,min(t._df_boot) as _df_boot_min,value(t._df_) as _df_,max(t._df_) as _df__max,avg(t._df_) as _df__avg,min(t._df_) as _df__min,value(t._TCPretr) as _TCPretr,max(t._TCPretr) as _TCPretr_max,avg(t._TCPretr) as _TCPretr_avg,min(t._TCPretr) as _TCPretr_min,value(t._ifout) as _ifout,max(t._ifout) as _ifout_max,avg(t._ifout) as _ifout_avg,min(t._ifout) as _ifout_min,value(t._ifin) as _ifin,max(t._ifin) as _ifin_max,avg(t._ifin) as _ifin_avg,min(t._ifin) as _ifin_min,value(t._sda) as _sda,max(t._sda) as _sda_max,avg(t._sda) as _sda_avg,min(t._sda) as _sda_min,value(t._load15) as _load15,max(t._load15) as _load15_max,avg(t._load15) as _load15_avg,min(t._load15) as _load15_min,value(t._load5) as _load5,max(t._load5) as _load5_max,avg(t._load5) as _load5_avg,min(t._load5) as _load5_min,value(t._load1) as _load1,max(t._load1) as _load1_max,avg(t._load1) as _load1_avg,min(t._load1) as _load1_min,value(t._mem) as _mem,max(t._mem) as _mem_max,avg(t._mem) as _mem_avg,min(t._mem) as _mem_min,value(t._cpu) as _cpu,max(t._cpu) as _cpu_max,avg(t._cpu) as _cpu_avg,min(t._cpu) as _cpu_min,value(t._cpu_core) as _cpu_core,value(t._load1_cores) as _load1_cores,max(t._load1_cores) as _load1_cores_max,avg(t._load1_cores) as _load1_cores_avg,min(t._load1_cores) as _load1_cores_min,value(t._load5_cores) as _load5_cores,max(t._load5_cores) as _load5_cores_max,avg(t._load5_cores) as _load5_cores_avg,min(t._load5_cores) as _load5_cores_min,value(t._load15_cores) as _load15_cores,max(t._load15_cores) as _load15_cores_max,avg(t._load15_cores) as _load15_cores_avg,min(t._load15_cores) as _load15_cores_min from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_tsar_new' group by t.cluster
+
+-   enable: true
+    description: "后期可调大MAX_DYNAMIC_PEER\r\n临时方案可回滚至非hotconf版本。"
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_dyups_serverrole TumblingWindow 120 by ts select t.serverrole as serverrole,t.host as host, value(t._dyups) as _dyups,max(t._dyups) as _dyups_max from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_dyups' group by t.serverrole,t.host
+-   enable: true
+    description: "后期可调大MAX_DYNAMIC_PEER\r\n临时方案可回滚至非hotconf版本。"
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_dyups_host TumblingWindow 120 by ts select t.host as host, value(t._dyups) as _dyups,max(t._dyups) as _dyups_max from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_dyups' group by t.host
+-   enable: true
+    description: "后期可调大MAX_DYNAMIC_PEER\r\n临时方案可回滚至非hotconf版本。"
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_dyups_cluster_serverrole TumblingWindow 120 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._dyups) as _dyups,max(t._dyups) as _dyups_max from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_dyups' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    description: "后期可调大MAX_DYNAMIC_PEER\r\n临时方案可回滚至非hotconf版本。"
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_check_dyups_cluster TumblingWindow 120 by ts select t.cluster as cluster, value(t._dyups) as _dyups,max(t._dyups) as _dyups_max from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_check_dyups' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_tengine_conf_verify_serverrole TumblingWindow 300 by ts select t.serverrole as serverrole,t.host as host, value(t._result) as _result from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_tengine_conf_verify' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_tengine_conf_verify_host TumblingWindow 300 by ts select t.host as host, value(t._result) as _result from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_tengine_conf_verify' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_tengine_conf_verify_cluster_serverrole TumblingWindow 300 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._result) as _result from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_tengine_conf_verify' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_proxy_tengine_conf_verify_cluster TumblingWindow 300 by ts select t.cluster as cluster, value(t._result) as _result from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_proxy_tengine_conf_verify' group by t.cluster
+
+-   enable: true
+    description: local地址数目不对，请检查ip addr list dummy0
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_check_laddr_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._flag) as _flag,value(t._laddr_num) as _laddr_num from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_check_laddr' group by t.serverrole,t.host
+-   enable: true
+    description: local地址数目不对，请检查ip addr list dummy0
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_check_laddr_host TumblingWindow 60 by ts select t.host as host, value(t._flag) as _flag,value(t._laddr_num) as _laddr_num from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_check_laddr' group by t.host
+-   enable: true
+    description: local地址数目不对，请检查ip addr list dummy0
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_check_laddr_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._flag) as _flag,value(t._laddr_num) as _laddr_num from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_check_laddr' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    description: local地址数目不对，请检查ip addr list dummy0
+    sql: create metric ApsaraStack-slb_proxy_basic-slb_check_laddr_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._flag) as _flag,value(t._laddr_num) as _laddr_num from stream.slbproxy t where t.scriptname='ApsaraStack-slb_proxy_basic-slb_check_laddr' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_voice_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._type) as _type,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_voice' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_voice_host TumblingWindow 60 by ts select t.host as host, value(t._type) as _type,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_voice' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_voice_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._type) as _type,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_voice' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_voice_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._type) as _type,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_voice' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._type) as _type,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_kern_error' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_host TumblingWindow 60 by ts select t.host as host, value(t._type) as _type,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_kern_error' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._type) as _type,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_kern_error' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._type) as _type,value(t._value) as _value,max(t._value) as _value_max,sum(t._value) as _value_sum,avg(t._value) as _value_avg,min(t._value) as _value_min,value(t._keyname) as _keyname from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_kern_error' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_check_mem_stats_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._VALUE) as _VALUE,value(t._ITEM) as _ITEM from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_check_mem_stats' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_check_mem_stats_host TumblingWindow 60 by ts select t.host as host, value(t._VALUE) as _VALUE,value(t._ITEM) as _ITEM from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_check_mem_stats' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_check_mem_stats_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._VALUE) as _VALUE,value(t._ITEM) as _ITEM from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_check_mem_stats' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_check_mem_stats_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._VALUE) as _VALUE,value(t._ITEM) as _ITEM from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_check_mem_stats' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_check_cpu_proc_stat_5s_serverrole TumblingWindow 5 by ts select t.serverrole as serverrole,t.host as host, value(t._idle) as _idle,value(t._user) as _user,value(t._iowait) as _iowait,value(t._nice) as _nice,value(t._cpu) as _cpu,value(t._steal) as _steal,value(t._system) as _system,value(t._guest) as _guest,value(t._irq) as _irq,value(t._softirq) as _softirq from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_check_cpu_proc_stat_5s' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_check_cpu_proc_stat_5s_host TumblingWindow 5 by ts select t.host as host, value(t._idle) as _idle,value(t._user) as _user,value(t._iowait) as _iowait,value(t._nice) as _nice,value(t._cpu) as _cpu,value(t._steal) as _steal,value(t._system) as _system,value(t._guest) as _guest,value(t._irq) as _irq,value(t._softirq) as _softirq from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_check_cpu_proc_stat_5s' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_check_cpu_proc_stat_5s_cluster_serverrole TumblingWindow 5 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._idle) as _idle,value(t._user) as _user,value(t._iowait) as _iowait,value(t._nice) as _nice,value(t._cpu) as _cpu,value(t._steal) as _steal,value(t._system) as _system,value(t._guest) as _guest,value(t._irq) as _irq,value(t._softirq) as _softirq from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_check_cpu_proc_stat_5s' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_check_cpu_proc_stat_5s_cluster TumblingWindow 5 by ts select t.cluster as cluster, value(t._idle) as _idle,value(t._user) as _user,value(t._iowait) as _iowait,value(t._nice) as _nice,value(t._cpu) as _cpu,value(t._steal) as _steal,value(t._system) as _system,value(t._guest) as _guest,value(t._irq) as _irq,value(t._softirq) as _softirq from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_check_cpu_proc_stat_5s' group by t.cluster
+
+-   enable: true
+    description: 网卡流量极端情况的电话报警
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_nic_traffic_voice_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._tx_dropped) as _tx_dropped,value(t._rx_fifo) as _rx_fifo,value(t._rx_errors) as _rx_errors,value(t._rx_bytes) as _rx_bytes,value(t._rx_rate) as _rx_rate,value(t._tx_rate) as _tx_rate,value(t._tx_packets) as _tx_packets,value(t._tx_fifo) as _tx_fifo,value(t._rx_packets) as _rx_packets,value(t._rx_dropped) as _rx_dropped,value(t._tx_bytes) as _tx_bytes,value(t._desc) as _desc,value(t._tx_errors) as _tx_errors from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_nic_traffic_voice' group by t.serverrole,t.host
+-   enable: true
+    description: 网卡流量极端情况的电话报警
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_nic_traffic_voice_host TumblingWindow 60 by ts select t.host as host, value(t._tx_dropped) as _tx_dropped,value(t._rx_fifo) as _rx_fifo,value(t._rx_errors) as _rx_errors,value(t._rx_bytes) as _rx_bytes,value(t._rx_rate) as _rx_rate,value(t._tx_rate) as _tx_rate,value(t._tx_packets) as _tx_packets,value(t._tx_fifo) as _tx_fifo,value(t._rx_packets) as _rx_packets,value(t._rx_dropped) as _rx_dropped,value(t._tx_bytes) as _tx_bytes,value(t._desc) as _desc,value(t._tx_errors) as _tx_errors from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_nic_traffic_voice' group by t.host
+-   enable: true
+    description: 网卡流量极端情况的电话报警
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_nic_traffic_voice_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._tx_dropped) as _tx_dropped,value(t._rx_fifo) as _rx_fifo,value(t._rx_errors) as _rx_errors,value(t._rx_bytes) as _rx_bytes,value(t._rx_rate) as _rx_rate,value(t._tx_rate) as _tx_rate,value(t._tx_packets) as _tx_packets,value(t._tx_fifo) as _tx_fifo,value(t._rx_packets) as _rx_packets,value(t._rx_dropped) as _rx_dropped,value(t._tx_bytes) as _tx_bytes,value(t._desc) as _desc,value(t._tx_errors) as _tx_errors from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_nic_traffic_voice' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    description: 网卡流量极端情况的电话报警
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_nic_traffic_voice_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._tx_dropped) as _tx_dropped,value(t._rx_fifo) as _rx_fifo,value(t._rx_errors) as _rx_errors,value(t._rx_bytes) as _rx_bytes,value(t._rx_rate) as _rx_rate,value(t._tx_rate) as _tx_rate,value(t._tx_packets) as _tx_packets,value(t._tx_fifo) as _tx_fifo,value(t._rx_packets) as _rx_packets,value(t._rx_dropped) as _rx_dropped,value(t._tx_bytes) as _tx_bytes,value(t._desc) as _desc,value(t._tx_errors) as _tx_errors from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_nic_traffic_voice' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_coredump_serverrole TumblingWindow 60 by ts select t.serverrole as serverrole,t.host as host, value(t._count) as _count,value(t._dir_attr) as _dir_attr,value(t._sysctl) as _sysctl,value(t._corefile) as _corefile from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_coredump' group by t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_coredump_host TumblingWindow 60 by ts select t.host as host, value(t._count) as _count,value(t._dir_attr) as _dir_attr,value(t._sysctl) as _sysctl,value(t._corefile) as _corefile from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_coredump' group by t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_coredump_cluster_serverrole TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t._count) as _count,value(t._dir_attr) as _dir_attr,value(t._sysctl) as _sysctl,value(t._corefile) as _corefile from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_coredump' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_7layer_coredump_cluster TumblingWindow 60 by ts select t.cluster as cluster, value(t._count) as _count,value(t._dir_attr) as _dir_attr,value(t._sysctl) as _sysctl,value(t._corefile) as _corefile from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_7layer_coredump' group by t.cluster
+
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_hotconf_conf_monitor TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t.collection_flag) as collection_flag, value(t._failcount) as _failcount, value(t._result) as _result from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_hotconf_conf_monitor' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_proxy_check_dyups_max_queue TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t.collection_flag) as collection_flag, value(t._failcount) as _failcount,value(t._result) as _result from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_proxy_check_dyups_max_queue' group by t.cluster,t.serverrole,t.host
+-   enable: true
+    sql: create metric ApsaraStack-slb_7layer_basic-slb_dyups_sync_error TumblingWindow 60 by ts select t.cluster as cluster,t.serverrole as serverrole,t.host as host, value(t.collection_flag) as collection_flag, value(t._failcount) as _failcount,value(t._result) as _result from stream.slbproxy t where t.scriptname='ApsaraStack-slb_7layer_basic-slb_dyups_sync_error' group by t.cluster,t.serverrole,t.host
+
+alerts:
+#-   enable: true
+#    name: ApsaraStack-slb_proxy_public-free_mem_rate_too_low
+#    subject: '{{subject|fee内存占用率较低}}'
+#    interval: '{{interval|60}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_proxy_public-slb_proxy_check_mem_stats-public_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p4_expressin|string.contains($_ITEM,''MemRawFreeRate'')&&$_VALUE<20}}'
+#        level: 4
+#        times: '{{p4_times|3}}'
+#    -   expression: '{{p1_expressin|string.contains($_ITEM,''MemRawFreeRate'')&&$_VALUE<10}}'
+#        level: 1
+#        times: '{{p1_times|3}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 4
+#            contactGroups:
+#            - '#ClusterOwner'
+#        -   level: 1
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+    
+#-   enable: true
+#    name: ApsaraStack-slb_proxy_public-dstat_process_not_exist
+#    subject: '{{subject|dstat进程不存在}}'
+#    interval: '{{interval|60}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_proxy_public-check_dstat_process_exist_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p1_expressin|$_process_num==0}}'
+#        level: 1
+#        times: '{{p1_times|3}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 1
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+#-   enable: true
+#    name: ApsaraStack-slb_proxy_public-slb_proxy_default_route_pub
+#    subject: '{{subject|${_nic_num}张网卡，默认路由少了${_d_value}条}}'
+#    interval: '{{interval|60}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_proxy_public-slb_proxy_default_route_check_pub_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p4_expressin|string.contains($_iface,''all'')&&$_d_value>0}}'
+#        level: 4
+#        times: '{{p4_times|3}}'
+#    -   expression: '{{p1_expressin|(string.contains($_iface,''all'')&&$_nic_num>3&&$_d_value_rate>=50)||(string.contains($_iface,''all'')&&$_nic_num<3&&$_d_value_rate>50)}}'
+#        level: 1
+#        times: '{{p1_times|3}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 4
+#            contactGroups:
+#            - '#ClusterOwner'
+#        -   level: 1
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+#-   enable: true
+#    name: ApsaraStack-slb_proxy_public-slave_num
+#    subject: '{{subject|${_slave_type}网卡仅剩${_slave_num}个}}'
+#    interval: '{{interval|60}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_proxy_public-slb_proxy_bond_slave_info_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p4_expressin|$_slave_num!=2&&($_slave_type==''bond''||$_slave_type==''nc'')}}'
+#        level: 4
+#        times: '{{p4_times|3}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 4
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+#-   enable: true
+#    name: ApsaraStack-slb_proxy_public-process_state_exception
+#    subject: '{{subject|${_key}进程状态异常}}'
+#    interval: '{{interval|60}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_proxy_public-slb_proxy_process_check_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p1_expressin|$_value!=0}}'
+#        level: 1
+#        times: '{{p1_times|3}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 1
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-nginx_master_not_exist
+    subject: '{{subject|nginx master进程不存在}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-check_process_nginx-master_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_procs_count==0}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+    
+#-   enable: true
+#    name: ApsaraStack-slb_proxy_basic-slb_proxy_agent_reload_error
+#    subject: '{{subject|日志中出现reload_proxy error}}'
+#    interval: '{{interval|60}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_proxy_basic-slb_proxy_agent_errorlog_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p4_expressin|$_keyname.contains(''reload_proxy error'')&&$_value>1}}'
+#        level: 4
+#        times: '{{p4_times|1}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 4
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+#-   enable: true
+#    name: ApsaraStack-slb_proxy_basic-log_to_different_logstore
+#    subject: '{{subject|同一个日志文件应用到互斥的logstore}}'
+#    interval: '{{interval|60}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_multi_config_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p1_expressin|$_value>0}}'
+#        level: 1
+#        times: '{{p1_times|3}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 1
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-mem_too_high
+    subject: '{{subject|内存使用率过高}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_tsar_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_mem>60}}'
+        level: 4
+        times: '{{p4_times|1}}'
+    -   expression: '{{p1_expressin|$_mem>70}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-disk_root_partition_usage
+    subject: '{{subject|磁盘根分区使用率过高}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_tsar_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_df_>85}}'
+        level: 4
+        times: '{{p4_times|1}}'
+    -   expression: '{{p1_expressin|$_df_>90}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-system
+    subject: '{{subject|磁盘sda使用率过高}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_tsar_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_sda>60}}'
+        level: 4
+        times: '{{p4_times|3}}'
+    -   expression: '{{p1_expressin|$_sda>65}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+    
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-disk_home_partition_usage
+    subject: '{{subject|磁盘home分区使用率过高}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_tsar_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_df_home>86}}'
+        level: 4
+        times: '{{p4_times|1}}'
+    -   expression: '{{p1_expressin|$_df_home>90}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-cpu_too_high
+    subject: '{{subject|cpu使用率过高}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_tsar_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_cpu>75}}'
+        level: 4
+        times: '{{p4_times|1}}'
+    -   expression: '{{p1_expressin|$_cpu>85}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_p5
+    subject: '{{subject|健康检查波动严重级别P5: rs: ${_rs}; up_cnt: ${_up_cnt}; down_cnt: ${_down_cnt}; rs_avail: ${_rs_avail} }}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_up_cnt<50&&$_up_cnt>10&&(double($PAST(''_up_cnt'',60)-$_up_cnt)/double($PAST(''_up_cnt'',60))*100)<-70}}'
+        level: 4
+        times: '{{p4_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_p2
+    subject: '{{subject|健康检查波动严重级别P2: rs: ${_rs}; up_cnt: ${_up_cnt}; down_cnt: ${_down_cnt}; rs_avail: ${_rs_avail} }}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_up_cnt>=200&&$_up_cnt<1000&&(double($PAST(''_up_cnt'',60)-$_up_cnt)/double($PAST(''_up_cnt'',60))*100)<-40}}'
+        level: 4
+        times: '{{p4_times|3}}'
+    -   expression: '{{p1_expressin|$_up_cnt>=200&&$_up_cnt<1000&&(double($PAST(''_up_cnt'',60)-$_up_cnt)/double($PAST(''_up_cnt'',60))*100)<-50}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_p6
+    subject: '{{subject|健康检查波动严重级别P6: rs: ${_rs}; up_cnt: ${_up_cnt}; down_cnt: ${_down_cnt}; rs_avail: ${_rs_avail} }}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_up_cnt>=4&&(double($PAST(''_up_cnt'',60)-$_up_cnt)/double($PAST(''_up_cnt'',60))*100)<-95}}'
+        level: 4
+        times: '{{p4_times|1}}'
+    -   expression: '{{p1_expressin|$_rs>=20&&$_up_cnt>10&&(double($PAST(''_up_cnt'',60)-$_up_cnt)/double($PAST(''_up_cnt'',60))*100)<-85}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_p3
+    subject: '{{subject|健康检查波动严重级别P3: rs: ${_rs}; up_cnt: ${_up_cnt}; down_cnt: ${_down_cnt}; rs_avail: ${_rs_avail} }}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_up_cnt>=100&&$_up_cnt<200&&(double($PAST(''_up_cnt'',60)-$_up_cnt)/double($PAST(''_up_cnt'',60))*100)<-50}}'
+        level: 4
+        times: '{{p4_times|3}}'
+    -   expression: '{{p1_expressin|$_up_cnt>=100&&$_up_cnt<200&&(double($PAST(''_up_cnt'',60)-$_up_cnt)/double($PAST(''_up_cnt'',60))*100)<-60}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_p4
+    subject: '{{subject|健康检查波动严重级别P4: rs: ${_rs}; up_cnt: ${_up_cnt}; down_cnt: ${_down_cnt}; rs_avail: ${_rs_avail} }}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_up_cnt>=50&&$_up_cnt<100&&(double($PAST(''_up_cnt'',60)-$_up_cnt)/double($PAST(''_up_cnt'',60))*100)<-60}}'
+        level: 4
+        times: '{{p4_times|3}}'
+    -   expression: '{{p1_expressin|$_up_cnt>=50&&$_up_cnt<100&&(double($PAST(''_up_cnt'',60)-$_up_cnt)/double($PAST(''_up_cnt'',60))*100)<-70}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_p1
+    subject: '{{subject|健康检查波动严重级别P1: rs: ${_rs}; up_cnt: ${_up_cnt}; down_cnt: ${_down_cnt}; rs_avail: ${_rs_avail} }}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_hc_check_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_up_cnt>=1000&&(double($PAST(''_up_cnt'',60)-$_up_cnt)/double($PAST(''_up_cnt'',60))*100)<-20}}'
+        level: 4
+        times: '{{p4_times|3}}'
+    -   expression: '{{p1_expressin|$_up_cnt>=1000&&(double($PAST(''_up_cnt'',60)-$_up_cnt)/double($PAST(''_up_cnt'',60))*100)<-30}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-process_state_is_D
+    subject: '{{subject|TEngineMonitor进程D住}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_monitor_process_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|string.contains($_stat,''D'')&&$_multiprocess!=1&&$_noprocess!=1}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-no_process
+    subject: '{{subject|tengine 没有TEngineMonitor进程}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_monitor_process_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_noprocess==1}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-multi_process
+    subject: '{{subject|tengine存在多个TEngineMonitor进程}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_monitor_process_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_multiprocess==1}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-mod_version_differ
+    subject: '{{subject|${_module} ${_status} }}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_check_mod_version_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|string.contains($_status,''mismatch'')}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-slb_tengine_fd_util
+    subject: '{{subject| }}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_tengine_fd_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_open_files_util>55}}'
+        level: 4
+        times: '{{p4_times|1}}'
+    -   expression: '{{p1_expressin|$_open_files_util>65}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-slb_tengine_workconnection
+    subject: '{{subject| }}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_tengine_fd_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_open_socket_util>65}}'
+        level: 4
+        times: '{{p4_times|3}}'
+    -   expression: '{{p1_expressin|$_open_socket_util>75}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-slb_vxlan_saddr
+    subject: '{{subject| }}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_saddr_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_vxlan_saddr.contains(''0.0.0.0'')||!string.contains($_status,''OK'')}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-ilogtai_rpm_not_install
+    subject: '{{subject|ilogtai rpm包没有安装}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_upload_fail_file_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_flag_rpm==0}}'
+        level: 4
+        times: '{{p4_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-ilogtail_process_not_start
+    subject: '{{subject|进程没起来}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_upload_fail_file_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_process_num<=1&&$_flag_rpm==1}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-ilogtail_upload_file_fail
+    subject: '{{subject|ilogtail文件上传延迟或者一直失败}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_upload_fail_file_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_file_num>10}}'
+        level: 4
+        times: '{{p4_times|3}}'
+    -   expression: '{{p1_expressin|$_file_num>20}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-num_of_ilogtail_process
+    subject: '{{subject|ilogtail进程正常是2个，现在是${_process_num} }}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_upload_fail_file_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_process_num>2}}'
+        level: 4
+        times: '{{p4_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-communicate_with_sls_server_failed
+    subject: '{{subject|和SLS服务端心跳失败}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_user_log_config_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_status==2}}'
+        level: 4
+        times: '{{p4_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-config_is_null
+    subject: '{{subject|配置为空}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_user_log_config_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_status==1}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-check_250
+    subject: '{{subject|vxlan 250 config error}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_vxlan_250_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_result>0}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-mem_5g
+    subject: '{{subject|内存大于5g}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-sample_ngx_rss_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_num>0}}'
+        level: 4
+        times: '{{p4_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-connect_to_keyserver_vip_failed
+    subject: '{{subject|无法连接到keyserver vip}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-proxy_to_keyserver_6666_port_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|string.contains($_msg,''error'')}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+#-   enable: true
+#    name: ApsaraStack-slb_proxy_basic-ilogtail_logstore_config_differ
+#    subject: '{{subject|ilogtail logstore配置不全}}'
+#    interval: '{{interval|600}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_proxy_basic-slb_proxy_logstore_apply_machine_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p1_expressin|$_count==0}}'
+#        level: 1
+#        times: '{{p1_times|3}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 1
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+#-   enable: true
+#    name: ApsaraStack-slb_proxy_basic-warning_or_error_alert
+#    subject: '{{subject| }}'
+#    interval: '{{interval|60}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_proxy_basic-slb_proxy_ilogtail_log_keyerror_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p1_expressin|$_count>0}}'
+#        level: 1
+#        times: '{{p1_times|10}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 1
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-slb_proc_check_agent_main
+    subject: '{{subject|agent进程挂了，赶紧上线启动进程}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_check_agent_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_PID==0}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-agent_service_enabled
+    subject: '{{subject|agent的管控状态service_enabled字段不为enabled/online}}'
+    interval: '{{interval|120}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_agent_offline_disable_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|!string.contains($_service_enabled,''enabled'')&&!string.contains($_service_enabled,''NotExistInDB'')&&!string.contains($_service_enabled,''online'')}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-agent_offline
+    subject: '{{subject|agent offline了，需要 reload agent}}'
+    interval: '{{interval|120}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_agent_offline_disable_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_status==0}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-agent_disable
+    subject: '{{subject|agent的管控状态enabled字段为disable}}'
+    interval: '{{interval|120}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_agent_offline_disable_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_enabled==0}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-neighbor_count_check
+    subject: '{{subject|邻居关系仅剩${_ospf_neighbor_count}个}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_check_ospf_neighbor_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|string.contains($_interface,''TT'')&&$_ospf_neighbor_count==1}}'
+        level: 4
+        times: '{{p4_times|1}}'
+    -   expression: '{{p1_expressin|string.contains($_interface,''TT'')&&$_ospf_neighbor_count==0}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-T2_ospf_neighbor_state
+    subject: '{{subject|T2网卡与lsw:${_lsw_ip}的ospf邻居状态不是full}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_check_ospf_neighbor_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|string.contains($_interface,''T2'')&&$_state!=1}}'
+        level: 4
+        times: '{{p4_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-T1_ospf_neighbor_state
+    subject: '{{subject|T1网卡与lsw:${_lsw_ip}的ospf邻居状态不是full}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_check_ospf_neighbor_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|string.contains($_interface,''T1'')&&$_state!=1}}'
+        level: 4
+        times: '{{p4_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-check_slb_zebra
+    subject: "{{subject|${_description} 有问题\t}}"
+    interval: '{{interval|90}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-check_slb_zebra_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_status==0||$_port_status==0}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+#-   enable: true
+#    name: ApsaraStack-slb_proxy_basic-slb_ntp_not_sync
+#    subject: '{{subject|时钟发生偏移}}'
+#    interval: '{{interval|300}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_proxy_basic-slb_monitor_ntp_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p1_expressin|$_sync!=0}}'
+#        level: 1
+#        times: '{{p1_times|3}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 1
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-10g_T1_T2_duplex
+    subject: '{{subject|10g(T1、T2)网卡非全双工}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_nic_status_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_desc.contains(''''T'''')&&$_speed==10000&&$_bonding==''no''&&$_duplex!=1}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-25g_netcard_down
+    subject: '{{subject|25g网卡down}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_nic_status_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_speed==25000&&$_link!=1}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-bond_slave_duplex
+    subject: '{{subject|bond子网卡非全双工}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_nic_status_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_bonding==''yes''&&$_desc.contains(''''eth'''')&&$_duplex!=1}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-10g_T1_T2_down
+    subject: '{{subject|10g(T1、T2)网卡down}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_nic_status_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_desc.contains(''''T'''')&&$_speed==10000&&$_bonding==''no''&&$_link!=1}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-40g_netcard_duplex
+    subject: '{{subject|40g网卡非全双工}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_nic_status_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_speed==40000&&$_duplex!=1}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-bond_slave_down
+    subject: '{{subject|bond子网卡down}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_nic_status_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_bonding==''yes''&&$_desc.contains(''''eth'''')&&$_link!=1}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-40g_netcard_down
+    subject: '{{subject|40g网卡down}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_nic_status_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_link!=1&&$_speed==40000}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-25g_netcard_duplex
+    subject: '{{subject|25g网卡非全双工}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_nic_status_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_speed==25000&&$_duplex!=1}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-TCPretr
+    subject: '{{subject|TCP Retransmit High}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_tsar_new_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_ifout>2000&&$_TCPretr>30}}'
+        level: 4
+        times: '{{p4_times|3}}'
+    -   expression: '{{p1_expressin|$_ifout>2000&&$_TCPretr>40}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-load_too_high
+    subject: '{{subject|load1:${_load1},load5:${_load5},load15:${_load15} }}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_tsar_new_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|$_load1_cores>0.99||$_load5_cores>0.99||$_load15_cores>0.99}}'
+        level: 4
+        times: '{{p4_times|3}}'
+    -   expression: '{{p1_expressin|$_load1_cores>1.3||$_load5_cores>1.3||$_load15_cores>1.9}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-slb_proxy_check_dyups
+    subject: '{{subject|dyup水位高}}'
+    interval: '{{interval|120}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_check_dyups_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_dyups>12384}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-tengine_config_check_failed
+    subject: '{{subject|tengine配置检查失败}}'
+    interval: '{{interval|300}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_proxy_tengine_conf_verify_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_result==''Fail''}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_proxy_basic-proxy_laddr_number
+    subject: '{{subject|7u设备laddr数目不为15}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_proxy_basic-slb_check_laddr_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_flag==0}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+#-   enable: true
+#    name: ApsaraStack-slb_7layer_basic-oom
+#    subject: '{{subject|oom}}'
+#    interval: '{{interval|60}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_voice_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p1_expressin|$_keyname.contains(''Out of memory'')&&$_value>0}}'
+#        level: 1
+#        times: '{{p1_times|3}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 1
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+#-   enable: true
+#    name: ApsaraStack-slb_7layer_basic-mem_page_alloc_failed
+#    subject: '{{subject|内存分页失败}}'
+#    interval: '{{interval|60}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p1_expressin|$_keyname.contains(''page allocation failure'')&&$_value>0}}'
+#        level: 1
+#        times: '{{p1_times|3}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 1
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+#-   enable: true
+#    name: ApsaraStack-slb_7layer_basic-segfault
+#    subject: '{{subject|segfault}}'
+#    interval: '{{interval|60}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p1_expressin|string.contains($_keyname,''segfault'')&&$_value>0}}'
+#        level: 1
+#        times: '{{p1_times|3}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 1
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+#-   enable: true
+#    name: ApsaraStack-slb_7layer_basic-hardware_fault
+#    subject: '{{subject|硬件故障}}'
+#    interval: '{{interval|60}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_7layer_basic-slb_7layer_kern_error_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p1_expressin|$_keyname.contains(''Machine check events logged'')&&$_value>0}}'
+#        level: 1
+#        times: '{{p1_times|3}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 1
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_7layer_basic-mem_used_too_high
+    subject: '{{subject|内存使用率过高}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_7layer_basic-slb_7layer_check_mem_stats_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|string.contains($_ITEM,''MemUsedRate'')&&$_VALUE>80}}'
+        level: 4
+        times: '{{p4_times|3}}'
+    -   expression: '{{p1_expressin|string.contains($_ITEM,''MemUsedRate'')&&$_VALUE>90}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_7layer_basic-softirq_too_high
+    subject: '{{subject|${_cpu}软中断:${_softirq} }}'
+    interval: '{{interval|30}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_7layer_basic-slb_7layer_check_cpu_proc_stat_5s_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|$_softirq>85}}'
+        level: 1
+        times: '{{p1_times|1}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+#-   enable: true
+#    name: ApsaraStack-slb_7layer_basic-netcard_uasge_send
+#    subject: '{{subject|发方向网卡使用率达到${_tx_rate} }}'
+#    interval: '{{interval|60}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_7layer_basic-slb_7layer_nic_traffic_voice_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p4_expressin|$_tx_rate>75}}'
+#        level: 4
+#        times: '{{p4_times|3}}'
+#    -   expression: '{{p1_expressin|$_tx_rate>85}}'
+#        level: 1
+#        times: '{{p1_times|3}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 4
+#            contactGroups:
+#            - '#ClusterOwner'
+#        -   level: 1
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+#-   enable: true
+#    name: ApsaraStack-slb_7layer_basic-netcard_usage_recv
+#    subject: '{{subject|收方向网卡使用率达到${_rx_rate} }}'
+#    interval: '{{interval|60}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_7layer_basic-slb_7layer_nic_traffic_voice_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p4_expressin|$_rx_rate>75}}'
+#        level: 4
+#        times: '{{p4_times|3}}'
+#    -   expression: '{{p1_expressin|$_rx_rate>85}}'
+#        level: 1
+#        times: '{{p1_times|3}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 4
+#            contactGroups:
+#            - '#ClusterOwner'
+#        -   level: 1
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+-   enable: true
+    name: ApsaraStack-slb_7layer_basic-coredump
+    subject: '{{subject|sysctl:${_sysctl} dir_attr:${_dir_attr} corefile:${_corefile} }}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_7layer_basic-slb_7layer_coredump_cluster_serverrole
+    metric_type: metric
+    escalations:
+    -   expression: '{{p1_expressin|!string.contains($_sysctl,''OK'')||!string.contains($_dir_attr,''OK'')||!string.contains($_corefile,''OK'')}}'
+        level: 1
+        times: '{{p1_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 1
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+
+-   enable: true
+    name: ApsaraStack-slb_7layer_basic-slb_hotconf_conf_monitor
+    subject: '{{subject|配置不一致项目数为${_failcount} }}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_7layer_basic-slb_hotconf_conf_monitor
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|${_failcount}>0}}'
+        level: 4
+        times: '{{p4_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+
+
+-   enable: true
+    name: ApsaraStack-slb_7layer_basic-slb_dyups_sync_error
+    subject: '{{subject|配置不一致项目数为${_failcount} }}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_7layer_basic-slb_dyups_sync_error
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin|${_failcount} > 0}}'
+        level: 4
+        times: '{{p4_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+
+-   enable: true
+    name: ApsaraStack-slb_7layer_basic-slb_proxy_check_dyups_max_queue
+    subject: '{{配置不一致的项目数为${_failcount}}}'
+    interval: '{{interval|60}}'
+    silence: '{{silence|86400}}'
+    metric: ApsaraStack-slb_7layer_basic-slb_proxy_check_dyups_max_queue 
+    metric_type: metric
+    escalations:
+    -   expression: '{{p4_expressin| ${_failcount}>=1 }}'
+        level: 4
+        times: '{{p4_times|3}}'
+    actions:
+        effective: '{{effective|* * * * * ?}}'
+        silence: '{{silence|86400}}'
+        alertActions:
+        -   level: 4
+            contactGroups:
+            - '#ClusterOwner'
+        ok:
+            contactGroups:
+            - '#ClusterOwner'
+        failure:
+            contactGroups:
+            - '#ClusterOwner'
+    dimensions:
+    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+
+#-   enable: true
+#    name: ApsaraStack-slb_proxy_basic-num_of_worker_too_many
+#    subject: '{{subject|nginx worker进程数是cpu核数的${_rate}倍，可能是shutingdown进程多也可能是nginx进程reload了}}'
+#    interval: '{{interval|120}}'
+#    silence: '{{silence|86400}}'
+#    metric: ApsaraStack-slb_proxy_basic-get_nginx_worker_cpu_cluster_serverrole
+#    metric_type: metric
+#    escalations:
+#    -   expression: '{{p4_expressin|$_rate>4}}'
+#        level: 4
+#        times: '{{p4_times|3}}'
+#    -   expression: '{{p1_expressin|$_rate>=5}}'
+#        level: 1
+#        times: '{{p1_times|3}}'
+#    actions:
+#        effective: '{{effective|* * * * * ?}}'
+#        silence: '{{silence|86400}}'
+#        alertActions:
+#        -   level: 4
+#            contactGroups:
+#            - '#ClusterOwner'
+#        -   level: 1
+#            contactGroups:
+#            - '#ClusterOwner'
+#        ok:
+#            contactGroups:
+#            - '#ClusterOwner'
+#        failure:
+#            contactGroups:
+#            - '#ClusterOwner'
+#    dimensions:
+#    - '{ {{dimensions|"cluster":"$$CLUSTER$$", "serverrole":"slb-proxy.SlbProxy#"}} }'
+
+site_monitors: []
+groups: []
+contacts: []
+dbsources: []
+dbmetrics: []

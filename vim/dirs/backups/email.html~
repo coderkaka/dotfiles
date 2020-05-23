@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="content-type" content="text/html;charset=utf-8">
+    <style>
+        table, td, th {
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        th, td {
+            padding: 15px;
+        }
+
+        .danger {
+            color: red;
+        }
+
+        .success {
+            color: green;
+            text-indent: 20px;
+        }
+
+        .outline {
+            margin-left: 20px;
+            width: 80%;
+        }
+    </style>
+</head>
+<body>
+<h2>SLB 7layer dstat巡检</h2>
+<h3>巡检信息汇总</h3>
+<table class=outline>
+    <tr>
+        <th>公有云</th>
+		<th>proxy: 巡检集群数量: {{data.statics.public.cluster_num}}, 总节点数: {{data.statics.public.proxy.node_num}}, 
+                   异常节点数: {{data.statics.public.proxy.except_node_num}}</th>
+        <th>keyserver: 巡检集群数量: {{data.statics.public.cluster_num}}, 总节点数: {{data.statics.public.keyserver.node_num}}, 
+                   异常节点数: {{data.statics.public.keyserver.except_node_num}}</th>
+    </tr>
+    <tr>
+        <th>专有域</th>
+        <th>proxy: 巡检集群数量: {{data.statics.zyy.cluster_num}}, 总节点数: {{data.statics.zyy.proxy.node_num}},
+                    异常节点数: {{data.statics.zyy.proxy.except_node_num}}</th>
+        <th>keyserver: 巡检集群数量: {{data.statics.zyy.cluster_num}}, 总节点数: {{data.statics.zyy.keyserver.node_num}},
+                    异常节点数: {{data.statics.zyy.keyserver.except_node_num}}</th>
+    </tr>
+</table>
+{% if not data.public_list and not data.zyy_list %}
+<p class=success>恭喜, 巡检无异常</p>
+{% else %}
+<table>
+	<H3>公有云</H3>
+	{% if data.public_list %}
+	<table>
+        <thead>
+        <tr>
+            <th>集群名称</th>
+            <th>角色</th>
+            <th>IP地址</th>
+            <th>异常原因</th>
+            <th>重启次数</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for data in data.public_list %}
+        <tr>
+            <td>{{ data.cluster }}</td>
+            <td>{{ data.role }}</td>
+            <td>{{ data.host_ip }}</td>
+            <td class=danger>{{ data.description }}</td>
+			      <td>{{ data.restart_times }}</td>
+        </tr>
+        {% endfor %}
+	    </tbody>
+	</table>
+	{% else %}
+		<p class=success>恭喜，公有云无异常</p>
+	{% endif %}
+
+	<H3>专有域</H3>
+	{% if data.zyy_list %}	
+	<table>
+	    <thead>
+            <tr>
+                <th>集群名称</th>
+                <th>角色</th>
+                <th>IP地址</th>
+                <th>异常原因</th>
+                <th>重启次数</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for data in data.zyy_list %}
+            <tr>
+                <td>{{ data.cluster }}</td>
+                <td>{{ data.role }}</td>
+                <td>{{ data.host_ip }}</td>
+                <td class=danger>{{ data.reason }}</td>
+			    <td>{{ data.restart_times }}</td>
+            </tr>
+	        {% endfor %}
+        </tbody>
+	</table>
+	{% else %}
+		<p class=success>恭喜，专有域无异常</p>
+	{% endif %}
+</table>
+{% endif %}
+</body>
+</html>

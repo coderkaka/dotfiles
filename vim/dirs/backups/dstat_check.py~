@@ -1,0 +1,74 @@
+#!/home/tops/bin/python
+# -*- coding: utf-8 -*-
+import os
+import sys
+import json
+from slb_patrol import *
+from slb_notice import *
+
+public_list = []
+zyy_list = []
+
+def format_data(cluster_type, cluster, role, result_list):
+    global public_list
+    global zyy_list
+
+    except_count = 0
+
+    for result in result_list:
+        flag = 0
+        data = {}
+        data["cluster"]  = cluster
+        data["host_ip"]  = result['host_ip']
+        data["role"]     = role
+
+        if result['ret'] == 0 and result['out'].strip():
+            data["description"]    = 'slb-dstat-monitor被自动重启，请登陆到该机器排查重启原因,日志备份文件是/tmp/dstat.restart.xxx（xxx是重启时间）'
+            data["restart_times"]   =  2-int(result['out'].strip())
+
+            if cluster_type == 'public':
+                public_list.append(data)
+            else:
+                zyy_list.append(data)
+            except_count += 1
+
+    return except_count
+    
+
+def dstat_check(cluster_type, role):
+    cmd = "cat /tmp/dstat.restart"
+
+    node_num = 0
+    except_node_sum = 0
+    cluster_list = get_cluster_list(cluster_type)
+    for cluster in cluster_list:
+        ip_list = get_online_host_list(cluster, role)
+        node_num += len(ip_list)
+        result_list = batch_ssh(ip_list, cmd)
+        except_node_sum += format_data(cluster_type, cluster, role, result_list)
+
+    set_global_statics(cluster_type, role, (len(cluster_list), node_num, except_node_sum))
+
+def result_handle():
+    global public_list
+    global zyy_list
+
+    if not public_list and not zyy_list:
+        message = {}
+        print json.dumps(message)
+        return
+
+    message = {
+        "vnet_mail_content": html_render('email.html', public_list, zyy_list),
+    }
+    print json.dumps(message)
+    #print html_render('email.html', public_list, zyy_list)
+
+if __name__ == '__main__':
+
+    dstat_check('public', 'proxy')
+    dstat_check('public', 'keyserver')
+    dstat_check('zyy', 'proxy')
+    dstat_check('zyy', 'keyserver')
+
+    result_handle()

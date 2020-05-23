@@ -1,0 +1,416 @@
+Name: slb
+BaseLineVersion: 3.0.release
+
+UpgradeDependencies: # 依赖产品的名称与版本
+  - Name: middleWareAll  # 产品名
+    Version: v3.0.0r     # 兼容依赖的最小版本
+  - Name: baseServiceAll
+    Version: v3.3.0r
+  - Name: ram
+    Version: v3.0.0r
+  - Name: webappAll    #pop
+    Version: v3.3.0r
+  - Name: tianji
+    Version: v3.3.0r
+
+
+Services:
+  - Name: slb-lvs
+    Branch: v3.6xR
+  - Name: slb-proxy
+    Branch: v3.6xR
+  - Name: slb-keyserver
+    Branch: v3.6xR
+  - Name: slb-controller
+    Branch: v3.6xR
+  - Name: slb-yaochi
+    Branch: v3.6xR
+  - Name: slb-monitor
+    Branch: v3.6xR
+  - Name: hids-client
+    Branch: v3.6xR
+  - Name: slb-ops-api
+    Branch: v3.6xR
+Features:
+  - Name: slb
+    Description: SLB基础组件包
+    SupportDisasterRecovery: true
+    DeploymentRegion: all
+    ClusterTypes:
+      - slbCluster
+    CapacityModel:
+        Spec:
+          - Name: lvs_giga_bps
+            DisplayName: 流量（Gbps）
+            DisplayTips: lvs组件。整集群支持1000万连接数，单机支持10Gbps流量，集群最大流量请使用 (集群机器数量-1)*单机性能指标
+            DisplayType: number
+          - Name: http_qps
+            DisplayName: HTTP的QPS
+            DisplayTips: proxy组件。单台支持3万HTTP QPS，集群性能请使用 (集群机器数量-1)*单机性能指标，HTTPS QPS服务能力视后端keyserver机器数量
+            DisplayType: number
+          - Name: https_qps
+            DisplayName: HTTPS的QPS
+            DisplayTips: keyserver组件。单机支持3500 QPS HTTPS证书卸载（Offload），集群性能请使用 (集群机器数量-1)*单机性能指标
+            DisplayType: number
+        CountScripts:
+          - ScriptPath: calculate_lvs_nc_count.py
+          - ScriptPath: calculate_proxy_nc_count.py
+          - ScriptPath: calculate_keyserver_nc_count.py
+
+  - Name: slb-yaochi
+    Description: SLB瑶池服务
+    SupportDisasterRecovery: true
+    DeploymentRegion: center
+    ClusterMetaNeedSync: true
+    ClusterTypes:
+      - slb_yaochi_Cluster
+
+  - Name: slb-yaochi-region
+    Description: SLB瑶池单元服务
+    SupportDisasterRecovery: true
+    DeploymentRegion: general
+    ClusterTypes:
+      - slb_yaochi_region_Cluster
+
+ClusterTypes:
+  - Name: slb_yaochi_Cluster
+    Services:
+      - Name: slb-yaochi
+        TianjiMonTemplateName: base-template
+    ServerRoleGroups:
+      - Name: SlbYaochiServices
+        RoleType: Controller
+        Count: 2
+        MachineTypes:
+          - MachineType: VM
+            OS: AliOS5U7-x86-64
+            Template: bigdata
+        ServerRoles:
+          - ServiceName: slb-yaochi
+            ServerRoleName: SlbabsServiceAliyunCom
+          - ServiceName: slb-yaochi
+            ServerRoleName: SlbService
+  - Name: slb_yaochi_region_Cluster
+    Services:
+      - Name: slb-yaochi
+  - Name: slbCluster
+    ClusterConfig:
+        ClusterFlags:
+            CLUSTER_TYPE: NETFRAME
+    Services:
+      - Name: slb-lvs
+        TianjiMonTemplateName: sub-template
+      - Name: slb-proxy
+        TianjiMonTemplateName: base-template
+      - Name: slb-keyserver
+        TianjiMonTemplateName: base-template
+      - Name: slb-controller
+      - Name: slb-monitor
+      - Name: hids-client
+      - Name: slb-ops-api
+    UtilServerRoles:
+      - ServiceName: hids-client
+        ServerRoleName: HidsClient
+        RoleTypeScope: Worker
+    ServerRoleGroups:
+      - Name: SlbLvs
+        RoleType: Worker
+        Count: 2
+        Scalable: true
+        Description: SLB LVS节点
+        MachineTypes:
+          - MachineType: Q46.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: Q46.2C
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W2.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W2.2C
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W1.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W1.2C
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W32.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W32.2C
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W41.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W41.2C
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W31.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W31.2C
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: Q5N1.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: Q5N1.2C
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W41.4P
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+        NetDevices:
+          - DeviceType: LSW
+            Count: 2
+            Description: lvs上联lsw交换机
+        ServerRoles:
+          - ServiceName: slb-lvs
+            ServerRoleName: SlbLvs
+        BusinessNICInfo:
+          - MachineType: '*.4P'
+            NICInfos:
+              - Name: eth4
+                Speed: 40000
+                PortIndex: 1
+                RemoteSwitch: LSW
+                RemoteIndex: 1
+                Usage: BGP
+              - Name: eth5
+                Speed: 40000
+                PortIndex: 2
+                RemoteSwitch: LSW
+                RemoteIndex: 2
+                Usage: BGP
+              - Name: eth6
+                Speed: 40000
+                PortIndex: 3
+                RemoteSwitch: LSW
+                RemoteIndex: 1
+                Usage: BGP
+              - Name: eth7
+                Speed: 40000
+                PortIndex: 4
+                RemoteSwitch: LSW
+                RemoteIndex: 2
+                Usage: BGP
+          - MachineType: '*.2B'
+            NICInfos:
+              - Name: T1
+                Speed: 10000
+                PortIndex: 1
+                RemoteSwitch: LSW
+                RemoteIndex: 1
+                Usage: OSPF
+              - Name: T2
+                Speed: 10000
+                PortIndex: 2
+                RemoteSwitch: LSW
+                RemoteIndex: 2
+                Usage: OSPF
+          - MachineType: '*.2C'
+            NICInfos:
+              - Name: T1
+                Speed: 10000
+                PortIndex: 1
+                RemoteSwitch: LSW
+                RemoteIndex: 1
+                Usage: OSPF
+              - Name: T2
+                Speed: 10000
+                PortIndex: 2
+                RemoteSwitch: LSW
+                RemoteIndex: 2
+                Usage: OSPF
+
+      - Name: SlbProxy#
+        RoleType: Worker
+        Count: 2
+        Scalable: true
+        Description: SLB Proxy节点
+        MachineTypes:
+          - MachineType: Q46.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: Q46.2C
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W2.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W2.2C
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W1.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W1.2C
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W32.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W32.2C
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W41.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W41.2C
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W31.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W31.2C
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W41.4M
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: Q5N1.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: Q5N1.2C
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+        NetDevices:
+          - DeviceType: LSW
+            Count: 2
+            Description: proxy上联lsw交换机
+        ServerRoles:
+          - ServiceName: slb-proxy
+            ServerRoleName: SlbProxy#
+        BusinessNICInfo:
+          - MachineType: '*.4M'
+            NICInfos:
+              - Name: eth4
+                Speed: 40000
+                PortIndex: 1
+                RemoteSwitch: LSW
+                RemoteIndex: 1
+                Usage: BGP
+              - Name: eth5
+                Speed: 40000
+                PortIndex: 2
+                RemoteSwitch: LSW
+                RemoteIndex: 2
+                Usage: BGP
+          - MachineType: '*.2B'
+            NICInfos:
+              - Name: T1
+                Speed: 10000
+                PortIndex: 1
+                RemoteSwitch: LSW
+                RemoteIndex: 1
+                Usage: OSPF
+              - Name: T2
+                Speed: 10000
+                PortIndex: 2
+                RemoteSwitch: LSW
+                RemoteIndex: 2
+                Usage: OSPF
+          - MachineType: '*.2C'
+            NICInfos:
+              - Name: T1
+                Speed: 10000
+                PortIndex: 1
+                RemoteSwitch: LSW
+                RemoteIndex: 1
+                Usage: OSPF
+              - Name: T2
+                Speed: 10000
+                PortIndex: 2
+                RemoteSwitch: LSW
+                RemoteIndex: 2
+                Usage: OSPF
+
+      - Name: SlbKeyserver#
+        RoleType: Worker
+        Count: 2
+        Scalable: true
+        Description: SLB的keyserver，提供HTTPS证书卸载（Offload）服务
+        MachineTypes:
+          - MachineType: Q46.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W2.12
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: B2.12
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W2.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W1.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W32.22
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W32.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W1.12
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W41.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: W31.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: Q5N1.2B
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+          - MachineType: Q5N1.2C
+            OS: AliOS7U2-x86-64
+            Template: slb_server_7u
+
+        ServerRoles:
+          - ServiceName: slb-keyserver
+            ServerRoleName: SlbKeyserver#
+      - Name: SlbControllerGroupOfCount2
+        RoleType: Controller
+        Count: 2
+        MachineTypes:
+          - MachineType: VM
+            OS: AliOS5U7-x86-64
+            Template: bigdata
+        ServerRoles:
+          - ServiceName: slb-controller
+            ServerRoleName: SlbControlMaster
+          - ServiceName: slb-controller
+            ServerRoleName: SlbMonitorMaster
+          - ServiceName: slb-controller
+            ServerRoleName: SlbApi
+          - ServiceName: slb-ops-api
+            ServerRoleName: SlbOpsApi
+      - Name: SlbControllerGroupOfCount1
+        RoleType: Controller
+        Count: 1
+        MachineTypes:
+          - MachineType: VM
+            OS: AliOS5U7-x86-64
+            Template: bigdata
+        ServerRoles:
+          - ServiceName: slb-controller
+            ServerRoleName: SlbAg
+          - ServiceName: slb-controller
+            ServerRoleName: ServiceTest
+          - ServiceName: slb-keyserver
+            ServerRoleName: ServiceTest
+          - ServiceName: slb-lvs
+            ServerRoleName: ServiceTest
+          - ServiceName: slb-proxy
+            ServerRoleName: ServiceTest
+          - ServiceName: slb-monitor
+            ServerRoleName: SlbMonitorOms
+          - ServiceName: slb-monitor
+            ServerRoleName: SlbMonitorCms
+

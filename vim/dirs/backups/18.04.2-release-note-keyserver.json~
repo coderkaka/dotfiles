@@ -1,0 +1,89 @@
+{
+    "main_version":"17.04.2",
+        "compnent_list": [
+        {
+            "role":"Keyserver",
+            "rpm_version_list":[
+            {
+                "rpm": "ali-sls-ilogtail",
+                "version": "1.0.0-1.alios7.aarch64"
+            },
+            {
+                "rpm": "python-simplejson",
+                "version": "3.3.3-1.alios7.aarch64"
+            },
+            {
+                "rpm": "slb-common",
+                "version": "3.5.3-993670.alios7.noarch"
+            },
+            {
+                "rpm": "slb-syslog-logconfig-keyserver",
+                "version": "17.12.0-20191203155904.alios7.aarch64"
+            },
+            {
+                "rpm": "taobao-cronolog",
+                "version": "1.6.2-15.alios7.aarch64"
+            },
+            {
+                "rpm":"slb-vtoa-ali41948",
+                "version":"1.0.2-1.alios7.aarch64"
+            },
+            {
+                "rpm": "slb-sensor-sysmetrics",
+                "version": "0.0.2-991398.noarch"
+            },
+            {
+                "rpm": "slb-dstat-7layer",
+                "version": "1.0.0-20190307161030.alios7.aarch64"
+            },
+            {
+                "rpm":"slb-cert-central-agent",
+                "version":"18.04.3-20191127205914.alios7.aarch64"
+            },
+            {
+                "rpm":"t-coresystem-tengine-jushita",
+                "version":"2.1.1-20190924142250.el7u2.aarch64"
+            },
+            {
+                "rpm":"slb-role-keyserver",
+				"version":"17.12.0-20190925144559.alios7.aarch64"
+            },
+            {
+                "rpm": "tsar",
+                "version": "2.1.13-1000140.49ccc9d.el7.aarch64"
+            },
+            {
+                "rpm": "slb_clean_disk",
+				"version": "16.12.2-20190919111735.alios7.aarch64"
+            },
+            {
+                "rpm":"slb-drop-logcache",
+                "version":"0.0.5-20190311114813.alios7.aarch64"
+            },
+            {
+                "rpm":"tops-pythonbase27",
+                "version":"1.0.3-5.alios7.aarch64"
+            },
+            {
+                "rpm":"MySQL-python",
+                "version":"1.2.3-11.3.alios7.aarch64"
+            }
+            ]
+        }
+    ],
+    "change_list": [
+      "keyserver标准化",
+      "keyserver rpm包合成一个大包",
+      "v17.04.1 https://workitem.aone.alibaba-inc.com/project/592680/sprint/detail?sprintId=47972",
+      "v17.04.2 适配新容灾版本,另外修复了运维中tsar的remove失败的代码",
+      "v17.12.0 keyserver agent重构",
+      "v17.12.1 keyserver agent重构将1712.0的pull key改为agent push key到tengine",
+      "v17.12.2 keyserver agent使用的sql会漏掉一些私钥,进行修复使用新的sql,tengine中增加nokey时打印digest",
+      "v18.04.0 keyserver agent & tengine 1. 修改优化后的拉取私钥sql语句 2. 增加ecdsa私钥支持 3. 去掉rsa python中解析部分，改为推入到tengine中判断正确性并返回digest 4. https优化增加proxy.conf日志输出ssl握手阶段信息 5. agent第一次启动时拉全量私钥代码逻辑修改 6. tls1.3 support",
+      "v18.04.1 keyserver agent 1.keyserver agent重启机器自启动 2.python mysql_connect read_timeout and write_timeout",
+      "v18.04.2 keyserver agent 1.调整私钥拉取SQL以支持自定义header转发 2.调整keyless_keepalive_requests值，规避proxy和keyserver长连接偶发请求失败"
+    ],
+    "bugfix" : [
+      ""
+    ]
+}

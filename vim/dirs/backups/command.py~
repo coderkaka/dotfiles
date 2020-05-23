@@ -1,0 +1,59 @@
+import commands
+import hashlib
+import logging
+import os
+import log
+
+init_log = log.LOG(logging.DEBUG, '/var/log/proxy_deploy.log')
+logger = init_log.getlogger('proxy_deploy.log')
+
+
+def exec_local_cmd(cmd, log_detail=1):
+    ret = commands.getstatusoutput(cmd)
+    if log_detail == 1:
+        logger.debug("exec cmd: %s, ret: %d, info: %s" % (cmd, ret[0], ret[1]))
+    else:
+        logger.debug("exec cmd: %s, ret: %d" % (cmd, ret[0]))
+    return ret[0], ret[1]
+
+def calc_md5(filepath):
+    with open(filepath, 'rb') as f:
+        md5obj = hashlib.md5()
+        md5obj.update(f.read())
+        return md5obj.hexdigest()
+
+
+def is_40gbe_node():
+    ret, out = exec_local_cmd("lspci|grep 40GbE")
+    return (ret == 0)
+
+<<<<<<< HEAD
+def get_router_prog():
+    if is_40gbe_node():
+        return 'bgpd'
+    return 'ospfd'
+
+def stop_service(service):
+    if os.path.isfile('/home/slb/init.d/%s' % service):
+        ret, out = exec_local_cmd("sudo /home/slb/init.d/%s stop" % service)
+    else:
+        ret, out = exec_local_cmd("sudo service %s stop" % (service))
+
+    return ret
+
+def start_service(service):
+    if os.path.isfile('/home/slb/init.d/%s' % service):
+        ret, out = exec_local_cmd("sudo /home/slb/init.d/%s start" % service)
+    else:
+        ret, out = exec_local_cmd("sudo service %s start" % (service))
+
+    return ret
+=======
+
+def protocol_is_bgp():
+    ret, out = exec_local_cmd("grep network_type  /etc/salt/grains |awk '{print $NF}'")
+    ret, out1 = exec_local_cmd("grep protocol_type /etc/salt/grains |awk '{print $NF}'")
+    if out.strip() == "FortyGigabit" or out.strip() == "FortyGigabit-w4h" or out1.strip() == "bgp":
+        return True
+    return False
+>>>>>>> 1b5f0934... 10G BGP

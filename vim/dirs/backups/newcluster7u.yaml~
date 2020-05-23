@@ -1,0 +1,84 @@
+---
+region_no: slb-shanghai-test
+versionFrom: 3.5.1
+versionTo: 17.04.11
+opProfile: newcluster
+reboot: true
+cluster_name: slb-shanghai-test-a
+site_name: et2sqa
+
+clusterscale:
+  laddr_mask_lvs: 25
+  laddr_mask_proxy: 28
+  num_lvs: 2
+  num_proxy: 8
+  gwip_mask: 26
+  laddr_mask: 25
+
+subid:
+  add:
+    suA:
+    - 0
+    suB:
+    - 0
+    suC:
+    - aliyun_rds
+    - aliyun_ocs
+    - aliyun_drds
+    - aliyun_ads
+
+suinfo:
+  add:
+  - lvs_group: lvs_group_1
+    name: suA
+    proxy_pool: proxy_pool_1
+  - lvs_group: lvs_group_1
+    name: suB
+    proxy_pool: proxy_pool_1
+  - lvs_group: lvs_group_1
+    name: suC
+    proxy_pool: proxy_pool_1
+
+vipinfo:
+- site: et2sqa
+  sulist:
+  - suA
+  - suB
+  vips:
+    internet: 140.205.184.0/24
+    intranet: 10.189.104.0/22
+- site: et2sqa
+  sulist:
+  - suC
+  vips:
+    intranet: 10.218.75.0/24
+
+
+
+nodes: |
+  slbt-master1.et2sqa 		 	et2sqa	 master
+  slbt-master2.et2sqa 		 	et2sqa	 master
+  slbw16.et2sqa     et2sqa   LVS      lvs_group_1
+  slbw04.et2sqa     et2sqa   PROXY    proxy_pool_1
+
+
+database:
+  xuanyuan_host: slbet2sqaw1test.mysql.rdstest.tbsite.net
+  xuanyuan_port: 3306
+  xuanyuan_user: xuanyuan
+  xuanyuan_passwd: OqJ6lU4D7NMQQ
+  xuanyuan_db: xuanyuan
+  stats_host: slbet2sqaw1test.mysql.rdstest.tbsite.net
+  stats_port: 3306
+  stats_user: xuanyuan
+  stats_passwd: OqJ6lU4D7NMQQ
+  stats_db: slb_monitor_stats
+
+
+vrrp:
+  masterVIP: 10.101.175.201
+  redisVIP: 10.132.123.206
+  vrid_master: 241
+  vrid_redis: 242
+  vrrp_interface: bond0
+...

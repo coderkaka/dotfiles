@@ -1,0 +1,12 @@
+{
+  "name": "ginkgo-hello-world",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@ali/midway-faas": "3"
+  },
+  "devDependencies": {
+    "@ali/faas-invoke": "3",
+    "@types/mocha": "^7.0.1"
+  }
+}

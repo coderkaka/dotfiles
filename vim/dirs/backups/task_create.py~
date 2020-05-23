@@ -1,0 +1,1355 @@
+#!/home/tops/bin/python2.7
+# -*- coding: utf-8 -*-
+# __author__: caiya.lww@taobao.com
+
+import os, sys
+import pwd
+import pprint
+import json
+import yaml
+import math
+import time
+#import getpass
+sys.path.append('./scripts')
+import logging
+import argparse
+import tempfile
+import requests
+from cidrize import cidrize
+from netaddr import IPSet, IPNetwork, IPAddress, IPRange
+
+from StringIO import StringIO
+from utils import yaml_from_file, yamlParserError, run_cmd, ip2int, int2ip, net_sort, config_log, ssh_cmd
+from lib_cmdb_slb import LibCmdbSlb
+from slb_cluster import SlbCluster, Master, KeyServer, TmdServer
+
+
+logger = logging.getLogger('cmdb.task.create')
+requests_log = logging.getLogger("requests.packages.urllib3")
+requests_log.setLevel(logging.CRITICAL)
+
+opProfiles = "addnode delnode upgrade rollback backupsite unbackupsite vipless vipclean bidadm newcluster newsu".split()
+
+"""
+#TODO
+# 7. 测试多 lg/pp 多 LSW 情况
+"""
+
+
+slbroles = "master lvs proxy slbapi tmdserver keyserver".split()
+
+
+class Node(object):
+    def __init__(self, c):
+        self.info = c
+        self.out_keys = "hostname role_name bond0_ip bond0_gateway site_name"
+        #self.out_keys = "hostname role_name bond0_ip sn"
+
+    def info_out(self):
+        return dict((k, self.info.get(k)) for k in self.out_keys.split())
+
+    def all_out(self):
+        return self.__dict__
+
+
+class ProxyNodeOspf(Node):
+    def __init__(self, c):
+        self.info = c
+        self.out_keys = " hostname bond0_ip bond0_gateway role_name ospf_auth area_type hello_interval dead_interval " \
+                        " site_name proxy_pool network_type " \
+                        " area_id dummy0_ip dummy0_netmask " \
+                        " laddr_netmask laddr_network laddr_prefix laddr_ip_hc " \
+                        " t1_ip t1_netmask t1_network t1_gateway t1_prefix t1_lsw_hostname t1_port " \
+                        " t2_ip t2_netmask t2_network t2_gateway t2_prefix t2_lsw_hostname t2_port "
+
+
+class LvsNodeOspf(Node):
+    def __init__(self, c):
+        self.info = c
+        self.out_keys = " hostname bond0_ip bond0_gateway role_name ospf_auth area_type hello_interval dead_interval " \
+                        " site_name lvs_group network_type " \
+                        " area_id dummy0_ip dummy0_netmask laddr_ip_hc " \
+                        " laddr_netmask laddr_network laddr_prefix " \
+                        " t1_ip t1_netmask t1_network t1_gateway t1_prefix t1_lsw_hostname t1_port " \
+                        " t2_ip t2_netmask t2_network t2_gateway t2_prefix t2_lsw_hostname t2_port "
+
+
+class ProxyNodeBgp(Node):
+    def __init__(self, c):
+        self.info = c
+        self.out_keys = " hostname bond0_ip bond0_gateway role_name bgp_auth community mgt_ip " \
+                        " site_name  proxy_pool remote_as local_as network_type " \
+                        " laddr_netmask laddr_network laddr_prefix " \
+                        " eth4_ip eth4_netmask eth4_network eth4_gateway eth4_prefix eth4_lsw_hostname eth4_port " \
+                        " eth5_ip eth5_netmask eth5_network eth5_gateway eth5_prefix eth5_lsw_hostname eth5_port " \
+                        " eth6_ip eth6_netmask eth6_network eth6_gateway eth6_prefix eth6_lsw_hostname eth6_port " \
+                        " eth7_ip eth7_netmask eth7_network eth7_gateway eth7_prefix eth7_lsw_hostname eth7_port " 
+
+
+class LvsNodeBgp(Node):
+    def __init__(self, c):
+        self.info = c
+        self.out_keys = " hostname bond0_ip bond0_gateway role_name bgp_auth community mgt_ip " \
+                        " site_name  lvs_group remote_as local_as network_type " \
+                        " laddr_netmask laddr_network laddr_prefix " \
+                        " eth4_ip eth4_netmask eth4_network eth4_gateway eth4_prefix eth4_lsw_hostname eth4_port " \
+                        " eth5_ip eth5_netmask eth5_network eth5_gateway eth5_prefix eth5_lsw_hostname eth5_port " \
+                        " eth6_ip eth6_netmask eth6_network eth6_gateway eth6_prefix eth6_lsw_hostname eth6_port " \
+                        " eth7_ip eth7_netmask eth7_network eth7_gateway eth7_prefix eth7_lsw_hostname eth7_port " 
+
+
+def _apply_loopback(resource, assigned, num, mask=32):
+    net_all = IPSet()
+    for r in resource:
+        if '-' not in r:
+            net_all.add(IPNetwork(r))
+            continue
+        first, _tail = r.split('-')
+        last = "%s.%s" % (".".join(first.split(".")[:3]), _tail)
+        net_all.add(IPRange(first, last))
+    net_used = IPSet(assigned)
+    net_avail = net_all - net_used
+    pool = list()
+    for n in net_avail.iter_cidrs():
+        if len(pool) >= num:
+            break
+        pool.extend(split_network(str(n), mask))
+    if len(pool) < num:
+        raise Exception("not enough loopbackip for %s*/%s" % (num, mask))
+    return pool[:num]
+
+
+def split_network(network, prefix=26):
+    networks = []
+    for n in cidrize(network):
+        for sn in n.subnet(prefixlen=prefix):
+            networks.append(str(sn))
+    return networks
+
+
+def _del___get_bond0_gateway(hn):
+    bond0_gateway = None
+    try:
+        retcode, output = ssh_cmd(hn, 'grep -E "IPADDR|NETMASK" /etc/sysconfig/network-scripts/ifcfg-bond0"')
+        if retcode != 0:
+            return None
+        tmpfile = tempfile.mktemp(prefix=".__.%s_bond_gw" % (hn, ))
+        with open(tmpfile, 'w') as fd:
+            fd.write(output)
+        r1, _ip = run_cmd('awk -F"=" "\$1 ~ /^IPADDR/ {print \$2}"')
+        r2, _mask = run_cmd('awk -F"=" "\$1 ~ /^NETMASK/ {print \$2}"')
+        if (r1 + r2) > 0:
+            return None
+        bnet = IPNetwork("%s/%s" % (_ip.strip(), _mask.strip()))
+        bond0_gateway = ".".join(str(bnet.broadcast).split('.')[:3]) + ".247"
+        return bond0_gateway
+    except:
+        return None
+
+
+def _del___get_bond0_gateway(hn):
+    bond0_gateway = None
+    try:
+        retcode, output = ssh_cmd(hn, "sudo /sbin/ip ro | grep -v 'scope link' | grep -m1 'dev bond0'")
+        if retcode != 0:
+            return None
+        tmpfile = tempfile.mktemp(prefix="/tmp/.__.%s_bond_gw." % (hn, ))
+        with open(tmpfile, 'w') as fd:
+            fd.write(output)
+        retcode, output = run_cmd('/bin/awk "\$0 ~ /via.*bond0/{print \$3}" %s' % (tmpfile, ))
+        if retcode == 0:
+            bond0_gateway = output.strip()
+        os.unlink(tmpfile)
+    except Exception as e:
+        print str(e)
+        pass
+    return bond0_gateway
+
+
+def _gen_ospfGE(k, o):
+    r = _gen_GE_eth(k, o)
+    r['%s_areaid'%k] = o['area']
+    return r
+
+
+def _gen_bgpGE(k, o):
+    r = _gen_GE_eth(k, o)
+    r['%s_remoteas'%k] = o['remoteas']
+    return r
+
+
+def _gen_GE_eth(k, o):
+    r = dict()
+    r['%s_port'%k] = o['remoteport']
+    r['%s_lsw_hostname'%k] = o['remoteswitch']
+    x = cidrize(o['remoteip'])[0]
+    r['%s_ip'%k] = int2ip(x.first + 2)
+    r['%s_gateway'%k] = int2ip(x.first + 1)
+    r['%s_network'%k] = str(x.network)
+    r['%s_netmask'%k] = str(x.netmask)
+    r['%s_prefix'%k] = str(x.prefixlen)
+    return r
+
+
+def get_netcf_by_sn(sn, netcf, servercf, hostname):
+    """
+    @return
+    """
+    netcf_by_sn = dict()
+    if sn not in servercf:
+        raise Exception('sn(%s) of host(%s) not found in NetResource files:\n---\n%s\n---' % (sn, hostname, servercf))
+    _cf_server = servercf[sn]
+    protocol = _cf_server['protocol']
+    rawconf = _cf_server['rawconf']
+    index = _cf_server['index']
+    if rawconf not in netcf:
+        raise Exception('BUG: "%s" not in netcf' % rawconf)
+
+    netcf_by_sn['protocol'] = protocol
+    cf_in_yaml = netcf[rawconf]['servers'][index]
+    if cf_in_yaml['sn'] != sn:
+        raise Exception("BUG: %s['servers'][%s]['sn']{%s} != nodes['sn']{%s}" % (rawconf, index, cf_in_yaml['sn'], sn))
+    netcf_by_sn.update(cf_in_yaml)
+    netcf_by_sn['raw'] = netcf[rawconf]
+    return netcf_by_sn
+
+
+def get_hostinfo(nodes, armory_host, armory_user):
+    """
+    @params: ['nodename1', 'n2', ...]
+    @return
+    {'nodename1': {'dns_ip': x, 'site':, 'sn':}, ...}
+    """
+    if not nodes:
+        return {}
+    keys = "nodename sn dns_ip site".split()
+    retries = 3
+    ret = 0
+    for i in range(retries):
+        cmd = '/usr/local/bin/armory -n %s --fields %s -l' % (" ".join(nodes), ",".join(keys))
+        retcode, output = run_cmd(cmd)
+        if retcode == 0:
+            break
+        ret += retcode
+    logger.debug('get_hostinfo: %s\n%s' % (cmd, output))
+    if ret != 0:
+        raise Exception('armory failed')
+
+    hostinfo = {}
+    for x in output.split('\n'):
+        x.strip()
+        if not x:
+            continue
+        fields = x.split(',')
+        _info = dict()
+        for i, k in enumerate(keys):
+            try:
+                _info[k] = fields[i]
+            except IndexError:
+                msg = "bad armory result: key(%s), index(%s)\n#line: %s\n# armory-result:\n%s" % (k, i, x, output)
+                print msg
+                logger.error(msg)
+                raise Exception(msg)
+            except Exception as e:
+                raise e
+        hostinfo[_info['nodename']] = _info
+
+    for n in nodes:
+        if not hostinfo.get(n):
+            msg = "no armory-info for node `%s`\n%s" % (n, output)
+            print msg
+            logger.error(msg)
+            raise Exception(msg)
+        bond0_gateway = _armory_get_bond0_gateway(armory_host, armory_user, hostinfo[n]['dns_ip'])
+        hostinfo[n]['bond0_gateway'] = bond0_gateway
+    return hostinfo
+
+
+def _armory_get_bond0_gateway(armory_host, armory_user, ip):
+    armory_t = "http://%(armory_host)s/page/api/free/ipInterface/ipMaskGateway.htm?ip=%(ip)s&_username=%(armory_user)s"
+    armory_url = armory_t % dict(armory_host=armory_host, armory_user=armory_user, ip=ip)
+    bond0_gateway = None
+    try:
+        r = requests.get(armory_url)
+        ainfo = r.json()['content']
+        bond0_gateway = ainfo['gateway']
+    except Exception as e:
+        print str(e)
+        logger.warning(str(e))
+    return bond0_gateway
+
+
+def get_min_lsw(lsws):
+    return sorted(lsws)[0]
+
+
+def _build_cluster_scale(ydata):
+    cscale = ydata.pop('clusterscale', {})
+    cscale.setdefault('laddr_mask_lvs', 25)
+    cscale.setdefault('laddr_mask_proxy', 28)
+    cscale.setdefault('num_lvs', 2)
+    cscale.setdefault('num_proxy', 2)
+    cscale.setdefault('gwip_mask', 26)
+    cscale.setdefault('laddr_mask', 25)
+    ydata['clusterscale'] = cscale
+    return cscale
+
+
+def _loopback2cmdb(loopbackips):
+    """
+    1.1.1.0
+    1.1.1.5-8
+    1.1.1.2/28
+    """
+    def _slash2range(n):
+        _head = str(IPAddress(n.first))
+        _tail = str(IPAddress(n.last)).split('.')[-1]
+        return "%s-%s" % (_head, _tail)
+
+    if not loopbackips:
+        return []
+    ips_ret = list()
+    for l in loopbackips:
+        if '/' in l:
+            n = IPNetwork(l)
+            if n.prefixlen < 24:
+                for i in n.subnet(24):
+                    ips_ret.append(_slash2range(i))
+            elif n.prefixlen == 32:
+                ips_ret.append(str(n.network))
+            else:
+                ips_ret.append(_slash2range(n))
+        else:
+            ips_ret.append(l)
+    return ips_ret
+
+
+def merge_inputs(raw, o):
+    ydata = raw.copy()
+    _build_cluster_scale(ydata)
+    if not o.netsrc:
+        return ydata
+    """@netcf
+    protocol_N:
+      [yaml_buffer]
+    """
+    """@servers
+    serverSN:
+        protocol: ospf
+        rawconf: ospf<N>
+        index:
+    """
+    resource = dict(gw_ip_resource=list(), loopback_resource=dict(), unused_laddr_resource=dict())
+    netcf = dict()
+    servers = dict()
+    gwip_mask = 26
+    laddr_mask = 24
+    if 'clusterscale' in ydata:
+        try:
+            gwip_mask = ydata['clusterscale']['gwip_mask']
+            laddr_mask = ydata['clusterscale']['laddr_mask']
+        except:
+            pass
+    for index, r in enumerate(o.netsrc):
+        rdata = yaml_from_file(r)
+        resource['gw_ip_resource'].extend(_split_net_resouce(gwip_mask, rdata['subnets'].get('gwip', [])))
+        lsws = rdata.get('switchmanagement', {}).keys()
+        if not lsws:
+            raise Exception('bad NetResource file(%s): switchmanagement.keys() is None' % r)
+        lsw = get_min_lsw(lsws)
+        # loopback_resource
+        if lsw not in resource['loopback_resource']:
+            resource['loopback_resource'][lsw] = list()
+        _loopbackips = _loopback2cmdb(rdata['subnets'].get('loopback', []))
+        resource['loopback_resource'][lsw].extend(_loopbackips)
+        # unused_laddr_resource
+        if lsw not in resource['unused_laddr_resource']:
+            resource['unused_laddr_resource'][lsw] = list()
+        resource['unused_laddr_resource'][lsw].extend(_split_net_resouce(laddr_mask, rdata['subnets'].get('localip', [])))
+        if not 'servers' in rdata:
+            continue
+        protocol = rdata['protocol']
+        rawconf = '%s_%s' % (protocol, index)
+        rdata['minlsw'] = lsw
+        netcf[rawconf] = rdata
+        for s_index, s in enumerate(rdata['servers']):
+            sn = s['sn']
+            servers[sn] = dict(protocol=protocol)
+            servers[sn]['rawconf'] = rawconf
+            servers[sn]['index'] = s_index
+    ydata['netcf'] = netcf
+    ydata['servers'] = servers
+    ydata['resource'] = resource
+    logger.debug("resource\n%s" % resource)
+    return ydata
+
+
+def _split_net_resouce(mask, r):
+    ret = list()
+    for x in r:
+        ret.extend(split_network(x, mask))
+    return ret
+
+
+def get_options(x):
+    parser = argparse.ArgumentParser("\tNOTE:\n")
+    parser.add_argument("-v", "--verbosity", action="count",
+                        help="increase output verbosity")
+    parser.add_argument("-n", "--dryrun", action="store_true",
+                        help="dry run")
+    parser.add_argument("-r", "--netsrc", action="append", help="NetResourt{Ospf,Bgp}.yaml")
+    parser.add_argument("--notask", action="store_true", default=False, help="don't create task")
+    parser.add_argument("--todir", help="write-able todir for cluster.json_data", default="/home/slb/changefree/cmdb.jsons/")
+    parser.add_argument("infile", help="cluster conf file")
+    opt = parser.parse_args(args=x)
+    """
+    if opt.verbosity >= 1:
+        print opt
+    """
+    return opt
+
+
+def cmdb_new_cluster(cmdb, region_no, cluster_name, ydata):
+    slbcluster = SlbCluster()
+    slbcluster.name = cluster_name
+    database = ydata['database']
+    vrrp = ydata['vrrp']
+    if slbcluster.master is None:
+        slbcluster.master = Master()
+    slbcluster.master.database = database
+    slbcluster.master.vrrp = vrrp
+    slbcluster.status = "init"
+    if 'resource' not in ydata:
+        raise Exception('no NetResources for newcluster')
+    for rs in "gw_ip_resource unused_laddr_resource loopback_resource".split():
+        if rs in ydata['resource']:
+            setattr(slbcluster, rs, ydata['resource'][rs])
+        else:
+            raise Exception('`%s` required for newcluster' % rs)
+    #pprint.pprint(slbcluster.to_json())
+    return slbcluster
+
+
+def _apply_addr(addr_type, resource, assigned, num, mask, nice=False):
+    net_all = IPSet(resource)
+    net_used = IPSet(assigned)
+    net_avail = net_all - net_used
+
+    pool = list()
+    for n in net_avail.iter_cidrs():
+        if len(pool) >= num:
+            break
+        pool.extend(split_network(str(n), mask))
+
+    if len(pool) < num:
+        if nice:
+            return pool, num-len(pool)
+        raise Exception("not enough addr_pool for %s: %s*{/%s}" % (addr_type, num, mask))
+    return pool[:num], 0
+
+
+def _get_max_min_syncid(syncids):
+    if not syncids:
+        return 100, 100
+    all_syncids = list()
+    for lsw, lswsyncids in syncids.iteritems():
+        all_syncids.extend(lswsyncids.get('sync_id', []))
+    max_sync_id = int(max(all_syncids))
+    min_sync_id = int(min(all_syncids))
+    return max_sync_id, min_sync_id
+
+
+def _get_lg_syncid(cdata, lg, g_max_syncid, g_min_syncid):
+    if lg in cdata.get('lvs_group', {}) and cdata['lvs_group'][lg].get('site_list'):
+        for site, lgsite in cdata['lvs_group'][lg]['site_list'].iteritems():
+            if 'sync_id' in lgsite:
+                return int(lgsite['sync_id']), g_max_syncid, g_min_syncid
+    lvs_syncid = g_max_syncid + 1
+    if lvs_syncid > 254:
+        lvs_syncid = g_min_syncid - 1
+        if lvs_syncid < 1:
+            raise Exception('syncid out of range, max: %s, min: %s' % (g_max_syncid, g_min_syncid))
+        g_min_syncid = lvs_syncid
+    else:
+        g_max_syncid = lvs_syncid
+    return lvs_syncid, g_max_syncid, g_min_syncid
+
+
+def cmdb_new_su(cs, ydata, cdata):
+    roles_nodes = ydata['roles_nodes']
+    lvs_groups = roles_nodes['lvs_groups']
+    proxy_pools = roles_nodes['proxy_pools']
+    ynodes = ydata['roles_nodes']['nodes']
+
+    scale_num_lvs = ydata['clusterscale']['num_lvs']
+    scale_num_proxy = ydata['clusterscale']['num_proxy']
+    scale_gwip_mask = ydata['clusterscale']['gwip_mask']
+    scale_laddr_mask = ydata['clusterscale']['laddr_mask']
+    scale_laddr_mask_lvs = ydata['clusterscale']['laddr_mask_lvs']
+    scale_laddr_mask_proxy = ydata['clusterscale']['laddr_mask_proxy']
+
+    # max_sync_id, min_sync_id
+    g_max_syncid, g_min_syncid = _get_max_min_syncid(cs.used_region_syncid)
+
+    lgs = sorted(lvs_groups.keys())
+    for lg in lgs:
+        # laddr
+        sn = ynodes['lvs'][lvs_groups[lg][0]]['sn']
+        lsw = get_node_minlsw(sn, ydata)
+        _laddr_resource = cs.unused_laddr_resource[lsw]
+        num_laddr = int(math.ceil(scale_num_lvs*1.0 / (2**(scale_laddr_mask_lvs-scale_laddr_mask))))
+        _assigned = _laddr_resource[:num_laddr]
+        cs.unused_laddr_resource[lsw] = _laddr_resource[num_laddr:]
+        _pool = list()
+        for n in _assigned:
+            _pool.extend(split_network(str(n), scale_laddr_mask_lvs))
+        lvs_laddr_resource = net_sort(_pool)
+        # gw_ip
+        if len(cs.gw_ip_resource) < 1:
+            raise Exception('not enough gw_ip_resource')
+        _assigned_ips, x = _apply_addr('gw_ip', cs.gw_ip_resource, cs.used_cluster_gw_ip, 1, scale_gwip_mask)
+        _assigned = _assigned_ips[0]
+        lvs_gw_ip = _assigned
+        cs.used_cluster_gw_ip.append(_assigned)
+        lvs_syncid, g_max_syncid, g_min_syncid = _get_lg_syncid(cdata, lg, g_max_syncid, g_min_syncid)
+        # lvs_group
+        site_info = dict(gw_ip=lvs_gw_ip, laddr_resource=lvs_laddr_resource, sync_id=lvs_syncid, server_list={})
+        cs.site_lvs_group[lg] = site_info
+
+    for pp in proxy_pools:
+        sn = ynodes['proxy'][proxy_pools[pp][0]]['sn']
+        lsw = get_node_minlsw(sn, ydata)
+        _laddr_resource = cs.unused_laddr_resource[lsw]
+        num_laddr = int(math.ceil(scale_num_proxy*1.0 / (2**(scale_laddr_mask_proxy-scale_laddr_mask))))
+        _assigned = _laddr_resource[:num_laddr]
+        cs.unused_laddr_resource[lsw] = _laddr_resource[num_laddr:]
+        _pool = list()
+        for n in _assigned:
+            _pool.extend(split_network(str(n), scale_laddr_mask_proxy))
+        proxy_laddr_resource = net_sort(_pool)
+        site_info = dict(laddr_resource=proxy_laddr_resource, server_list={})
+        cs.site_proxy_pool[pp] = site_info
+
+    return 0, 'done'
+
+
+def get_node_minlsw(sn, ydata):
+    rawconf = ydata['servers'][sn]['rawconf']
+    minlsw = ydata['netcf'][rawconf]['minlsw']
+    return minlsw
+
+
+def cmdb_more_resource(cs, ydata, cdata):
+    if 'resource' not in ydata:
+        return 0, "no ydata['resource'], use cmdb resource"
+    #gw_ip_resource
+    if 'gw_ip_resource' in ydata['resource'] and ydata['resource']['gw_ip_resource']:
+        _gwip_cmdb = cdata.get('gw_ip_resource', [])
+        _gwip_cmdb.extend(ydata['resource']['gw_ip_resource'])
+        #logger.debug(_gwip_cmdb)
+        x = dict((i, 1) for i in _gwip_cmdb)
+        _gwip = net_sort(x.keys())
+        x, cs.gw_ip_resource = cs.gw_ip_resource, _gwip
+        del x
+    #unused_laddr_resource
+    if 'unused_laddr_resource' in ydata['resource']:
+        _laddr_cmdb = cdata.get('unused_laddr_resource', {})
+        _laddr = dict()
+        x = dict()
+        for lsw, nets in _laddr_cmdb.iteritems():
+            if lsw not in x:
+                x[lsw] = dict()
+            for n in nets:
+                if n:
+                    x[lsw][n] = 1
+        for lsw, nets in ydata['resource'].get('unused_laddr_resource', {}).iteritems():
+            if lsw not in x:
+                x[lsw] = dict()
+            for n in nets:
+                if n:
+                    x[lsw][n] = 1
+        for lsw, netdict in x.iteritems():
+            _laddr[lsw] = net_sort(x[lsw].keys())
+        x, cs.unused_laddr_resource = cs.unused_laddr_resource, _laddr
+        del x
+    # loopback_resource
+    if 'loopback_resource' in ydata['resource']:
+        _loopback_cmdb = cdata.get('loopback_resource', {})
+        _loopback = dict()
+        x = dict()
+        for lsw, nets in _loopback_cmdb.iteritems():
+            if lsw not in x:
+                x[lsw] = dict()
+            for n in nets:
+                if n:
+                    x[lsw][n] = 1
+        for lsw, nets in ydata['resource'].get('loopback_resource', {}).iteritems():
+            if lsw not in x:
+                x[lsw] = dict()
+            for n in nets:
+                if n:
+                    x[lsw][n] = 1
+        for lsw, netdict in x.iteritems():
+            _loopback[lsw] = net_sort(x[lsw].keys())
+        x, cs.loopback_resource = cs.loopback_resource, _loopback
+        del x
+    return 0, 'ok'
+    #TODO raise if partly-used
+
+
+def _build_node_info(rnodes):
+    ret = dict()
+    for hn, info in rnodes.iteritems():
+        c = info
+        _node = Node(c).info_out()
+        _node['status'] = "init"
+        ret[hn] = _node
+    return ret
+
+
+def _cmdb_check_exists(ynodes, cdata=None):
+    #TODO
+    return ynodes, {}
+
+
+def cmdb_add_node(cs, ydata, cdata):
+    roles_nodes = ydata['roles_nodes']
+    lvs_groups = roles_nodes['lvs_groups']
+    proxy_pools = roles_nodes['proxy_pools']
+
+    scale_num_lvs = ydata['clusterscale']['num_lvs']
+    scale_num_proxy = ydata['clusterscale']['num_proxy']
+    scale_laddr_mask = ydata['clusterscale']['laddr_mask']
+    scale_laddr_mask_lvs = ydata['clusterscale']['laddr_mask_lvs']
+    scale_laddr_mask_proxy = ydata['clusterscale']['laddr_mask_proxy']
+
+    ynodes = ydata['roles_nodes']['nodes']
+    # master
+    if ynodes.get('master'):
+        nodes_master = _build_node_info(ynodes['master'])
+        cs.nodes['master'] = dict(dataset=nodes_master, path='/slb/%s/%s/master/server_list' % (cs.region_no, cs.cluster_name))
+
+    # keyserver
+    if ynodes.get('keyserver'):
+        nodes_keyserver = _build_node_info(ynodes['keyserver'])
+        cs.nodes['keyserver'] = dict(dataset=nodes_keyserver,
+                path='/slb/%s/%s/key_server' % (cs.region_no, cs.cluster_name))
+
+    # **** GE nodes ****
+    if 'lvs' in ynodes:
+        lgs = sorted(lvs_groups.keys())
+        cs.nodes['lvs'] = dict()
+        for lg in lgs:
+            cs.nodes['lvs'].setdefault(lg, dict())
+            rnodes = dict((x, ynodes['lvs'][x]) for x in lvs_groups[lg])
+            sn = ynodes['lvs'][lvs_groups[lg][0]]['sn']
+            lsw = get_node_minlsw(sn, ydata)
+            # laddr
+            resource = cs.site_lvs_group[lg]['laddr_resource']
+            _assigned = cs.used_laddr_lvs
+            granted_laddr_lvs, rest = _apply_addr('laddr_lvs', resource, _assigned, len(rnodes), scale_laddr_mask_lvs, nice=True)
+            if rest > 0:
+                # apply from unused_laddr_resource
+                _laddr_resource = cs.unused_laddr_resource[lsw]
+                num_more = int(math.ceil(rest*1.0 / (2**(scale_laddr_mask_lvs-scale_laddr_mask))))
+                if len(_laddr_resource) < num_more:
+                    raise Exception('laddr_resource exhausted')
+                _laddr_lvs_more = _laddr_resource[:num_more]
+                cs.unused_laddr_resource[lsw] = _laddr_resource[num_more:]
+                cs.site_lvs_group[lg]['laddr_resource'].extend(_laddr_lvs_more)
+                # re-apply
+                resource = cs.site_lvs_group[lg]['laddr_resource']
+                granted_laddr_lvs, rest = _apply_addr('laddr_lvs', resource, _assigned, len(rnodes), scale_laddr_mask_lvs)
+
+            cs.used_laddr_lvs.extend(granted_laddr_lvs)
+            # loopback
+            resource = cs.loopback_resource.get(lsw, [])
+            _assigned = cs.used_cluster_loopback_ip
+            granted_loopback = _apply_loopback(resource, _assigned, len(rnodes))
+            cs.used_cluster_loopback_ip.extend(granted_loopback)
+            # cmdb.add_nodes
+            nodes_lvs = _build_GE_info(rnodes, granted_laddr_lvs, granted_loopback, ydata['netcf'], ydata['servers'], 'lvs')
+            #pprint.pprint(nodes_lvs)
+            cs.nodes['lvs'][lg] = dict(dataset=nodes_lvs, path='/slb/%s/%s/lvs_group/%s/site_list/%s/server_list' % (cs.region_no, cs.cluster_name, lg, cs.site_name))
+
+    if 'proxy' in ynodes:
+        pps = sorted(proxy_pools.keys())
+        cs.nodes['proxy'] = dict()
+        for pp in pps:
+            cs.nodes['proxy'].setdefault(pp, dict())
+            rnodes = dict((x, ynodes['proxy'][x]) for x in proxy_pools[pp])
+            sn = ynodes['proxy'][proxy_pools[pp][0]]['sn']
+            lsw = get_node_minlsw(sn, ydata)
+            # laddr
+            pprint.pprint(cs.site_proxy_pool)
+            resource = cs.site_proxy_pool[pp]['laddr_resource']
+            _assigned = cs.used_laddr_proxy
+            granted_laddr_proxy, rest = _apply_addr('laddr_proxy', resource, _assigned, len(rnodes), scale_laddr_mask_proxy, nice=True)
+            granted_laddr_proxy, rest = _apply_addr('laddr_proxy', resource, _assigned, len(rnodes), scale_laddr_mask_proxy, nice=True)
+
+            if rest > 0:
+                # apply from unused_laddr_resource
+                _laddr_resource = cs.unused_laddr_resource[lsw]
+                num_more = int(math.ceil(rest*1.0 / (2**(scale_laddr_mask_proxy-scale_laddr_mask))))
+                if len(_laddr_resource) < num_more:
+                    raise Exception('laddr_resource exhausted')
+                _laddr_proxy_more = _laddr_resource[:num_more]
+                cs.unused_laddr_resource[lsw] = _laddr_resource[num_more:]
+                cs.site_proxy_pool[pp]['laddr_resource'].extend(_laddr_proxy_more)
+                # re-apply
+                resource = cs.site_proxy_pool[pp]['laddr_resource']
+                granted_laddr_proxy, rest = _apply_addr('laddr_proxy', resource, _assigned, len(rnodes), scale_laddr_mask_proxy)
+
+            cs.used_laddr_proxy.extend(granted_laddr_proxy)
+            #loopback
+            resource = cs.loopback_resource.get(lsw, [])
+            _assigned = cs.used_cluster_loopback_ip
+            granted_loopback = _apply_loopback(resource, _assigned, len(rnodes))
+            cs.used_cluster_loopback_ip.extend(granted_loopback)
+            # cmdb add proxy
+            nodes_proxy = _build_GE_info(rnodes, granted_laddr_proxy, granted_loopback, ydata['netcf'], ydata['servers'], 'proxy')
+            #pprint.pprint(nodes_proxy)
+            cs.nodes['proxy'][pp] = dict(dataset=nodes_proxy, path='/slb/%s/%s/proxy_pool/%s/site_list/%s/server_list' % (cs.region_no, cs.cluster_name, pp, cs.site_name))
+
+    return 0, 'done'
+
+
+def _build_GE_info(rnodes, locaips, loopbackips, netcf, servercf, role):
+    ret = dict()
+    index = 0
+    for hn, info in rnodes.iteritems():
+        c = info
+        if role == 'lvs':
+            c['lvs_group'] = info['lvs_group']
+        elif role == 'proxy':
+            c['proxy_pool'] = info['proxy_pool']
+        # dummy0
+        _loopback = loopbackips[index]
+        c['dummy0_ip'] = _loopback.split('/')[0]
+        c['mgt_ip'] = c['dummy0_ip']
+        c['dummy0_netmask'] = '225.255.255.255'
+        # laddr
+        _laddr = locaips[index]
+        x = cidrize(_laddr)[0]
+        _network = str(x.network)
+        c['laddr_network'] = _network
+        c['laddr_netmask'] = str(x.netmask)
+        _prefix = x.prefixlen
+        c['laddr_prefix'] = str(_prefix)
+        if _prefix < 24:
+            raise Exception('bad laddr_mask: %s' % _prefix)
+        elif _prefix == 24:
+            _tail = 254
+        elif _prefix <= 31:
+            _net = _network.split('.')[-1]
+            _tail = int(_net) + (x.last - x.first) - 1
+        else:
+            raise Exception('bad laddr_mask: %s' % _prefix)
+        c['laddr_iprange'] = "%s-%s" % (c['laddr_network'], _tail)
+        c['laddr_ip_hc'] = c['laddr_network']
+        # gw_ip: in lvs_group
+        ########
+        # T1/T2 or eth4-7
+        ########
+        _netcf = get_netcf_by_sn(c['sn'], netcf, servercf, hn)
+        infoGE = _netcf['connections']
+        protocol = _netcf['protocol'].lower()
+        if protocol == 'ospf':
+            c['network_type'] = "TenGigabit"
+            c['ospf_auth'] = _netcf['raw']['ospfpassword']
+            c['area_type'] = _netcf['raw'].get('area_type', 'nssa')
+            c['hello_interval'] = _netcf['raw'].get('hello_interval', '3')
+            c['dead_interval'] = _netcf['raw'].get('dead_interval', '10')
+            eths = "t1 t2".split()
+            for x in infoGE:
+                keyGE = x['localport'].lower()
+                if keyGE not in eths:
+                    logger.warning("WARNING: unknown ospf::localport '%s'" % x['localport'])
+                    continue
+                c.update(_gen_ospfGE(keyGE, x))
+            if c['t1_areaid'] != c['t2_areaid']:
+                raise Exception("areaid of '%s' conflict: t1(%s) != t2(%s)" % (c['sn'], c['t1_areaid'], c['t2_areaid']))
+            c['area_id'] = c['t1_areaid']
+            if role == 'lvs':
+                _node = LvsNodeOspf(c).info_out()
+            elif role == 'proxy':
+                _node = ProxyNodeOspf(c).info_out()
+        elif protocol == 'bgp':
+            c['network_type'] = "FortyGigabit"
+            c['bgp_auth'] = _netcf['raw']['bgppassword']
+            c['community'] = _netcf['raw']['bgpcommunity']
+            c['local_as'] = _netcf['raw']['bgpas']
+            eths = "eth4 eth5 eth6 eth7".split()
+            for x in infoGE:
+                keyGE = x['localport'].lower()
+                if keyGE not in eths:
+                    logger.warning("WARNING: unknown bgp::localport '%s'" % x['localport'])
+                    continue
+                c.update(_gen_bgpGE(keyGE, x))
+            for k in eths:
+                if c['eth4_remoteas'] != c['%s_remoteas'%k]:
+                    raise Exception('remoteas conflicts: %s vs %s' % (c['eth4_remoteas'], c['%s_remoteas'%k]))
+            c['remote_as'] = c['eth4_remoteas']
+            if role == 'lvs':
+                _node = LvsNodeBgp(c).info_out()
+            elif role == 'proxy':
+                #raise Exception('proxy VS bgp: %s' % hn)
+                _node = ProxyNodeBgp(c).info_out()
+        else:
+            raise Exception("unknown protocol '%s'" % protocol)
+        _node['status'] = "init"
+        ret[hn] = _node
+        index += 1
+    return ret
+
+
+def cmdb_precheck(cs, ydata):
+    op_profile = cs.op_profile
+    if op_profile == "newcluster":
+        try:
+            ret = cs.cmdb.cmdb_base.cmdb_get_node("/slb/%s/%s/status" % (cs.region_no, cs.cluster_name))
+        except Exception as e:
+            if "path is not exist" in str(e):
+                return 0, 'good'
+            else:
+                raise e
+        try:
+            ret = json.loads(ret)
+            if 'success' in ret:
+                return 1, "precheck fail: path '/slb/%s/%s/status' already exists" % (cs.region_no, cs.cluster_name)
+        except Exception as e:
+            logger.info(ret)
+            print ret
+            raise e
+
+
+    if op_profile in ("newsu", "addnode"):
+        # cmdb.reload_all_region_info()
+        try:
+            #cdata_ = cs.cmdb.cmdb_get_cluster_v2(cs.cluster_name)
+            cnodes = cs.cmdb.cmdb_get_cluster_hosts(cs.cluster_name)
+        except Exception as e:
+            logger.error("cmdb_get_cluster_v2('%s') failed\n%s" % (cs.cluster_name, str(e)))
+            raise e
+        if not cnodes:
+            return 0, 'no node(s) in cmdb, pass'
+        nodes_cmdb = [x[-1] for x in cnodes]
+
+        # check node exists
+        ynodes = ydata['roles_nodes']['nodes']
+        #pprint.pprint(ynodes)
+        logger.debug("nodes_in_cmdb:\n%s" % str(nodes_cmdb))
+        nodes_input = [x for r in ynodes.values() for x in r.keys()]
+        for n in nodes_input:
+            if n in nodes_cmdb:
+                msg = "node '%s' already in cmdb, precheck fail" % n
+                return 1, msg
+    return 0, 'no precheck'
+
+#NOTE: delnode 时不需要主动释放 laddr/loopback/gw_ip 资源; 等 cmdb_remove 从 cmdb 中清理后会自动变成可用
+"""
+def cmdb_del_node(cs, ydata):
+    server_list = ydata['server_list']
+    if server_list.get('lvs'):
+        for lvs in server_list['lvs']:
+            cs.cmdb_get_host_path(lvs)
+"""
+
+
+def _get_site_ginfo(ginfo, site_name):
+    site_ginfo = {}
+    if not ginfo:
+        return site_ginfo
+    for gname, siteinfo in ginfo.iteritems():
+        if site_name not in siteinfo.get('site_list', {}):
+            continue
+        _info = siteinfo['site_list'][site_name].copy()
+        site_ginfo[gname] = _info
+    return site_ginfo
+
+
+def do_cmdb_actions(op_profile, region_no, cluster_name, site_name, ydata, todir):
+    cmdb = LibCmdbSlb()
+    if op_profile == "vipclean":
+        for n in ydata['vipclean']['vip_networks'].replace(',', ' ').split():
+            cmdb.cmdb_update_vip_status(cluster_name, n, 'offlining')
+        return 0, 'done'
+
+    cs = CmdbSupervisor(cmdb, region_no, cluster_name, site_name, op_profile, todir)
+
+
+    retcode, output = cmdb_precheck(cs, ydata)
+    if retcode != 0:
+        logger.warning('precheck failed: %s' % output)
+        return retcode, output
+
+    # add_cluster, with init-resource
+    if op_profile == 'newcluster':
+        cs.slbcluster = cmdb_new_cluster(cmdb, region_no, cluster_name, ydata)
+        for rs in "gw_ip_resource unused_laddr_resource loopback_resource".split():
+            setattr(cs, rs, ydata['resource'][rs])
+        cs.used_region_syncid = {}
+        cs.used_cluster_gw_ip = []
+        cs.used_cluster_loopback_ip = []
+        cs.used_laddr_lvs = []
+        cs.used_laddr_proxy = []
+        cdata = dict()
+    elif op_profile in "newsu addnode".split():
+        # get cmdb resources
+        # cmdb.reload_all_region_info()
+        cdata_ = cmdb.cmdb_get_cluster_v2(cluster_name)
+        cdata = json.loads(cdata_).get('data')
+        for rs in "gw_ip_resource unused_laddr_resource loopback_resource".split():
+            setattr(cs, rs, cdata[rs])
+        # resource
+        retcode, output = cmdb_more_resource(cs, ydata, cdata)
+        if retcode != 0:
+            return retcode, output
+
+        # used 
+        # syncid
+        x = cmdb.cmdb_get_region_syncid(region_no)
+        cs.used_region_syncid = json.loads(x).get('data', {})
+        # gw_ip   
+        _gw_ip = cmdb.cmdb_get_cluster_gw_ip(cluster_name)
+        cs.used_cluster_gw_ip = json.loads(_gw_ip).get('data', [])
+        # loopback
+        _loopback = cmdb.cmdb_get_cluster_loopback_ip(cluster_name)
+        cs.used_cluster_loopback_ip = json.loads(_loopback).get('data', [])
+        # laddr_lvs
+        _laddr_lvs = cmdb.cmdb_get_site_laddr(cluster_name, site_name, "lvs")
+        cs.used_laddr_lvs = json.loads(_laddr_lvs).get('data', [])
+        # laddr_proxy
+        _laddr_proxy = cmdb.cmdb_get_site_laddr(cluster_name, site_name, "proxy")
+        cs.used_laddr_proxy = json.loads(_laddr_proxy).get('data', [])
+    
+    # site, lvs_group, proxy_pool
+    if op_profile in 'newsu newcluster'.split():
+        retcode, output = cmdb_new_su(cs, ydata, cdata)
+    if op_profile == 'addnode':
+        cs.site_proxy_pool = _get_site_ginfo(cdata['proxy_pool'], site_name)
+        cs.site_lvs_group = _get_site_ginfo(cdata['lvs_group'], site_name)
+
+    pprint.pprint(cs.site_proxy_pool)
+
+    # nodes
+    if op_profile in 'newsu newcluster addnode'.split():
+        retcode, output = cmdb_add_node(cs, ydata, cdata)
+    if retcode != 0:
+        return retcode, output
+
+    # vips
+    if op_profile in "newcluster newsu vipless".split():
+        if not 'vipinfo' in ydata:
+            raise Exception('vipinfo is required for op_profile(%s)' % op_profile)
+        vipinfo_in = ydata['vipinfo']
+        if isinstance(vipinfo_in, dict):
+            # old fashion
+            vipinfo = [vipinfo_in]
+        elif isinstance(vipinfo_in, list):
+            # new fashion
+            vipinfo = vipinfo_in
+        else:
+            raise Exception('bad vipinfo type, need `list of dict`')
+
+        cmdb_vips = list()
+        for vi in vipinfo:
+            if not 'vips' in vi:
+                raise Exception('key `vips` required in vipinfo')
+            cmdb_vips.extend(_get_vipinfo(vi['vips']))
+
+        if op_profile == "vipless":
+            for c in cmdb_vips:
+                cmdb.cmdb_add_vip_networks(cluster_name, c['vip'], type=c['type'], status='init')
+            return 0, 'done'
+        else:
+            cs.vips = cmdb_vips
+
+    if op_profile == 'newcluster':
+        retcode, output = cs.new_cluster()
+    else:
+        retcode, output = cs.update_cluster()
+    return retcode, output
+    #return 0, 'done'
+
+
+class CmdbSupervisor(object):
+
+    slbcluster = None
+    vips = list()
+    unused_laddr_resource = dict()
+    loopback_resource = dict()
+    gw_ip_resource = list()
+
+    lginfo = dict()
+    
+    used_cluster_gw_ip = []
+    used_cluster_loopback_ip = dict()
+    used_region_syncid = dict()
+    used_site_laddr = list()
+    used_site_laddr = list()
+
+    site_lvs_group = dict()
+    site_proxy_pool = dict()
+    """lg/pp:
+        site_info
+    """
+
+    """@nodes
+    role:
+      path:
+      dataset:
+    """
+    nodes = dict()
+
+    def __init__(self, cmdb, region_no, cluster_name, site_name, op_profile, todir):
+        self.region_no = region_no
+        self.cluster_name = cluster_name
+        self.site_name = site_name
+        self.op_profile = op_profile
+        self.cmdb = cmdb
+
+        #ts = time.time()
+        ts = time.strftime('%Y%m%d.%H.%M.%S')
+        self.json_file_new = "%(todir)s/%(cluster_name)s.%(op_profile)s.%(ts)s.new.json" % dict(todir=todir, cluster_name=cluster_name, ts=ts, op_profile=op_profile)
+        self.json_file_bak = "%(todir)s/%(cluster_name)s.%(op_profile)s.%(ts)s.bak.json" % dict(todir=todir, cluster_name=cluster_name, ts=ts, op_profile=op_profile)
+        #
+        self.yaml_file_new = "%(todir)s/%(cluster_name)s.%(op_profile)s.%(ts)s.new.yaml" % dict(todir=todir, cluster_name=cluster_name, ts=ts, op_profile=op_profile)
+        self.yaml_file_bak = "%(todir)s/%(cluster_name)s.%(op_profile)s.%(ts)s.bak.yaml" % dict(todir=todir, cluster_name=cluster_name, ts=ts, op_profile=op_profile)
+
+
+    def new_cluster(self):
+        sc = self.slbcluster
+        for rs in "gw_ip_resource unused_laddr_resource loopback_resource".split():
+            setattr(sc, rs, getattr(self, rs))
+        # roles_nodes
+        if self.nodes.get('master'):
+            if sc.master is None:
+                sc.master = Master()
+            sc.master.server_list = self.nodes['master']['dataset']
+        if self.nodes.get('keyserver'):
+            sc.key_server = self.nodes['keyserver']['dataset']
+        if self.nodes.get('tmdserver'):
+            sc.tmd_server = self.nodes['tmdserver']['dataset']
+        # lvs_group+lvs, proxy_pool+proxy
+        for lg, site_info in self.site_lvs_group.iteritems():
+            sc.lvs_group.setdefault(lg, dict())
+            sc.lvs_group[lg].setdefault('site_list', dict())
+            sc.lvs_group[lg]['site_list'][self.site_name] = site_info
+            if self.nodes.get('lvs') and lg in self.nodes['lvs']:
+                sc.lvs_group[lg]['site_list'][self.site_name]['server_list'] = self.nodes['lvs'][lg]['dataset']
+        for pp, site_info in self.site_proxy_pool.iteritems():
+            sc.proxy_pool.setdefault(pp, dict())
+            sc.proxy_pool[pp].setdefault('site_list', dict())
+            sc.proxy_pool[pp]['site_list'][self.site_name] = site_info
+            if self.nodes.get('proxy') and pp in self.nodes['proxy']:
+                sc.proxy_pool[pp]['site_list'][self.site_name]['server_list'] = self.nodes['proxy'][pp]['dataset']
+        # vips
+        sc.vip_networks = self.vips
+
+        msg = ("save cluster::json: %s" % self.json_file_new)
+        print msg
+        logger.info(msg)
+
+        self.dump_to_file(json.loads(sc.to_json()), self.json_file_new)
+        #self.dump_to_yaml(json.loads(sc.to_json()), self.yaml_file_new)
+        #pprint.pprint(json.loads(sc.to_json()))
+        ret = self.cmdb.cmdb_add_cluster(self.region_no, self.cluster_name, sc.to_json())
+        ret = json.loads(ret)
+        if ret.get('success'):
+            return 0, "done"
+        else:
+            return 1, ret.get('errorMsg')
+
+    def dump_to_file(self, jdata, tofile):
+        with open(tofile, 'w') as fd:
+            json.dump(jdata, fd, indent=2)
+        msg = 'json-file saved: %s' % tofile
+        #print msg
+        return 0, msg
+
+    def dump_to_yaml(self, jdata, tofile):
+        with open(tofile, 'w') as fd:
+            yaml.safe_dump(jdata, fd, default_flow_style=False)
+        msg = 'yaml-file saved: %s' % tofile
+        logger.debug(msg)
+        return 0, msg
+
+    def update_cluster(self):
+        self.cmdb.reload_all_region_info()
+        jdata_ = self.cmdb.cmdb_get_cluster_v2(self.cluster_name)
+        jdata = json.loads(jdata_)
+        msg = ("backup original cluster::json: %s" % self.json_file_bak)
+        print msg
+        logger.info(msg)
+        retcode, output = self.dump_to_file(jdata, self.json_file_bak)
+        if retcode != 0:
+            raise Exception('fail to backup original cluster::json: %s\n%s' % (self.json_file_bak, output))
+        #self.dump_to_yaml(cdata, self.yaml_file_bak)
+
+        # construct new cluster::json
+        cdata = jdata.get('data')
+        cdata['gw_ip_resource'] = self.gw_ip_resource
+        cdata['unused_laddr_resource'] = self.unused_laddr_resource
+        cdata['loopback_resource'] = self.loopback_resource
+
+        for lg, site_info in self.site_lvs_group.iteritems():
+            cdata['lvs_group'].setdefault(lg, dict())
+            cdata['lvs_group'][lg].setdefault('site_list', dict())
+            cdata['lvs_group'][lg]['site_list'][self.site_name] = site_info
+            if self.nodes.get('lvs') and lg in self.nodes['lvs']:
+                cdata['lvs_group'][lg]['site_list'][self.site_name]['server_list'] = self.nodes['lvs'][lg]['dataset']
+        for pp, site_info in self.site_proxy_pool.iteritems():
+            cdata['proxy_pool'].setdefault(pp, dict())
+            cdata['proxy_pool'][pp].setdefault('site_list', dict())
+            cdata['proxy_pool'][pp]['site_list'][self.site_name] = site_info
+            if self.nodes.get('proxy') and pp in self.nodes['proxy']:
+                cdata['proxy_pool'][pp]['site_list'][self.site_name]['server_list'] = self.nodes['proxy'][pp]['dataset']
+
+        if self.nodes.get('master'):
+            cdata['master']['server_list'].update(self.nodes['master']['dataset'])
+
+        if self.nodes.get('keyserver'):
+            cdata['key_server'].update(self.nodes['keyserver']['dataset'])
+
+        if self.nodes.get('tmdserver'):
+            cdata['tmd_server'].update(self.nodes['tmdserver']['dataset'])
+
+        # vips
+        cdata['vip_networks'].extend(self.vips)
+
+        msg = ("dump new cluster::json: %s" % self.json_file_new)
+        print msg
+        logger.info(msg)
+
+        retcode, output = self.dump_to_file(cdata, self.json_file_new)
+        if retcode != 0:
+            raise Exception('fail to new cluster::json: %s\n%s' % (self.json_file_new, output))
+
+
+        #self.dump_to_yaml(cdata, self.yaml_file_new)
+
+        data = cdata
+        path = '/slb/%s/%s' % (self.region_no, self.cluster_name)
+        params = {
+            'path': path,
+            'data': json.dumps(data, indent=2)
+        }
+        ret = self.cmdb.cmdb_base.update_data_to_cmdb(params)
+        try:
+            ret = json.loads(ret)
+            if ret.get('success'):
+                return 0, 'done'
+            else:
+                return 1, ret.get('errorMsg')
+        except:
+            print ret
+            return 1, ret
+
+        return 1, "BUG: don't see me"
+
+
+def _get_vipinfo(vips):
+    "(vip, nettype)"
+    vip_ret = list()
+    for nettype, nets in vips.iteritems():
+        if nettype not in "internet intranet".split():
+            print "warning: bad nettype %s" % nettype
+            continue
+        for n in nets.replace(',', ' ').split():
+            #vip_ret.append((n, nettype))
+            vip_ret.append({'status': "init", 'vip': n, "type": nettype})
+    return vip_ret
+
+
+def build_server_list(ydata, nodestr):
+    roles_nodes = dict()
+    for r in slbroles:
+        roles_nodes[r] = dict()
+    """
+    roles_nodes:
+      nodes:
+        lvs<@role>:
+          hn:
+            {site: .., ...}
+      lvs_groups:
+      proxy_pools:
+    """
+    site_name = ydata['site_name']
+    allnodes = {}
+    lgs = {}
+    pps = {}
+    for linestr in nodestr:
+        if not linestr: continue
+        _line = linestr.split()
+        hn, site, role = _line[:3]
+        if site != site_name:
+            raise Exception('site_name conflicts, nodes_line: "%s"' % _line)
+        if role not in slbroles:
+            print "WARNING: skip unknown role(%s): %s" % (role, linestr)
+            continue
+        allnodes[hn] = 1
+        roles_nodes[role][hn] = dict(hostname=hn, role_name=role, site_name=site)
+        if role == "lvs":
+            roles_nodes['lvs'][hn]['lvs_group'] = _line[3]
+            lgs[_line[3]] = 1
+        if role == "proxy":
+            roles_nodes['proxy'][hn]['proxy_pool'] = _line[3]
+            pps[_line[3]] = 1
+
+    lvs_groups = dict()
+    for lg in lgs.keys():
+        lvs_groups[lg] = list()
+    proxy_pools = dict()
+    for pp in pps.keys():
+        proxy_pools[pp] = list()
+
+    #TODO: lsw_of_lg = dict()
+    if not ydata['maincf']['armory']:
+        raise Exception('ERROR: `armory` section required @/home/slb/warden/etc/main.conf')
+    #armory_host = ydata['maincf']['armory']['host']
+    #armory_user = ydata['maincf']['armory']['user']
+    #_hostinfo = get_hostinfo(allnodes, armory_host, armory_user)
+    for role, rnodes in roles_nodes.iteritems():
+        for hn, info in rnodes.iteritems():
+            roles_nodes[role][hn]['bond0_ip'] = ''
+            roles_nodes[role][hn]['bond0_gateway'] = ''
+            roles_nodes[role][hn]['sn'] = hn
+            if role == 'lvs':
+                lvs_groups[info['lvs_group']].append(hn)
+            if role == 'proxy':
+                proxy_pools[info['proxy_pool']].append(hn)
+    ydata['roles_nodes'] = dict(nodes=roles_nodes, lvs_groups=lvs_groups, proxy_pools=proxy_pools)
+
+    #pprint.pprint(ydata['roles_nodes'])
+    return True
+
+
+def gen_groupinfo(ydata):
+    ret_lg = dict()
+    ret_pp = dict()
+    roles_nodes = ydata['roles_nodes']
+    lgs = roles_nodes['lvs_groups'].keys()
+    pps = roles_nodes['proxy_pools'].keys()
+    ref_lg = [x['lvs_group'] for x in ydata['suinfo']['add']]
+    ref_pp = [x['proxy_pool'] for x in ydata['suinfo']['add']]
+    for lg in ref_lg:
+        if lg in lgs:
+            ret_lg[lg] = 'notexist'
+        else:
+            ret_lg[lg] = 'exist'
+    for pp in ref_pp:
+        if pp in pps:
+            ret_pp[pp] = 'notexist'
+        else:
+            ret_pp[pp] = 'exist'
+    return ret_lg, ret_pp
+
+
+def gen_simple_server_list(ydata):
+    nodes = ydata['roles_nodes']['nodes']
+    sl = dict()
+    for role in nodes.keys():
+        sl[role] = list()
+    for role, rnodes in ydata['roles_nodes']['nodes'].iteritems():
+        sl[role] = rnodes.keys()
+    return sl
+
+
+def main(maincf, opt):
+    try:
+        incfg = yaml_from_file(opt.infile)
+        ydata = merge_inputs(incfg, opt)
+    except yamlParserError as e:
+        sys.stderr.write("ERROR: bad yaml\n%s\n" % str(e))
+        sys.exit(1)
+
+    ydata['maincf'] = maincf
+    loglevels = (logging.WARNING, logging.INFO, logging.DEBUG)
+    if opt.verbosity > 2:
+        loglevel = loglevels[-1]
+    elif opt.verbosity < 0:
+        loglevel = loglevels[0]
+    else:
+        loglevel = loglevels[opt.verbosity]
+    logger.setLevel(loglevel)
+
+    cluster_name = ydata['cluster_name']
+    region_no = ydata['region_no']
+    op_profile = ydata.get('opProfile', 'unknown')
+    if op_profile not in opProfiles:
+        raise Exception('op_profile(%s) not supported\n\n%s' % (op_profile, " ".join(opProfiles)))
+
+    # server_list and group-info
+    if op_profile in "newcluster newsu addnode".split():
+        if 'server_list' in incfg:
+            raise Exception('key `server_list` not allowed for opProfile `%s`' % op_profile)
+        nodestr = incfg.pop('nodes', '')
+        build_server_list(ydata, nodestr)
+        incfg['server_list'] = gen_simple_server_list(ydata)
+    if op_profile in ('newsu', 'newcluster'):
+        lvs_groups, proxy_pools = gen_groupinfo(ydata)
+        incfg['lvs_groups'] = lvs_groups
+        incfg['proxy_pools'] = proxy_pools
+
+    if op_profile == 'delnode':
+        if 'server_list' not in ydata:
+                raise Exception('key `server_list` required for opProfile `%s`' % op_profile)
+
+    # server_list type precheck
+    if incfg.get('server_list'):
+        for role, slist in incfg.get('server_list', {}).iteritems():
+            if not slist:
+                continue
+            if not isinstance(slist, list):
+                raise Exception('incfg precheck fail: bad server_list type for role `%s`, list required: """%s"""' % (role, slist))
+
+    # cmdb-op
+    if op_profile in "newcluster newsu addnode vipclean vipless".split():
+        #todir
+        cmd = "([[ -d '%s' ]] || /bin/mkdir -p '%s') && touch %s/.i_am_write_able" % (opt.todir, opt.todir, opt.todir)
+        retcode, output = run_cmd(cmd)
+        if retcode != 0:
+            raise Exception('todir not write-able: %s, %s' % (opt.todir, output))
+            return retcode, output
+
+        site_name = ydata['site_name']
+        retcode, output = do_cmdb_actions(op_profile, region_no, cluster_name, site_name, ydata, opt.todir.rstrip('/'))
+        if retcode != 0:
+            return retcode, output
+
+    if opt.notask:
+        return 0, 'done'
+    # create_task finally.
+    for junks in "nodes database vrrp slbapi_info clusterscale cluster_name".split():
+        if junks in incfg:
+            incfg.pop(junks)
+    incfg['clusterName'] = cluster_name
+    #dbinfo = maincf['database']
+
+    logging.info(pprint.pformat(incfg))
+    incfg['version'] = incfg['versionTo']
+    #affected = create_task(dbinfo, incfg)
+    return 0, 'done'
+
+
+if __name__ == "__main__":
+    #user = getpass.getuser()
+    opt = get_options(sys.argv[1:])
+
+    """
+    user = pwd.getpwuid(os.geteuid()).pw_name
+    if user != "admin":
+        print "BADUSER(%s): admin required for bond0_gateway, quit!" % user
+        sys.exit(1)
+    """
+
+    workdir = os.path.dirname(os.path.realpath(__file__))
+    f_maincf = "%s/conf/maincf.yaml" % workdir
+    maincf = yaml_from_file(f_maincf)
+    #config_log(logger.name, logging.DEBUG)
+
+    retcode, output = main(maincf, opt)
+    print output
+    sys.exit(retcode)
+    #import pdb; pdb.set_trace()

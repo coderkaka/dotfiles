@@ -1,0 +1,68 @@
+#######################一定不需要摘流量##################
+slb-pet-remove:
+  pkg.removed:
+    - name: slb-pet
+
+tops-ntp-remove:
+  pkg.removed:
+    - name: tops-ntp
+
+curl-remove:
+  pkg.removed:
+    - name: curl
+
+slb_clean_disk-remove:
+  pkg.removed:
+    - name: slb_clean_disk
+
+slb-role-keyserver-remove:
+  pkg.removed:
+    - name: slb-role-keyserver
+
+slb-syslog-logconfig-remove:
+  pkg.removed:
+    - name: slb-syslog-logconfig
+
+
+#######################可能需要摘流量###################
+python-simplejson-remove:
+  pkg.removed:
+    - name: python-simplejson
+
+slb-vtoa-ali878-remove:
+  pkg.removed:
+    - name: slb-vtoa-ali878
+
+slb-common-remove:
+  pkg.removed:
+    - name: slb-common
+
+tsar-remove:
+  pkg.removed:
+    - name: tsar
+
+
+#######################一定需要摘流量####################
+ali-jdk-remove:
+  pkg.removed:
+    - name: ali-jdk
+
+taobao-cronolog-remove:
+  pkg.removed:
+    - name: taobao-cronolog
+
+slb-cert-central-agent-remove:
+  pkg.removed:
+    - name: slb-cert-central-agent
+
+key-center-remove:
+  pkg.removed:
+    - name: key-center
+
+keyserver.t-coresystem-tengine-jushita-remove:
+  pkg.removed:
+    - name: t-coresystem-tengine-jushita
+
+slb-drop-logcache-remove:
+  pkg.removed:
+    - name: slb-drop-logcache

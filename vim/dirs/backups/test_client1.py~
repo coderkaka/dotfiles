@@ -1,0 +1,2489 @@
+#!/usr/bin/python
+#****************************************************************#
+# ScriptName: client.py
+# Author: yutao.yutao@alibaba-inc.com
+# Create Date: 2017-02-24 16:06
+# Modify Author: $SHTERM_REAL_USER@alibaba-inc.com
+# Modify Date: 2019-07-01 17:32
+# Function: 
+#***************************************************************#
+import requests
+import unittest
+import agent_ops
+#!/usr/bin/python
+import sys
+sys.path.append("../")
+import lib.proxy.common_pb2
+import lib.proxy.loadbalancer_pb2
+import lib.proxy.proxy_pb2
+import lib.proxy.response_pb2
+from lib.proxy.proxy_server import *
+#import lib.proxy.proxy_server
+ops_obj = agent_ops.agent_ops()
+test_port = 50000
+
+class agentTestCase(unittest.TestCase):
+    def setUp(self):
+        set_ut()
+        pass
+ 
+    def tearDown(self):
+        unset_ut()
+        pass
+    
+    @staticmethod
+    def precheck_func(receiveData):
+        return receiveData[0]
+
+    @staticmethod
+    def func(receiveData):
+        return receiveData[1]
+    
+    @staticmethod
+    def start_response(ret, header):
+        pass
+
+    def testCheckVer(self):
+        receiveData = []
+
+        res = check_ver_handler(receiveData,'deleting',agentTestCase.precheck_func,
+                               agentTestCase.func, agentTestCase.start_response)
+        self.assertEqual(id(res),id(s_str_inv))
+
+        receiveData.append(AGENT_OK)
+        receiveData.append(AGENT_OK)
+        res = check_ver_handler(receiveData,'update',agentTestCase.precheck_func,
+                               agentTestCase.func, agentTestCase.start_response)
+        self.assertEqual(id(res),id(s_str_ok))
+        
+        receiveData[0] =  AGENT_VA 
+        receiveData[1] = AGENT_OK
+        res = check_ver_handler(receiveData,'update',agentTestCase.precheck_func,
+                               agentTestCase.func, agentTestCase.start_response)
+        self.assertEqual(id(res),id(s_str_va))
+
+
+        receiveData[0] =  AGENT_VB
+        receiveData[1] = AGENT_OK
+        res = check_ver_handler(receiveData,'update',agentTestCase.precheck_func,
+                               agentTestCase.func, agentTestCase.start_response)
+        self.assertEqual(id(res),id(s_str_vb))
+        
+        receiveData[0] =  0xffff
+        receiveData[1] = AGENT_OK
+        res = check_ver_handler(receiveData,'update',agentTestCase.precheck_func,
+                               agentTestCase.func, agentTestCase.start_response)
+        self.assertEqual(id(res),id(s_str_inv))
+
+        receiveData[1] = AGENT_ERR
+        res = check_ver_handler(receiveData,'delete',agentTestCase.precheck_func,
+                               agentTestCase.func, agentTestCase.start_response)
+        self.assertEqual(id(res),id(s_str_err))
+
+        receiveData[1] = AGENT_NOT_FOUND
+        res = check_ver_handler(receiveData,'delete',agentTestCase.precheck_func,
+                               agentTestCase.func, agentTestCase.start_response)
+        self.assertEqual(id(res),id(s_str_nf))
+
+        receiveData[1] = AGENT_EXI
+        res = check_ver_handler(receiveData,'create',agentTestCase.precheck_func,
+                               agentTestCase.func, agentTestCase.start_response)
+        self.assertEqual(id(res),id(s_str_exi))
+
+        receiveData[1] = AGENT_INV
+        res = check_ver_handler(receiveData,'create',agentTestCase.precheck_func,
+                               agentTestCase.func, agentTestCase.start_response)
+        self.assertEqual(id(res),id(s_str_inv))
+        
+        receiveData[1] = 3000
+        res = check_ver_handler(receiveData,'create',agentTestCase.precheck_func,
+                               agentTestCase.func, agentTestCase.start_response)
+        self.assertEqual(id(res),id(s_str_ok))
+
+    def testDeviceGroupUpdate(self):
+        #prepare data
+        dg = proxy_pb2.ProxyDeviceGroupConfigurationMessage ()
+        dg.site_name = 'vo'
+        dg.start_port = 50000
+        dg.end_port = 60000
+        dg.device_count.plugged_count = 9
+        dg.version = 4
+        dg.is_incremental =0
+        
+        #call funcs
+        set_device_group(50000,60000,8,3,0,'a')
+        ret = device_group_update(dg)
+        self.assertEqual(ret,AGENT_OK)
+    
+        dg.device_count.plugged_count = 0
+        ret = device_group_update(dg)
+        #check result
+        self.assertEqual(ret,AGENT_ERR)
+        dg.device_count.plugged_count = 8
+        ret = device_group_update(dg)
+        self.assertEqual(ret,AGENT_OK)
+    
+    def testUpdateRules(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port 
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb1'
+        l7srv.listener_id  = 'li333'
+        rule = l7srv.http_rule.add()#repeated
+        rule.name = 'rule1'
+        rule.domain = 'www.x1.com'
+        rule.url = 'www.x.com.cn'
+        rule.state = proxy_pb2.HttpRule.CREATED
+        rule = l7srv.http_rule.add()#repeated
+        rule.name = 'rule2'
+        rule.domain = 'www.x2.com'
+        rule.url = 'www.x.com.cn'
+        rule.state = proxy_pb2.HttpRule.CREATED
+        rules = l7srv.http_rule
+
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = (test_port + 1)
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb1'
+        l7srv.listener_id  = 'li333'
+        rule2 = l7srv.http_rule.add()#repeated
+        rule2.name = 'rule2'
+        rule2.domain = 'www.x3.com'
+        rule2.url = 'www.x.com.cn'
+        rule2.state = proxy_pb2.HttpRule.CREATED
+        rule2.config.idle_timeout = 333
+        ruled = l7srv.http_rule
+
+        update_rules(rules,ruled,0, False)
+        num = 0
+        for rule in ruled:
+            num += 1
+        self.assertEqual(num, 2)
+        self.assertEqual(rule2.config.idle_timeout, 333)
+        self.assertEqual(rule2.domain, 'www.x2.com')
+
+    def testOpListen(self):
+        lb = loadbalancer_pb2.LoadbalancerMessage()
+        lb.address = '12.12.12.12'
+        lb.loadbalancer_id = 'lb2005'
+        lb.version=4        
+
+        ret = create_lb(lb)
+        self.assertEqual(ret, AGENT_OK)
+        
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port + 2
+        l7srv.protocol = 'http'
+        l7srv.loadbalancer_id  = 'lb2006'
+        l7srv.listener_id  = 'li2005'
+        ret = create_listen(l7srv)
+        self.assertEqual(ret, AGENT_ERR)
+
+        ret = update_listen(l7srv)
+        self.assertEqual(ret, AGENT_NOT_FOUND)
+
+        ret = delete_listen(l7srv)
+        self.assertEqual(ret, AGENT_NOT_FOUND)
+
+    def testCheckBuildCacert(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port + 3
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb2005'
+        l7srv.listener_id  = 'li2005'
+        l7srv.config.wild_config['name'] = 'TaoBao'
+        l7srv.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+        l7srv.config.sticky_session.timeout = 3
+        l7srv.cert_key.ca_cert_id = 'a'
+        l7srv.cert_key.ca_cert = 'aabb'
+
+        ssl_ca_cert,ssl_ca_cert_new = build_ca_cert(l7srv, './')
+        self.assertTrue(ssl_ca_cert.find("ssl_verify_client") >= 0)
+
+    def testBuildHttpsCfg(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port + 4
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id = 'lb2005'
+        l7srv.listener_id = 'li2005'
+        l7srv.config.wild_config['name'] = 'TaoBao'
+        l7srv.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+        l7srv.config.sticky_session.timeout = 3
+        l7srv.cert_key.ca_cert_id = 'a'
+        l7srv.cert_key.ca_cert = 'aabb'
+        l7srv.cert_key.cert_key_id = 'c'
+        l7srv.cert_key.key_server_url = 'ccdd'
+        l7srv.cert_key.cert = 'ffff'
+        ssl_config, ssl_config_new, ssl_on, http2_on, ssl_keyless_server, cert, ssl_config_vip, ssl_certificate_vip, ssl_ca_cert_vip, ssl_ca_cert_new_vip = build_https_cfg(l7srv)
+        self.assertTrue(ssl_config is not None)
+        self.assertTrue(ssl_config_new is not None)
+
+        #print 'dump result'
+        #print ssl_config 
+        #print '=================='
+        #print ssl_config_new
+        #print '=================='
+        #print ssl_on
+        #print '=================='
+        #print http2_on
+        #print '=================='
+        #print ssl_keyless_server
+        #print '=================='
+        #print cert
+        #print '=================='
+        #print ssl_config_vip
+        #print '=================='
+        #print ssl_certificate_vip
+        #print '=================='
+        #print ssl_ca_cert_vip
+        #print '=================='
+        #print ssl_ca_cert_new_vip
+
+    def testBuildTcpsCfg(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+5
+        l7srv.protocol = 'tcps'
+        l7srv.loadbalancer_id = 'lb2005'
+        l7srv.listener_id = 'li2005'
+        l7srv.cert_key.ca_cert_id = 'a'
+        l7srv.cert_key.ca_cert = 'aabb'
+        l7srv.cert_key.cert_key_id = 'c'
+        l7srv.cert_key.key_server_url = 'ccdd'
+        l7srv.cert_key.cert = 'cert_text here'
+        ssl_config, ssl_config_new, ssl_keyless_server, cert, ssl_config_vip, ssl_certificate_vip, ssl_ca_cert_vip, ssl_ca_cert_new_vip = build_tcps_cfg(l7srv)
+        self.assertTrue(ssl_config is not None)
+        self.assertTrue(ssl_config_new is not None)
+
+    def testDefaultServerBackend1(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+6
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id = 'lb2005'
+        l7srv.listener_id = 'li2005'
+      
+        args = {
+            "listen" : l7srv,
+            "slb_info" : "lbxxx"
+        }
+        result = build_default_server_backend1(**args)
+        backend_section = result["upstream_for_vip"]
+        self.assertTrue(backend_section.find("127.0.0.1:503") >= 0)
+        #print default_server_backend
+        #print backend_section
+
+    def testTcpsDefaultServerBackend1(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+7
+        l7srv.protocol = 'tcps'
+        l7srv.loadbalancer_id = 'lb2005'
+        l7srv.listener_id = 'li2005'
+
+        args = {
+            "listen" : l7srv,
+            "slb_info" : "lbxxx"
+        }
+        result = build_default_server_backend1(**args)
+        backend_section = result["upstream_for_vip"]
+        self.assertTrue(backend_section.find("127.0.0.1:503") >= 0)
+
+    def testDefaultServerBackend2(self):
+
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+8
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb2005'
+        l7srv.listener_id  = 'li2005'
+        l7srv.upstream_keepalive.keepalive = 60
+        l7srv.upstream_keepalive.keepalive_timeout = 666
+        realserver = l7srv.realserver.add()#repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.DELETED #!!!!
+        realserver.weight = 100
+        realserver.tunnel_id =23
+        args = {
+            "listen"   : l7srv,
+            "rs_pool"  : {},
+            "slb_info" : 'lbxxx',
+            "secure_cookie_flag" : 0,
+            "lb_tunnel_id"   : 0,
+            "listener_id" : 'ls_xx'
+        }
+        result = build_default_server_backend2(**args)
+        default_server_backend = result['loc_for_vip']
+        backend_section = result['upstream_for_vip']
+    
+        self.assertTrue(backend_section.find("8.8.8.8:3") >= 0)
+        self.assertTrue(backend_section.find("keepalive 60") >= 0)
+        self.assertTrue(default_server_backend.find("slb_upstream_keepalive on") >= 0)
+        #print default_server_backend
+        #print backend_section
+
+    def testTcpsDefaultServerBackend2(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+9
+        l7srv.protocol = 'tcps'
+        l7srv.loadbalancer_id = 'lb2005'
+        l7srv.listener_id = 'li2005'
+        l7srv.upstream_keepalive.keepalive = 60
+        l7srv.upstream_keepalive.keepalive_timeout = 666
+        realserver = l7srv.realserver.add()  # repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.DELETED  # !!!!
+        realserver.weight = 100
+        realserver.tunnel_id = 23
+        args = {
+            "listen"   : l7srv,
+            "rs_pool"  : {},
+            "slb_info" : 'lbxxx',
+            "secure_cookie_flag" : 0,
+            "lb_tunnel_id"   : 0,
+            "listener_id" : 'ls_xx'
+        }
+        result = build_default_server_backend2(**args)
+        backend_section = result['upstream_for_vip']
+
+        self.assertTrue(backend_section.find("8.8.8.8:3") >= 0)
+        self.assertTrue(backend_section.find("keepalive 60") < 0)
+
+    def testRuleBackend(self):
+
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+10
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb2005'
+        l7srv.listener_id  = 'li2005'
+        realserver = l7srv.realserver.add()#repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.DELETED #!!!! create?
+        realserver.weight = 100
+        realserver.tunnel_id =23
+        rule = l7srv.http_rule.add()#repeated
+        rule.name = 'rule1'
+        rule.domain = 'www.x.com'
+        rule.url = 'www.x.com.cn'
+        rule.state = proxy_pb2.HttpRule.CREATED
+        rule.upstream_keepalive.keepalive = 666
+        rule.upstream_keepalive.keepalive_timeout = 777
+
+        realserver = l7srv.http_rule[0].realserver.add()#repeated
+        realserver.address = "188.188.188.188"
+        realserver.port = 133
+        realserver.tunnel_id = 133
+        realserver.state = common_pb2.Realserver.CREATED #enum
+        realserver.weight = 1101
+        realserver.tunnel_id =23 #!!!!!wo vgw_ip
+
+        rule_config = {}
+        default_server_rule_config = {}
+        backend_section_rule_hotconf = {}
+        rule_backend = {}
+        rule_backend_new = {}
+        rs_pool = {}
+        ssl_on = "ssl on"
+        http2_on = "http2 on"
+        ssl_keyless_server = "ssl_keyless_server"
+        cert = "cert"
+        ssl_config_vip = "ssl_config_vip"
+        ssl_certificate_vip = "ssl_certificate_vip"
+        ssl_ca_cert_vip = "ssl_ca_cert_vip"
+        ssl_ca_cert_new_vip = "ssl_ca_cert_new_vip"
+
+        args = {
+            "listen" : l7srv,
+            "slb_info" : "lbxxxx",
+            "rule" : rule,
+            "rule_config_with_servername" : rule_config,
+            "rule_config_without_servername" : default_server_rule_config,
+            "hotconf_upstream_for_rule" : backend_section_rule_hotconf,
+            "loc_for_rule_with_servername" : rule_backend,
+            "hotconf_loc_for_rule_with_servername" : rule_backend_new,
+            "rs_pool" : rs_pool,
+            "ssl_switch" : ssl_on,
+            "http2_switch" : http2_on,
+            "ssl_keyless_server" : ssl_keyless_server,
+            "cert" : cert,
+            "ssl_config_vip" : ssl_config_vip,
+            "ssl_certificate_vip" : ssl_certificate_vip,
+            "ssl_ca_cert_vip" : ssl_ca_cert_vip,
+            "ssl_ca_cert_new_vip" : ssl_ca_cert_new_vip,
+            "lb_tunnel_id": 0,
+            "listener_id": 'lx_xx'
+        }
+    
+        result = build_rule_backend(**args) 
+        self.assertTrue(backend_section_rule_hotconf['50010_rule1'].find("188.188.188.188:133") >= 0)
+        self.assertTrue(backend_section_rule_hotconf['50010_rule1'].find("keepalive 666") >= 0)
+        self.assertTrue(str(rule_backend).find("slb_upstream_keepalive on") >= 0)
+        #print bsr
+        #print 'bsr ================'
+        #print dsb 
+        #print 'dsb ================'
+        #print dsbn
+        #print 'dsbn ================'
+        #print rule_config
+        #print 'rule_config ================'
+        #print default_server_rule_config
+        #print 'default_server_rule_config ================'
+        #print backend_section_rule_hotconf
+        #print 'backend_section_rule_hotconf ================'
+        #print rule_backend
+        #print 'rule_backend ================'
+        #print rule_backend_new
+        #print 'rule_backend_new ================'
+        #print rs_pool
+
+    def testBuildWildconf(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+11
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb2005'
+        l7srv.listener_id  = 'li2005'
+        realserver = l7srv.realserver.add()#repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.DELETED #!!!! create?
+        realserver.weight = 100
+        realserver.tunnel_id = 23
+
+        wil, wilnew = build_wildconf(l7srv, None, {}, {})
+        #print wil
+        #print wilnew
+        self.assertTrue(wil == "\n")
+        self.assertTrue(wilnew == "\n")
+
+    def testTcpsBuildWildconf(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.vip_port = 68000
+        l7srv.port = test_port+12
+        l7srv.protocol = 'tcps'
+        l7srv.loadbalancer_id = 'lb2005'
+        l7srv.listener_id = 'li2005'
+        realserver = l7srv.realserver.add()#repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.DELETED #!!!! create?
+        realserver.weight = 100
+        realserver.tunnel_id = 23
+
+        wil, wilnew = build_wildconf(l7srv, None, {}, {})
+        self.assertTrue(wil.find("slbid lb2005") >= 0)
+        self.assertTrue(wil.find("vip_addr 17.7.7.71") >= 0)
+        self.assertTrue(wil.find("slb_vport 68000") >= 0)
+        self.assertTrue(wilnew == "\n")
+
+    def testGenVipSection(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port + 13
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb2005'
+        l7srv.listener_id  = 'li2005'
+        realserver = l7srv.realserver.add()#repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.DELETED #!!!! create?
+        realserver.weight = 100
+        realserver.tunnel_id =23
+        
+        set_default_wild_config_dict()
+        rt = gen_vip_section(l7srv)
+        self.assertTrue((str(rt)).find("8.8.8.8") >= 0)
+        #print '============='
+        #print rt
+
+    def testTcpsGenVipSection(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+14
+        l7srv.protocol = 'tcps'
+        l7srv.loadbalancer_id = 'lb2005'
+        l7srv.listener_id = 'li2005'
+        realserver = l7srv.realserver.add()  # repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.DELETED  # !!!! create?
+        realserver.weight = 100
+        realserver.tunnel_id = 23
+
+        set_default_wild_config_dict()
+        rt = gen_vip_section(l7srv)
+        self.assertTrue((str(rt)).find("8.8.8.8") >= 0)
+        #print '============='
+        #print rt
+
+    def testPushShm(self):
+        set_proxy_conf_file("55555")
+        res = push_to_shm_new("55555", "https", None, None, None)
+        self.assertTrue(res, True)
+
+        ndupslist = ['aa','bb','cc']
+        cblock = {}
+        cblock['dyaccept'] = {}
+        cblock['dyaccept']['https'] = 'https on;'
+        cblock['dyaccept']['http2'] = 'http2 on;'
+        cblock['dyaccept']['ssl_verify_client'] = 'ssl_verify_client  on;'
+        cblock['dyaccept']['gzip_etag'] = 'gzip_etag on;'
+        cblock['dyaccept']['ssl_protocols'] = 'ssl_protocols TLSv1.0 TLSv1.1 TLSv1.2;'
+        cblock['dyaccept']['proxy_http_version'] = 'proxy_http_version 1.0;'
+        cblock['dyaccept']['slb_proxy_read_timeout'] = 'proxy_read_timeout 60;'
+        cblock['dyaccept']['keepalive_timeout'] = 'keepalive_timeout 666;'
+        cblock['server'] = "na"
+        cblock["dups"] = "server 100.69.197.181:8082 max_fails=0 weight=100;"
+        cblock["ndups"] =  {"aa":"server 100.69.197.181:8082 max_fails=0 weight=100;"}
+        cblock['servernew'] = "server { location /{  ups 999;  }}"
+        cblock['cert'] = """-----BEGIN CERTIFICATE-----
+MIIDLDCCAhQCCQCir9qo2OsDfjANBgkqhkiG9w0BAQUFADBSMQswCQYDVQQGEwJD
+TjERMA8GA1UECBMIWmhlamlhbmcxETAPBgNVBAcTCEhhbmd6aG91MQ8wDQYDVQQK
+EwZBbGl5dW4xDDAKBgNVBAsTA1NMQjAeFw0xNjA1MDkwNzM3MDhaFw0xNjA2MDgw
+NzM3MDhaMF4xCzAJBgNVBAYTAkNOMREwDwYDVQQIEwhaaGVqaWFuZzERMA8GA1UE
+BxMISGFuZ3pob3UxDzANBgNVBAoTBkFsaXl1bjEMMAoGA1UECxMDU0xCMQowCAYD
+VQQDEwFjMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxzhs462VVa4y
+5HydTHqsnR2gAfiibKWJjCsuck6fs9vB28NhzfmkytTRYVZPaj/iNDihdvAZfuQX
+of+2NoHHcw0DHMHRIWLyHnZ4+iEsYTPIiBAWSBIWRXwCxIyBahdo0Vh4oTKLZ5dv
+q6zCj+6hOGnV2YtKtMcdtkTCPvxyVNHxFHiXvElCyYlqpyaS//MT8oEjaNwCBamz
+XB+VE81BT/H9jui5LjAoqgVJcRt/s3zQMt+WsD6vzF9iakOAlYWKGxBNrvEY/JYI
+PLyAOe1Ghse+PhX1KF4ofQp0XBZCa7NQ9lEnk3ZJv95kVwVBnAN3Ii7mc6wBMUxp
+kuoP+4rBowIDAQABMA0GCSqGSIb3DQEBBQUAA4IBAQC0q72QCuOwH7bFOqAkrXDw
+VRfvhCjGi3xKV6NB6CsqsJ3wKOkC2nzuG5dXHbTVKX7m3JP1kX1NzxDjUJOhrl3+
+5hWeM3J9OVzScIwtX10QsRUUbFmyEeTsHvjHZI8AoODzX6EMT5cZNWAfYXqQ4ziy
+wwBg8u/cx8tvLe2geWJJcudnB0UJaG7348vWOsm6CaE8y9Ya1VYemsvii+8R29xm
+6I5YIcGOOm24xU49rCNkh6ntV1K0hC0lx0WWU34dPY7OiznrkTMauuAbTol4BjDT
+jabRiJYdvgUHbkPRnCiuuk6jJUAAW80GVyGyGPD9d2aNUa44FlxgtNE5e/vwMwFX
+-----END CERTIFICATE-----"""  
+        cblock['cacert'] = """-----BEGIN CERTIFICATE-----
+MIIDLDCCAhQCCQCir9qo2OsDfjANBgkqhkiG9w0BAQUFADBSMQswCQYDVQQGEwJD
+TjERMA8GA1UECBMIWmhlamlhbmcxETAPBgNVBAcTCEhhbmd6aG91MQ8wDQYDVQQK
+EwZBbGl5dW4xDDAKBgNVBAsTA1NMQjAeFw0xNjA1MDkwNzM3MDhaFw0xNjA2MDgw
+NzM3MDhaMF4xCzAJBgNVBAYTAkNOMREwDwYDVQQIEwhaaGVqaWFuZzERMA8GA1UE
+BxMISGFuZ3pob3UxDzANBgNVBAoTBkFsaXl1bjEMMAoGA1UECxMDU0xCMQowCAYD
+VQQDEwFjMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxzhs462VVa4y
+5HydTHqsnR2gAfiibKWJjCsuck6fs9vB28NhzfmkytTRYVZPaj/iNDihdvAZfuQX
+of+2NoHHcw0DHMHRIWLyHnZ4+iEsYTPIiBAWSBIWRXwCxIyBahdo0Vh4oTKLZ5dv
+q6zCj+6hOGnV2YtKtMcdtkTCPvxyVNHxFHiXvElCyYlqpyaS//MT8oEjaNwCBamz
+XB+VE81BT/H9jui5LjAoqgVJcRt/s3zQMt+WsD6vzF9iakOAlYWKGxBNrvEY/JYI
+PLyAOe1Ghse+PhX1KF4ofQp0XBZCa7NQ9lEnk3ZJv95kVwVBnAN3Ii7mc6wBMUxp
+kuoP+4rBowIDAQABMA0GCSqGSIb3DQEBBQUAA4IBAQC0q72QCuOwH7bFOqAkrXDw
+VRfvhCjGi3xKV6NB6CsqsJ3wKOkC2nzuG5dXHbTVKX7m3JP1kX1NzxDjUJOhrl3+
+5hWeM3J9OVzScIwtX10QsRUUbFmyEeTsHvjHZI8AoODzX6EMT5cZNWAfYXqQ4ziy
+wwBg8u/cx8tvLe2geWJJcudnB0UJaG7348vWOsm6CaE8y9Ya1VYemsvii+8R29xm
+6I5YIcGOOm24xU49rCNkh6ntV1K0hC0lx0WWU34dPY7OiznrkTMauuAbTol4BjDT
+jabRiJYdvgUHbkPRnCiuuk6jJUAAW80GVyGyGPD9d2aNUa44FlxgtNE5e/vwMwFX
+-----END CERTIFICATE-----"""  
+        res = push_to_shm_new("55555", "https", cblock, ndupslist, None)
+        self.assertEqual(res, True)
+
+    def testPushShm2(self):
+        cert = """-----BEGIN CERTIFICATE-----
+MIIDLDCCAhQCCQCir9qo2OsDfjANBgkqhkiG9w0BAQUFADBSMQswCQYDVQQGEwJD
+TjERMA8GA1UECBMIWmhlamlhbmcxETAPBgNVBAcTCEhhbmd6aG91MQ8wDQYDVQQK
+EwZBbGl5dW4xDDAKBgNVBAsTA1NMQjAeFw0xNjA1MDkwNzM3MDhaFw0xNjA2MDgw
+NzM3MDhaMF4xCzAJBgNVBAYTAkNOMREwDwYDVQQIEwhaaGVqaWFuZzERMA8GA1UE
+BxMISGFuZ3pob3UxDzANBgNVBAoTBkFsaXl1bjEMMAoGA1UECxMDU0xCMQowCAYD
+VQQDEwFjMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxzhs462VVa4y
+5HydTHqsnR2gAfiibKWJjCsuck6fs9vB28NhzfmkytTRYVZPaj/iNDihdvAZfuQX
+of+2NoHHcw0DHMHRIWLyHnZ4+iEsYTPIiBAWSBIWRXwCxIyBahdo0Vh4oTKLZ5dv
+q6zCj+6hOGnV2YtKtMcdtkTCPvxyVNHxFHiXvElCyYlqpyaS//MT8oEjaNwCBamz
+XB+VE81BT/H9jui5LjAoqgVJcRt/s3zQMt+WsD6vzF9iakOAlYWKGxBNrvEY/JYI
+PLyAOe1Ghse+PhX1KF4ofQp0XBZCa7NQ9lEnk3ZJv95kVwVBnAN3Ii7mc6wBMUxp
+kuoP+4rBowIDAQABMA0GCSqGSIb3DQEBBQUAA4IBAQC0q72QCuOwH7bFOqAkrXDw
+VRfvhCjGi3xKV6NB6CsqsJ3wKOkC2nzuG5dXHbTVKX7m3JP1kX1NzxDjUJOhrl3+
+5hWeM3J9OVzScIwtX10QsRUUbFmyEeTsHvjHZI8AoODzX6EMT5cZNWAfYXqQ4ziy
+wwBg8u/cx8tvLe2geWJJcudnB0UJaG7348vWOsm6CaE8y9Ya1VYemsvii+8R29xm
+6I5YIcGOOm24xU49rCNkh6ntV1K0hC0lx0WWU34dPY7OiznrkTMauuAbTol4BjDT
+jabRiJYdvgUHbkPRnCiuuk6jJUAAW80GVyGyGPD9d2aNUa44FlxgtNE5e/vwMwFX
+-----END CERTIFICATE-----"""
+
+        push_httpconf_to_shm('55555',cert)
+
+    def testTicket(self):
+        res = is_force_http_version()
+        res = is_websocket_enable()
+        res = is_force_http_version
+        lock()
+        unlock()
+        rotate_ticketkey()
+        set_rotate_flag()
+        res = is_rotate_set()
+        #self.assertEqual(res, True)
+        unset_rotate_flag()
+        #self.assertEqual(res, False)
+        can_rotate()
+        
+    def testDevicePrecheck(self):
+        dc = proxy_pb2.ProxyDeviceConfigurationMessage()
+        dc.local_address.network_addr = '1.1.1.1'
+        dc.local_address.mask = 23
+        dc.version = 1
+        dc.is_incremental =1
+        res = device_precheck(dc)
+        self.assertEqual(res,AGENT_OK)
+        device_update(dc)
+
+        dc.version =2
+        dc.is_incremental = 0
+        res = device_precheck(dc)
+        self.assertEqual(res,AGENT_OK)
+        dc.version =5
+        dc.is_incremental = 1
+        res = device_precheck(dc)
+        self.assertEqual(res,AGENT_VA)
+
+    def testUpdateDeviceGroup(self):
+        dg = proxy_pb2.ProxyDeviceGroupConfigurationMessage ()
+        dg.site_name = 'vo'
+        dg.start_port = 111
+        dg.end_port = 2222
+        dg.device_count.plugged_count = 33
+        dg.version = 4
+        dg.is_incremental =0
+        dg.ssl_session_key.current_key = '2234567890abcdef0e6f4659a0d38f1259be0268b61e6254'
+        dg.ssl_session_key.previous_key = '9c4769c2a42304a548048f56d0f271a6bade390b69a3e25a'
+        res = device_group_precheck(dg)
+        dg.is_incremental =1
+        res = device_group_precheck(dg)
+        dg.version = 1
+        res = device_group_precheck(dg)
+
+    def testUpdateFs(self):
+        fs = common_pb2.FlowSwitchConfigurationMessage()
+        fs.flow_switch = 1 
+        fs.version =2
+        fs.is_incremental =0
+        res = fswitch_precheck(fs)
+        self.assertTrue(res,AGENT_OK)
+        fs.is_incremental =1
+        res = fswitch_precheck(fs)
+        self.assertTrue(res,AGENT_OK)
+       
+        fs.is_incremental =1
+        res = fswitch_precheck(fs)
+        self.assertEqual(res,AGENT_VA)
+
+    def testUpdateLb(self):
+        lb = loadbalancer_pb2.LoadbalancerMessage()
+        lb.address = '132.12.12.12'
+        lb.loadbalancer_id = 'aa'
+        lb.version= 4
+        lb.is_incremental  = 0
+        res = update_lb_precheck(lb)
+        self.assertTrue(res,AGENT_VB )
+        lb.is_incremental  = 1
+        lb.version= 6
+        res = update_lb_precheck(lb)
+        self.assertEqual(res,AGENT_OK)
+
+    def testDyx(self):
+        cblock = {}
+        cblock['servernew'] = "server { location /{  ups 999;  }}"
+        res = update_dyX("55555",cblock)
+        self.assertEqual(res,True)
+
+    def testOld(self):
+        res = update_include_ups_conf()
+        self.assertEqual(res,True)
+
+    def testQuery(self):
+        query_lb_rsp('xxx')
+        query_devicecfg_rsp()
+        query_fswitch_rsp()
+        query_devicegrp_rsp()
+        query_listen_rsp("xxx")
+        query_runtime_rsp()
+   
+    def testpopulate_lb_to_all_vips(self):
+        lb = loadbalancer_pb2.LoadbalancerMessage()
+        lb.address = '132.12.12.12'
+        lb.loadbalancer_id = 'lb4update'
+        lb.sla_config.qps  = 1000
+        res = populate_lb_to_all_vips(lb,'aa')
+
+    def testrsop(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "7.7.7.71"
+        l7srv.port = test_port +15
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb2004'
+        l7srv.listener_id  = 'li2004'
+        l7srv.tunnel_id =32
+        rule = l7srv.http_rule.add()
+        rule.name = 'a'
+        rule.domain = 'www.x.com'
+        realserver = l7srv.http_rule[0].realserver.add()
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.CREATED 
+        realserver.tunnel_id = 9
+        rule1 = l7srv.http_rule.add()
+        rule1.name = 'aa'
+        rule1.domain = 'www.x.com'
+        realserver = l7srv.http_rule[1].realserver.add()
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.CREATED 
+        realserver.tunnel_id = 9
+        update_realservers(rule.realserver, rule1.realserver)
+
+    def testups(self):
+        #gen_fake_upstream()
+        service = proxy_pb2.LayerSevenServiceMessage()
+        service.config.check.check_type = common_pb2.HealthCheck.HTTP
+        service.config.check.timeout =3
+        service.config.check.interval = 5
+        service.config.check.up = 6
+        service.config.check.down = 7
+        service.config.check.port = 8
+        service.config.check.domain = "www.173.com"
+        service.config.check.uri = "hot.html"
+        service.config.check.http_status_code = "Fine"
+        service.config.check.request = "request"
+        service.config.check.response = "response"
+        service.config.wild_config['name'] = 'TaoBao'
+        service.config.sticky_session.sticky_session_type  = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+        service.config.sticky_session.timeout = 3
+        service.tunnel_id = 99
+        realserver = service.realserver.add()#repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 0
+        realserver.tunnel_id = 45
+        realserver.vgw_ip = "1.1.1.1"
+        realserver.weight = 100
+        realserver.is_backup = 0
+        realserver.state = common_pb2.Realserver.CREATED #enum
+        ret = verify_listen(service, 50001)
+        self.assertEqual(ret, False)
+        realserver.port = 3
+        ret = verify_listen(service, 50001)
+        self.assertEqual(ret, True)
+
+        upstream = {}
+        upstream['scheduler'] = common_pb2.WLC
+        upstream['sticky_session'] = service.config.sticky_session
+        upstream['check'] = service.config.check
+        upstream['realservers'] = service.realserver
+
+        genUpstreamConfig('aa', upstream, '1.1.1.1', 'aa', 33, None)
+        genUpstreamConfig_('aa', upstream, '1.1.1.1', 'aa', 33, 0, 'ls-xx', 'http', None, "rule_id-test", 'pool_id-test')
+
+    def testls(self):
+        set_proxy_lb_dict('aa',17,'aa',17,50333,0)
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+16
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'aa'
+        l7srv.listener_id  = 'aa'
+        l7srv.tunnel_id =23
+        l7srv.version = 17
+        res = update_listen_precheck(l7srv)
+        self.assertTrue(res,AGENT_VB)
+        l7srv.version = 18
+        res = update_listen_precheck(l7srv)
+        self.assertTrue(res,AGENT_OK)
+        update_listen(l7srv)
+
+    def testsecurecookie(self):
+        # call parse_secure_cookie_from_wildconf
+        wildconf = {}
+        wildconf['slb_secure_cookie'] = 'on'
+        wildconf['slb_httponly_cookie'] = 'on'
+        flag = parse_secure_cookie_from_wildconf(wildconf)
+        self.assertTrue(flag,0x3)
+        # call build_default_server_backend2
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+17
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'aa'
+        l7srv.listener_id  = 'aa'
+        l7srv.tunnel_id =23
+        l7srv.version = 17
+        rs_pool = {}
+        args = {
+            "listen"   : l7srv,
+            "rs_pool"  : rs_pool,
+            "slb_info" : 'lb_xxx',
+            "secure_cookie_flag" : 0x3,
+            "lb_tunnel_id"   : 0,
+            "listener_id" : 'ls_xxxx'
+        }
+        result = build_default_server_backend2(**args)
+        default_server_backend_new = result['hotconf_loc_for_vip']
+
+        #print default_server_backend_new
+        self.assertTrue(default_server_backend_new.find("slb_secure_cookie on") > 0 )
+        self.assertTrue(default_server_backend_new.find("slb_httponly_cookie on") > 0 )
+        # call build_rule_backend
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+18
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'aa'
+        l7srv.listener_id  = 'aa'
+        l7srv.tunnel_id =23
+        l7srv.version = 17
+        rule = l7srv.http_rule.add()
+        rule.name = 'a'
+        rule.domain = 'www.x.com'
+        rule.is_url_regex = common_pb2.ON
+        rule.config.wild_config['slb_secure_cookie'] = 'on'
+        rule.config.wild_config['slb_httponly_cookie'] = 'on'
+        realserver = l7srv.http_rule[0].realserver.add()
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.CREATED
+
+        rule1 = l7srv.http_rule.add()
+        rule1.name = 'b'
+        rule1.is_url_regex = common_pb2.ON
+        rule1.config.wild_config['slb_secure_cookie'] = 'on'
+        rule1.config.wild_config['slb_httponly_cookie'] = 'on'
+        realserver = l7srv.http_rule[0].realserver.add()
+        realserver.address = "18.18.18.18"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.CREATED 
+        realserver.tunnel_id = 9
+
+        rule_config = {}
+        default_server_rule_config = {}
+        backend_section_rule_hotconf = {}
+        rule_backend = {}
+        rule_backend_new = {}
+        rs_pool = {}
+        ssl_on = "ssl on"
+        http2_on = "http2 on"
+        ssl_keyless_server = "ssl_keyless_server"
+        cert = "cert"
+        ssl_config_vip = "ssl_config_vip"
+        ssl_certificate_vip = "ssl_certificate_vip"
+        ssl_ca_cert_vip = "ssl_ca_cert_vip"
+        ssl_ca_cert_new_vip = "ssl_ca_cert_new_vip"
+
+        args = {
+            "listen" : l7srv,
+            "slb_info" : "lbxxxx",
+            "rule" : rule,
+            "rule_config_with_servername" : rule_config,
+            "rule_config_without_servername" : default_server_rule_config,
+            "hotconf_upstream_for_rule" : backend_section_rule_hotconf,
+            "loc_for_rule_with_servername" : rule_backend,
+            "hotconf_loc_for_rule_with_servername" : rule_backend_new,
+            "rs_pool" : rs_pool,
+            "ssl_switch" : ssl_on,
+            "http2_switch" : http2_on,
+            "ssl_keyless_server" : ssl_keyless_server,
+            "cert" : cert,
+            "ssl_config_vip" : ssl_config_vip,
+            "ssl_certificate_vip" : ssl_certificate_vip,
+            "ssl_ca_cert_vip" : ssl_ca_cert_vip,
+            "ssl_ca_cert_new_vip" : ssl_ca_cert_new_vip,
+            "lb_tunnel_id": 0,
+            "listener_id": 'ls_xx'
+        }
+
+        result = build_rule_backend(**args) 
+        #print '-------'
+        #print rule_backend_new
+        self.assertTrue(rule_backend_new['www.x.com'].find("slb_secure_cookie on") > 0 )
+        self.assertTrue(rule_backend_new['www.x.com'].find("slb_httponly_cookie on") > 0 )
+
+        args = {
+            "listen" : l7srv,
+            "slb_info" : "lbxxxx",
+            "rule" : rule1,
+            "rule_config_with_servername" : rule_config,
+            "rule_config_without_servername" : default_server_rule_config,
+            "hotconf_upstream_for_rule" : backend_section_rule_hotconf,
+            "loc_for_rule_with_servername" : rule_backend,
+            "hotconf_loc_for_rule_with_servername" : rule_backend_new,
+            "rs_pool" : rs_pool,
+            "ssl_switch" : ssl_on,
+            "http2_switch" : http2_on,
+            "ssl_keyless_server" : ssl_keyless_server,
+            "cert" : cert,
+            "ssl_config_vip" : ssl_config_vip,
+            "ssl_certificate_vip" : ssl_certificate_vip,
+            "ssl_ca_cert_vip" : ssl_ca_cert_vip,
+            "ssl_ca_cert_new_vip" : ssl_ca_cert_new_vip,
+            "lb_tunnel_id": 0,
+            "listener_id": 'ls_xx'
+        }
+        result = build_rule_backend(**args) 
+        dsbn = result['hotconf_loc_for_rule_without_servername']
+
+        #print '-------'
+        #print dsbn
+        self.assertTrue(dsbn.find("slb_secure_cookie on") > 0 )
+        self.assertTrue(dsbn.find("slb_httponly_cookie on") > 0 )
+
+    def testspecchar(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+19
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'aa'
+        l7srv.listener_id  = 'aa'
+        l7srv.tunnel_id =23
+        l7srv.version = 17
+        
+   
+        rule = l7srv.http_rule.add()
+        rule.name = 'a'
+        rule.domain = 'www.x.com'
+        rule.is_url_regex = common_pb2.ON
+        realserver = l7srv.http_rule[0].realserver.add()
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.CREATED 
+        realserver.tunnel_id = 9
+
+        rule1 = l7srv.http_rule.add()
+        rule1.name = 'b'
+        rule1.is_url_regex = common_pb2.ON
+        realserver = l7srv.http_rule[0].realserver.add()
+        realserver.address = "18.18.18.18"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.CREATED 
+        realserver.tunnel_id = 9
+
+        rule_config = {}
+        default_server_rule_config = {}
+        backend_section_rule_hotconf = {}
+        rule_backend = {}
+        rule_backend_new = {}
+        rs_pool = {}
+        ssl_on = "ssl on"
+        http2_on = "http2 on"
+        ssl_keyless_server = "ssl_keyless_server"
+        cert = "cert"
+        ssl_config_vip = "ssl_config_vip"
+        ssl_certificate_vip = "ssl_certificate_vip"
+        ssl_ca_cert_vip = "ssl_ca_cert_vip"
+        ssl_ca_cert_new_vip = "ssl_ca_cert_new_vip"
+        args = {
+            "listen" : l7srv,
+            "slb_info" : "lbxxxx",
+            "rule" : rule,
+            "rule_config_with_servername" : rule_config,
+            "rule_config_without_servername" : default_server_rule_config,
+            "hotconf_upstream_for_rule" : backend_section_rule_hotconf,
+            "loc_for_rule_with_servername" : rule_backend,
+            "hotconf_loc_for_rule_with_servername" : rule_backend_new,
+            "rs_pool" : rs_pool,
+            "ssl_switch" : ssl_on,
+            "http2_switch" : http2_on,
+            "ssl_keyless_server" : ssl_keyless_server,
+            "cert" : cert,
+            "ssl_config_vip" : ssl_config_vip,
+            "ssl_certificate_vip" : ssl_certificate_vip,
+            "ssl_ca_cert_vip" : ssl_ca_cert_vip,
+            "ssl_ca_cert_new_vip" : ssl_ca_cert_new_vip,
+            "lb_tunnel_id": 0,
+            "listener_id": 'ls_xx'
+        }
+        result = build_rule_backend(**args) 
+        #print '----------'
+        #print rule_backend_new
+        #print '----------'
+        self.assertTrue(rule_backend_new['www.x.com'].find("~/") >= 0)
+
+        args = {
+            "listen" : l7srv,
+            "slb_info" : "lbxxxx",
+            "rule" : rule1,
+            "rule_config_with_servername" : rule_config,
+            "rule_config_without_servername" : default_server_rule_config,
+            "hotconf_upstream_for_rule" : backend_section_rule_hotconf,
+            "loc_for_rule_with_servername" : rule_backend,
+            "hotconf_loc_for_rule_with_servername" : rule_backend_new,
+            "rs_pool" : rs_pool,
+            "ssl_switch" : ssl_on,
+            "http2_switch" : http2_on,
+            "ssl_keyless_server" : ssl_keyless_server,
+            "cert" : cert,
+            "ssl_config_vip" : ssl_config_vip,
+            "ssl_certificate_vip" : ssl_certificate_vip,
+            "ssl_ca_cert_vip" : ssl_ca_cert_vip,
+            "ssl_ca_cert_new_vip" : ssl_ca_cert_new_vip,
+            "lb_tunnel_id": 0,
+            "listener_id": 'ls_xx'
+        }
+        result = build_rule_backend(**args) 
+        #print dsbn
+        dsbn = result['hotconf_loc_for_rule_without_servername']
+
+        self.assertTrue(dsbn.find("~/") >= 0)
+
+    def test_dyconf_ops(self):
+        vip = '50003'
+        cblock = {}
+        cblock['servernew'] = "server { location /  {	ups 999;}}"
+        ret = dyconf_add(vip, 'http', cblock)
+        self.assertTrue(ret,True)
+        ret = dyconf_del(vip)
+        self.assertEqual(ret,True)
+
+    #def test_rule_dyups_del(self):
+    #    ret = rule_dyups_del('50001')
+    #    self.assertTrue(ret,True)
+      
+    def test_rule_dyups_add(self):
+        cblock = {}
+        cblock['ndups'] = {'ups1':"server 10.189.92.59:8088  max_fails=0 weight=100;",'ups2':"server 10.189.92.59:8088  max_fails=0 weight=100;"}
+        ret = rule_dyups_add('50001',cblock, None)
+        self.assertEqual(ret,True)
+
+    def test_default_dyups_add(self):
+        cblock = {}
+        cblock['dups'] = "server 10.189.92.59:8088  max_fails=0 weight=100;"
+        ret = default_dyups_add('55555', 'http', cblock)
+        self.assertEqual(ret,True)
+
+    def test_tcps_default_dyups_add(self):
+        cblock = {}
+        cblock['dups'] = "server 10.189.92.59:8088  max_fails=0 weight=100;"
+        ret = default_dyups_add('55555', 'tcps', cblock)
+        self.assertEqual(ret,True)
+
+    def test_build_dyaccept_conf(self):
+        listen = proxy_pb2.LayerSevenServiceMessage()
+        listen.address = "17.7.7.71"
+        listen.vip_port = 68000
+        listen.port = test_port+20
+        listen.protocol = 'https'
+        listen.loadbalancer_id  = 'lb2005'
+        listen.listener_id  = 'li2005'
+        listen.cert_key.cert_key_id = 'defaultcertkeyid'
+        listen.cert_key.ca_cert_id = 'defaultcacertid'
+        listen.cert_key.cert = "defaultcert"
+        listen.cert_key.ca_cert = 'defaultca'
+        listen.cert_key.key_server_url = "http:/www.default.com"
+        listen.config.http2 = common_pb2.ON
+        listen.config.tls_protocols = 'TLSv1.2'
+        listen.config.idle_timeout = 60
+        listen.config.read_timeout = 999
+        listen.config.wild_config['proxy_http_version'] = '1.1'
+        listen.config.wild_config['gzip_etag'] = 'on'
+        dyaccept_encodings = build_dyaccept_conf(listen)
+        self.assertEqual(dyaccept_encodings['splice'], 'splice off;')
+        self.assertEqual(dyaccept_encodings['quic'], 'quic off;')
+        self.assertEqual(dyaccept_encodings['gzip_etag'], 'gzip_etag on;')
+        self.assertEqual(dyaccept_encodings['slbid'], 'slbid lb2005;')
+        self.assertEqual(dyaccept_encodings['vip_addr'], 'vip_addr 17.7.7.71;')
+        self.assertEqual(dyaccept_encodings['slb_vport'], 'slb_vport 68000;')
+
+    def test_build_dyaccept_conf_tcps(self):
+        listen = proxy_pb2.LayerSevenServiceMessage()
+        listen.address = "17.7.7.71"
+        listen.vip_port = 68000
+        listen.port = test_port+21
+        listen.protocol = 'tcps'
+        listen.loadbalancer_id  = 'lb2005'
+        listen.listener_id  = 'li2005'
+        listen.cert_key.cert_key_id = 'defaultcertkeyid'
+        listen.cert_key.ca_cert_id = 'defaultcacertid'
+        listen.cert_key.cert = "defaultcert"
+        listen.cert_key.ca_cert = 'defaultca'
+        listen.cert_key.key_server_url = "8.8.8.8"
+        listen.config.http2 = common_pb2.ON
+        listen.config.tls_protocols = 'TLSv1.2'
+        listen.config.idle_timeout = 60
+        dyaccept_encodings = build_dyaccept_conf(listen)
+        self.assertEqual(dyaccept_encodings['splice'], 'splice on;')
+        self.assertEqual(dyaccept_encodings['slbid'], 'slbid lb2005;')
+        self.assertEqual(dyaccept_encodings['vip_addr'], 'vip_addr 17.7.7.71;')
+        self.assertEqual(dyaccept_encodings['slb_vport'], 'slb_vport 68000;')
+        self.assertEqual(dyaccept_encodings['ssl_protocols'], 'ssl_protocols TLSv1.2;')
+        self.assertEqual(dyaccept_encodings['ssl_verify_client'], 'ssl_verify_client on;')
+        self.assertEqual(dyaccept_encodings['keepalive_timeout'], 'keepalive_timeout 60;')
+
+
+    def test_push_to_dyaccept(self):
+        dyaccept_encodings = {}
+        dyaccept_encodings['splice'] = 'splice off;'
+        dyaccept_encodings['quic'] = 'quic off;'
+        dyaccept_encodings['https'] = 'https on;'
+        dyaccept_encodings['http2'] = 'http2 on;'
+        dyaccept_encodings['ssl_verify_client'] = 'ssl_verify_client  on;'
+        dyaccept_encodings['gzip_etag'] = 'gzip_etag on;'
+        dyaccept_encodings['ssl_protocols'] = 'ssl_protocols TLSv1.0 TLSv1.1 TLSv1.2;'
+        dyaccept_encodings['proxy_http_version'] = 'proxy_http_version 1.0;'
+        dyaccept_encodings['slb_proxy_read_timeout'] = 'proxy_read_timeout 60;'
+        dyaccept_encodings['keepalive_timeout'] = 'keepalive_timeout 666;'
+        ret = push_to_dyaccept('50001', dyaccept_encodings)
+        self.assertEqual(ret, True)
+
+    def test_rule_dyups_clean(self):
+        ndupslist = ['50000', 'rule_50001']
+        ret = rule_dyups_clean(ndupslist)
+        self.assertEqual(ret,True)
+
+    def test_dycert_ops(self):
+        cert = """-----BEGIN CERTIFICATE-----
+MIIDLDCCAhQCCQCir9qo2OsDfjANBgkqhkiG9w0BAQUFADBSMQswCQYDVQQGEwJD
+TjERMA8GA1UECBMIWmhlamlhbmcxETAPBgNVBAcTCEhhbmd6aG91MQ8wDQYDVQQK
+EwZBbGl5dW4xDDAKBgNVBAsTA1NMQjAeFw0xNjA1MDkwNzM3MDhaFw0xNjA2MDgw
+NzM3MDhaMF4xCzAJBgNVBAYTAkNOMREwDwYDVQQIEwhaaGVqaWFuZzERMA8GA1UE
+BxMISGFuZ3pob3UxDzANBgNVBAoTBkFsaXl1bjEMMAoGA1UECxMDU0xCMQowCAYD
+VQQDEwFjMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxzhs462VVa4y
+5HydTHqsnR2gAfiibKWJjCsuck6fs9vB28NhzfmkytTRYVZPaj/iNDihdvAZfuQX
+of+2NoHHcw0DHMHRIWLyHnZ4+iEsYTPIiBAWSBIWRXwCxIyBahdo0Vh4oTKLZ5dv
+q6zCj+6hOGnV2YtKtMcdtkTCPvxyVNHxFHiXvElCyYlqpyaS//MT8oEjaNwCBamz
+XB+VE81BT/H9jui5LjAoqgVJcRt/s3zQMt+WsD6vzF9iakOAlYWKGxBNrvEY/JYI
+PLyAOe1Ghse+PhX1KF4ofQp0XBZCa7NQ9lEnk3ZJv95kVwVBnAN3Ii7mc6wBMUxp
+kuoP+4rBowIDAQABMA0GCSqGSIb3DQEBBQUAA4IBAQC0q72QCuOwH7bFOqAkrXDw
+VRfvhCjGi3xKV6NB6CsqsJ3wKOkC2nzuG5dXHbTVKX7m3JP1kX1NzxDjUJOhrl3+
+5hWeM3J9OVzScIwtX10QsRUUbFmyEeTsHvjHZI8AoODzX6EMT5cZNWAfYXqQ4ziy
+wwBg8u/cx8tvLe2geWJJcudnB0UJaG7348vWOsm6CaE8y9Ya1VYemsvii+8R29xm
+6I5YIcGOOm24xU49rCNkh6ntV1K0hC0lx0WWU34dPY7OiznrkTMauuAbTol4BjDT
+jabRiJYdvgUHbkPRnCiuuk6jJUAAW80GVyGyGPD9d2aNUa44FlxgtNE5e/vwMwFX
+-----END CERTIFICATE-----"""
+        cblock = {}
+        cblock['cert'] = cert
+        ret = dycert_add('55555', cblock)
+        self.assertEqual(ret,True)
+        ret = dycert_del('55556')
+        self.assertEqual(ret,False)
+
+    def test_push_httpconf_to_shm_dyups(self):
+        data = """ server {
+        ssl_session_ticket_key 123456788765432112345678876543211234567887654321 123456788765432112345678876543211234567887654321;
+        }"""
+        ret = push_httpconf_to_shm_dyups("httpconf",data) 
+        self.assertEqual(ret,True)
+
+    def test_update_rules(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+22
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb2005'
+        l7srv.listener_id  = 'li2005'
+        rule = l7srv.http_rule.add()#repeated
+        rule.name = 'rule1'
+        rule.domain = 'www.x.com'
+        rule.url = 'www.x.com.cn'
+        rule.state = proxy_pb2.HttpRule.CREATED
+
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = test_port+23
+        l7srv1.protocol = 'https'
+        l7srv1.loadbalancer_id  = 'lb2006'
+        l7srv1.listener_id  = 'li2007'
+        rule2 = l7srv1.http_rule.add()#repeated
+        rule2.name = 'rule1'
+        rule2.domain = 'www.y.com'
+        rule2.url = 'www.y.com.cn'
+        rule2.state = proxy_pb2.HttpRule.CREATED
+        rule2.is_url_regex = common_pb2.ON
+        rule2.upstream_keepalive.keepalive = 60
+        rule2.upstream_keepalive.keepalive_timeout = 60
+        realserver = l7srv1.http_rule[0].realserver.add()
+        realserver.address = "18.18.18.18"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.CREATED
+        realserver.tunnel_id = 9
+        realserver.vgw_ip = '9.1.1.1'
+        #print l7srv.http_rule
+        #print l7srv1.http_rule
+        update_rules(l7srv1.http_rule, l7srv.http_rule, '9800', False)
+        #print l7srv.http_rule
+        self.assertEqual(rule.is_url_regex, common_pb2.ON)
+        self.assertEqual(rule.upstream_keepalive.keepalive, 60)
+
+    def test_verify_funcs(self):
+        dg = proxy_pb2.ProxyDeviceGroupConfigurationMessage ()
+        dg.site_name = 'vo'
+        dg.start_port = 50000
+        dg.end_port = 60000
+        dg.device_count.plugged_count = 33
+        dg.version = 4
+        dg.is_incremental =0
+        dg.ssl_session_key.current_key = '2234567890abcdef0e6f4659a0d38f1259be0268b61e6254'
+        dg.ssl_session_key.previous_key = '9c4769c2a42304a548048f56d0f271a6bade390b69a3e25a'
+        #ok case
+        ret = verify_devicegroup(dg)
+        self.assertEqual(ret, True)
+        dg.start_port = 60001
+        #wrong start port
+        ret = verify_devicegroup(dg)
+        self.assertEqual(ret, False)
+        #wrong plugged_count
+        dg.device_count.plugged_count = -1
+        ret = verify_devicegroup(dg)
+        self.assertEqual(ret, False)
+
+
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 9800
+        l7srv1.protocol = 'https'
+        l7srv1.loadbalancer_id  = 'lb2006'
+        l7srv1.listener_id  = 'li2007'
+        #listen with wrong port 
+        ret = verify_listen(l7srv1,l7srv1.port)
+        self.assertEqual(ret, False)
+
+        #listen with right port 
+        l7srv1.port = 59800
+        ret = verify_listen(l7srv1,l7srv1.port)
+        self.assertEqual(ret, True)
+
+        # listen with wrong tcps port
+        l7srv1.port = 9800
+        l7srv1.protocol = 'tcps'
+        ret = verify_listen(l7srv1, l7srv1.port)
+        self.assertEqual(ret, False)
+
+        #listen with right tcps port
+        l7srv1.port = 59800
+        ret = verify_listen(l7srv1, l7srv1.port)
+        self.assertEqual(ret, True)
+
+        l7srv1.protocol = 'https'
+        #listen with qps
+        l7srv1.port = 59800
+        l7srv1.config.sla_config.qps = 1000
+        ret = verify_listen(l7srv1,l7srv1.port)
+        self.assertEqual(ret, False)
+
+        #listen rule with qps
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = 59800
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb2006'
+        l7srv.listener_id  = 'li2007'
+        rule = l7srv.http_rule.add()  # repeated
+        rule.name = 'vala'
+        rule.domain = 'www.x.com'
+        rule.url = 'www.x.com.cn'
+        rule.config.sla_config.qps = 1000
+        ret = verify_listen(l7srv,l7srv.port)
+        self.assertEqual(ret, False)
+
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = 59800
+        l7srv.protocol = 'http'
+        l7srv.loadbalancer_id  = 'lb2006'
+        l7srv.listener_id  = 'li2007'
+        l7srv.is_app_rule = 1
+        rule = l7srv.http_rule.add()  # repeated
+        rule.name = 'vala'
+
+        # no priority, return ERROR
+        ret = verify_listen(l7srv, l7srv.port)
+        self.assertEqual(ret, False)
+
+        # return OK for update case.
+        ret = verify_listen(l7srv, l7srv.port, True)
+        self.assertEqual(ret, True)
+
+        rule.priority = -1
+        ret = verify_listen(l7srv, l7srv.port)
+        self.assertEqual(ret, False)
+
+        rule.priority = 2147483647
+        ret = verify_listen(l7srv, l7srv.port)
+        self.assertEqual(ret, False)
+
+        rule.priority = 100
+        condition = rule.conditions.add()
+        condition.type = proxy_pb2.Condition.HEADER
+        self.assertEqual(ret, False)
+
+        condition.header_key = "User-Agent"
+        condition.value.append("*curl*")
+        condition.value.append("*curlx")
+        self.assertEqual(ret, False)
+
+        lb = loadbalancer_pb2.LoadbalancerMessage()
+        lb.address = '132.12.12.12'
+        lb.loadbalancer_id = 'lb4update'
+        lb.sla_config.qps  = -100
+
+        ret = verify_lb(lb)
+        self.assertEqual(ret, False)
+        lb.sla_config.qps  = 1000
+        ret = verify_lb(lb)
+        self.assertEqual(ret, True)
+
+    def test_tcps_qps_callback(self):
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.port = test_port+100
+        l7srv1.protocol = 'tcps'
+        l7srv1.loadbalancer_id  = 'lb2006'
+        l7srv1.listener_id  = 'li2007'
+
+        w, w1 = qps_callback(l7srv1, None)
+        self.assertTrue(w == "")
+        self.assertTrue(w1 == "")
+
+        l7srv1.address = "17.7.7.71"
+        w, w1 = qps_callback(l7srv1, None)
+        self.assertTrue(w == "")
+        self.assertTrue(w1 == "")
+
+        w, w1 = qps_callback(None, None)
+        self.assertTrue(w == "")
+        self.assertTrue(w1 == "")
+
+    def test_qps_callback(self):
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = test_port+101
+        l7srv1.protocol = 'https'
+        l7srv1.loadbalancer_id  = 'lb2006'
+        l7srv1.listener_id  = 'li2007'
+
+        w,w1 = qps_callback(l7srv1, None)
+        self.assertTrue(w.find("40000") >= 0)
+
+        l7srv1.config.sla_config.qps = 0
+        set_device_group(50000,60000,8,3,0,'a')
+        w,w1 = qps_callback(l7srv1,None)
+        self.assertTrue(w.find("40000") >= 0)
+
+        l7srv1.config.sla_config.qps = 1000
+        set_device_group(50000,60000,0,3,0,'a')
+        w,w1 = qps_callback(l7srv1,None)
+        self.assertTrue(w.find("40000") >= 0)
+        
+        l7srv1.config.sla_config.qps = 1000
+        set_device_group(50000,60000,5,3,0,'a')
+        w,w1 = qps_callback(l7srv1,None)
+        self.assertTrue(w.find("1000") >= 0)
+
+    def test_create_listen(self):
+        lb = loadbalancer_pb2.LoadbalancerMessage()
+        lb.address = '132.12.12.12'
+        lb.loadbalancer_id = 'lb200600'
+        lb.sla_config.qps  = 1000
+        create_lb(lb)
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 9800
+        l7srv1.protocol = 'http'
+        l7srv1.loadbalancer_id  = 'lb200600'
+        l7srv1.listener_id  = 'li2007'
+        #with wrong port
+        set_proxy_conf_file('59800')
+        set_default_wild_config_dict()
+        ret = create_listen(l7srv1)
+        self.assertEqual(ret, 500)
+        l7srv1.port = 59800
+        #with right port
+        set_proxy_conf_file('59800')
+        ret = create_listen(l7srv1)
+        self.assertEqual(ret, 200)
+
+    def test_create_listen_tcps(self):
+        lb = loadbalancer_pb2.LoadbalancerMessage()
+        lb.address = '132.12.12.12'
+        lb.loadbalancer_id = 'lb-test_client1_create_listen_tcps'
+        lb.sla_config.qps = 1000
+        create_lb(lb)
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 9800
+        l7srv1.protocol = 'tcps'
+        l7srv1.loadbalancer_id = 'lb-test_client1_create_listen_tcps'
+        l7srv1.listener_id = 'lb-test_client1_create_listen_tcps@1'
+        # with wrong port
+        set_proxy_conf_file('59803')
+        set_default_wild_config_dict()
+        ret = create_listen(l7srv1)
+        self.assertEqual(ret, 500)
+        l7srv1.port = 59803
+        # with right port
+        set_proxy_conf_file('59803')
+        ret = create_listen(l7srv1)
+        self.assertEqual(ret, 200)
+
+    def test_update_listen(self):
+        lb = loadbalancer_pb2.LoadbalancerMessage()
+        lb.address = '132.12.12.12'
+        lb.loadbalancer_id = 'lb-test_client1_update_listen'
+        lb.sla_config.qps  = 1000
+        create_lb(lb)
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 59801
+        l7srv1.protocol = 'http'
+        l7srv1.loadbalancer_id  = 'lb-test_client1_update_listen'
+        l7srv1.listener_id  = 'lb-test_client1_update_listen@1'
+        l7srv1.version = 1
+        set_proxy_conf_file('59801')
+        set_default_wild_config_dict()
+        ret = create_listen(l7srv1)
+        self.assertEqual(ret, 200)
+        #update with wrong port
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 98001
+        l7srv1.protocol = 'http'
+        l7srv1.loadbalancer_id  = 'lb-test_client1_update_listen'
+        l7srv1.listener_id  = 'lb-test_client1_update_listen@1'
+        l7srv1.version = 2#ok  update version, we not user l7srv1.port
+        ret = update_listen(l7srv1)
+        self.assertEqual(ret, 200)
+        l7srv1.port = 59801
+        #update rs without vgwip       
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 58001
+        l7srv1.protocol = 'http'
+        l7srv1.loadbalancer_id  = 'lb-test_client1_update_listen'
+        l7srv1.listener_id  = 'lb-test_client1_update_listen@1'
+        l7srv1.version = 3#will not be updated
+        realserver = l7srv1.realserver.add()#repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.DELETED #enum
+        realserver.tunnel_id = 9
+        l7srv1.is_incremental = 1
+        ret = update_listen(l7srv1)
+        self.assertEqual(ret, 200)
+
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "7.7.7.71"
+        l7srv.port = 58001
+        l7srv.protocol = 'http'
+        l7srv.loadbalancer_id  = 'lb-test_client1_update_listen'
+        l7srv.listener_id  = 'lb-test_client1_update_listen@1'
+        l7srv.tunnel_id =32
+        rule = l7srv.http_rule.add()
+        rule.name = 'a'
+        rule.domain = 'www.x.com'
+        realserver = l7srv.http_rule[0].realserver.add()
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.CREATED 
+        realserver.tunnel_id = 9
+        l7srv.version = 3#will not be updated
+        l7srv.is_incremental = 1
+        ret = update_listen(l7srv)
+        self.assertEqual(ret, 500)
+
+        realserver.vgw_ip = '9.1.1.1'
+        l7srv.version = 3#will not be updated
+        l7srv.is_incremental = 1
+        ret = update_listen(l7srv)
+        self.assertEqual(ret, 200)
+
+    def test_update_listen_tcps(self):
+        lb = loadbalancer_pb2.LoadbalancerMessage()
+        lb.address = '132.12.12.12'
+        lb.loadbalancer_id = 'lb-001'
+        lb.sla_config.qps = 1000
+        create_lb(lb)
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 59802
+        l7srv1.protocol = 'tcps'
+        l7srv1.loadbalancer_id = 'lb-001'
+        l7srv1.listener_id = 'li-001'
+        l7srv1.version = 1
+        set_proxy_conf_file('59804')
+        set_default_wild_config_dict()
+        ret = create_listen(l7srv1)
+        self.assertEqual(ret, 200)
+        #update with wrong port
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 98001
+        l7srv1.protocol = 'tcps'
+        l7srv1.loadbalancer_id  = 'lb-001'
+        l7srv1.listener_id  = 'li-001'
+        l7srv1.version = 2#ok  update version, we not user l7srv1.port
+        ret = update_listen(l7srv1)
+        self.assertEqual(ret, 200)
+        l7srv1.port = 59804
+        #update rs without vgwip
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 58004
+        l7srv1.protocol = 'tcps'
+        l7srv1.loadbalancer_id  = 'lb-001'
+        l7srv1.listener_id  = 'li-001'
+        l7srv1.version = 3#will not be updated
+        realserver = l7srv1.realserver.add()#repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.DELETED #enum
+        realserver.tunnel_id = 9
+        l7srv1.is_incremental = 1
+        ret = update_listen(l7srv1)
+        self.assertEqual(ret, 200)
+
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "7.7.7.71"
+        l7srv.port = 58004
+        l7srv.protocol = 'tcps'
+        l7srv.loadbalancer_id  = 'lb-001'
+        l7srv.listener_id  = 'li-001'
+        l7srv.tunnel_id =32
+        rule = l7srv.http_rule.add()
+        rule.name = 'a'
+        rule.domain = 'www.x.com'
+        realserver = l7srv.http_rule[0].realserver.add()
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.CREATED
+        realserver.tunnel_id = 9
+        l7srv.version = 3#will not be updated
+        l7srv.is_incremental = 1
+        ret = update_listen(l7srv)
+        self.assertEqual(ret, 500)
+
+        realserver.vgw_ip = '9.1.1.1'
+        l7srv.version = 3#will not be updated
+        l7srv.is_incremental = 1
+        ret = update_listen(l7srv)
+        self.assertEqual(ret, 200)
+
+    def test_update_realservers(self):
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 58002
+        l7srv1.protocol = 'http'
+        l7srv1.loadbalancer_id  = 'lb-002'
+        l7srv1.listener_id  = 'li-002'
+        l7srv1.version = 3#will not be updated
+        realserver = l7srv1.realserver.add()#repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.CREATED #enum
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = 58002
+        l7srv.protocol = 'http'
+        l7srv.loadbalancer_id  = 'lb-002'
+        l7srv.listener_id  = 'li-002'
+        l7srv.version = 3#will not be updated
+        realserver = l7srv.realserver.add()#repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.CREATED #enum
+        ret = update_realservers(l7srv1.realserver, l7srv.realserver)
+        self.assertEqual(ret, True)
+
+    def test_update_realservers_tcps(self):
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 58002
+        l7srv1.protocol = 'tcps'
+        l7srv1.loadbalancer_id  = 'lb-002'
+        l7srv1.listener_id  = 'li-002'
+        l7srv1.version = 3#will not be updated
+        realserver = l7srv1.realserver.add()#repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.CREATED #enum
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = 58002
+        l7srv.protocol = 'tcps'
+        l7srv.loadbalancer_id  = 'lb-002'
+        l7srv.listener_id  = 'li-002'
+        l7srv.version = 3#will not be updated
+        realserver = l7srv.realserver.add()#repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.CREATED #enum
+        ret = update_realservers(l7srv1.realserver, l7srv.realserver)
+        self.assertEqual(ret, True)
+
+    def test_update_lb(self):
+        lb = loadbalancer_pb2.LoadbalancerMessage()
+        lb.address = '132.12.12.12'
+        lb.loadbalancer_id = 'lb-003'
+        lb.sla_config.qps  = 1000
+        ret = update_lb(lb)
+        self.assertEqual(ret, 401)
+
+    def test_is_eppu(self):
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 58002
+        l7srv1.protocol = 'http'
+        l7srv1.loadbalancer_id  = 'lb-002'
+        l7srv1.listener_id  = 'li-002'
+        l7srv1.version = 3
+        ppu = l7srv1.layer_seven_port_info.add()
+        ppu.device_group_name  = 'aaa'
+        ppu.port =33333
+        ppu.plug_count =3
+        ret = is_eppu(l7srv1)
+        self.assertEqual(ret, True)
+        ppu = l7srv1.layer_seven_port_info.add()
+        ppu.device_group_name  = 'aaa'
+        ppu.port =33333
+        ppu.plug_count =3
+        ppu = l7srv1.layer_seven_port_info.add()
+        ppu.device_group_name  = 'aaa'
+        ppu.port =33333
+        ppu.plug_count =3
+        ppu = l7srv1.layer_seven_port_info.add()
+        ppu.device_group_name  = 'aaa'
+        ppu.port =33333
+        ppu.plug_count =3
+        ret = is_eppu(l7srv1)
+        self.assertEqual(ret, True)
+
+    def test_get_port_from_eppu(self):
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 58002
+        l7srv1.protocol = 'http'
+        l7srv1.loadbalancer_id  = 'lb-002'
+        l7srv1.listener_id  = 'li-002'
+        l7srv1.version = 3
+        set_device_group(1,1,3,1,1,"aaa")
+        ppu = l7srv1.layer_seven_port_info.add()
+        ppu.device_group_name  = 'aaa'
+        ppu.port =33333
+        ppu.plug_count =3
+        vip,ret = get_port_from_eppu(l7srv1)
+        self.assertEqual(ret, 200)
+        self.assertEqual(vip, 33333)
+        ppu.device_group_name  = '3aaa'
+        vip,ret = get_port_from_eppu(l7srv1)
+        self.assertEqual(ret, 500)
+        self.assertEqual(vip, None)
+
+    def test_update_l7port_infos(self):
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 58002
+        l7srv1.protocol = 'http'
+        l7srv1.loadbalancer_id  = 'lb-002'
+        l7srv1.listener_id  = 'li-002'
+        l7srv1.version = 3
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = 58002
+        l7srv.protocol = 'http'
+        l7srv.loadbalancer_id  = 'lb-002'
+        l7srv.listener_id  = 'li-002'
+        l7srv.version = 3
+        ppu = l7srv1.layer_seven_port_info.add()
+        ppu.device_group_name  = 'aaa'
+        ppu.port =33333
+        ppu.plug_count =3
+        ppu = l7srv.layer_seven_port_info.add()
+        ppu.device_group_name  = 'aaa'
+        ppu.port = 44444
+        ppu.plug_count =3
+        update_l7port_infos(l7srv.layer_seven_port_info,l7srv1.layer_seven_port_info)
+        self.assertEqual(len(l7srv1.layer_seven_port_info),1)
+        update_l7port_infos(l7srv.layer_seven_port_info,l7srv1.layer_seven_port_info)
+        self.assertEqual(len(l7srv1.layer_seven_port_info),1)
+        self.assertEqual(l7srv.layer_seven_port_info[0].port,44444)
+
+    def test_get_dc_from_l7portinfos(self):
+        set_device_group(1,1,3,1,1,"aaa")
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 58002
+        l7srv1.protocol = 'http'
+        l7srv1.loadbalancer_id  = 'lb-002'
+        l7srv1.listener_id  = 'li-002'
+        l7srv1.version = 3
+        ppu = l7srv1.layer_seven_port_info.add()
+        ppu.device_group_name  = 'aaa'
+        ppu.port =33333
+        ppu.plug_count =4
+        ppu = l7srv1.layer_seven_port_info.add()
+        ppu.device_group_name  = 'bbbaaa'
+        ppu.port = 44444
+        ppu.plug_count =4
+        dc = get_dc_from_l7portinfos(l7srv1,True)
+        self.assertEqual(dc, 3)
+        dc = get_dc_from_l7portinfos(l7srv1,False)
+        self.assertEqual(dc, 4)
+
+    def test_genUpstreamConfig_(self):
+        service = proxy_pb2.LayerSevenServiceMessage()
+        upstream = {}
+        upstream['scheduler'] = common_pb2.WLC
+        upstream['sticky_session'] = service.config.sticky_session
+        upstream['check'] = service.config.check
+        upstream['realservers'] = service.realserver
+        res = genUpstreamConfig_("666",upstream,'1.1.1.1', 'aa', 33, 0, 'ls-xx', 'http', '/abc', 'rule_id-test306', 'pool_id-test')
+        self.assertTrue(res.find("path=/abc")<0)
+
+    def test_genUpstreamConfig_hcversion(self):
+        service = proxy_pb2.LayerSevenServiceMessage()
+        upstream = {}
+        upstream['scheduler'] = common_pb2.WLC
+        upstream['sticky_session'] = service.config.sticky_session
+        upstream['check'] = service.config.check
+        upstream['check'].uri  = '/'
+        upstream['check'].http_check_version  = common_pb2.HealthCheck.HTTP11
+        upstream['realservers'] = service.realserver
+        res = genUpstreamConfig_("666",upstream,'1.1.1.1', 'aa', 33, 0, 'ls-xx', 'http', '/abc', 'rule_id-test306', 'pool_id-test')
+        self.assertTrue(res.find("HTTP/1.1")>0)
+        upstream['check'].http_check_version  = common_pb2.HealthCheck.HTTP10
+        res = genUpstreamConfig_("666",upstream,'1.1.1.1', 'aa', 33, 0, 'ls-xx', 'http', '/abc', 'rule_id-test306', 'pool_id-test')
+        self.assertTrue(res.find("HTTP/1.0")>0)
+
+    def test_xfport(self):
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 58002
+        l7srv1.protocol = 'http'
+        l7srv1.loadbalancer_id  = 'lb-002'
+        l7srv1.listener_id  = 'li-002'
+        l7srv1.version = 3
+        l7srv1.config.x_forwarded_for = common_pb2.ON
+        l7srv1.x_forwarded_client_port = common_pb2.ON
+        l7srv1.x_forwarded_port = common_pb2.ON
+
+        rule = {} 
+        rule['vala.com'] = {}
+        rule['vala.com']["x_forwarded_client_port"] = common_pb2.ON
+        rule['vala.com']["x_forwarded_for"] = common_pb2.ON
+        rule['vala.com']["x_forwarded_port"] = common_pb2.ON
+        w,w1 = xfp_callback(l7srv1, rule)
+        self.assertTrue(w1.find("X-Forwarded-Client-Port on")>0)
+        self.assertTrue(w1.find("X-Forwarded-For on")>0)
+        self.assertTrue(w1.find("X-Forwarded-Port on")>0)
+
+    def test_manipulate_addr(self):
+        dc = proxy_pb2.ProxyDeviceConfigurationMessage()
+        dc.local_address.network_addr == '0.0.0.0'
+        try:
+            manipulate_laddr(dc)
+        except:
+            self.assertTrue(1>0)
+        else:
+            self.assertTrue(0>0)
+        overlay_laddr = dc.overlay_laddr.add()
+        overlay_laddr.network_addr = "2001:0db8:0:f101::"
+        overlay_laddr.mask = 125
+        try:
+            manipulate_laddr(dc)
+        except:
+            self.assertTrue(1>0)
+        else:
+            self.assertTrue(0>0)
+        
+    def testAppRuleDefaultServerBackend1(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+102
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id = 'lb2005'
+        l7srv.listener_id = 'li2005'
+        l7srv.is_app_rule = 1
+        args = {
+            "listen" : l7srv,
+            "slb_info" : "lbxxx"
+        }
+        result = build_default_server_backend1(**args)
+        default_server_backend = result['loc_for_vip']
+        default_server_backend_new = result['hotconf_loc_for_vip']
+        backend_section = result['upstream_for_vip']
+
+        self.assertTrue(default_server_backend.find("prio_location 2147483647") >= 0)
+        self.assertTrue(default_server_backend_new.find("prio_location 2147483647") >= 0)
+        self.assertTrue(backend_section.find("127.0.0.1:503") >= 0)
+        #print default_server_backend
+        #print backend_section
+
+    def testAppRuleDefaultServerBackend2(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+103
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb2005'
+        l7srv.listener_id  = 'li2005'
+        l7srv.upstream_keepalive.keepalive = 60
+        l7srv.upstream_keepalive.keepalive_timeout = 666
+        l7srv.is_app_rule = 1
+        realserver = l7srv.realserver.add()#repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.DELETED #!!!!
+        realserver.weight = 100
+        realserver.tunnel_id =23
+      
+        args = {
+            "listen"   : l7srv,
+            "rs_pool"  : {},
+            "slb_info" : 'lb_xxx',
+            "secure_cookie_flag" : 0,
+            "lb_tunnel_id"   : 0,
+            "listener_id" : 'ls_xx'
+        }
+        result = build_default_server_backend2(**args)
+        default_server_backend = result['loc_for_vip']
+        default_server_backend_new = result['hotconf_loc_for_vip']
+        backend_section = result['upstream_for_vip']
+        default_backend_section = result['hotconf_upstream_for_vip']
+
+        self.assertTrue(default_server_backend.find("prio_location 2147483647") >= 0)
+        self.assertTrue(default_server_backend_new.find("prio_location 2147483647") >= 0)
+        self.assertTrue(backend_section.find("8.8.8.8:3") >= 0)
+        self.assertTrue(backend_section.find("keepalive 60") >= 0)
+        self.assertTrue(default_server_backend.find("slb_upstream_keepalive on") >= 0)
+        #print default_server_backend
+        #print backend_section
+
+    def testAppRuleBackend(self):
+
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+104
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb2005'
+        l7srv.listener_id  = 'li2005'
+        l7srv.is_app_rule = 1
+        realserver = l7srv.realserver.add()#repeated
+        realserver.address = "8.8.8.8"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.DELETED #!!!! create?
+        realserver.weight = 100
+        realserver.tunnel_id =23
+        rule = l7srv.http_rule.add()#repeated
+        rule.name = 'rule1'
+        rule.priority = 100
+        rule.state = proxy_pb2.HttpRule.CREATED
+        rule.upstream_keepalive.keepalive = 666
+        rule.upstream_keepalive.keepalive_timeout = 777
+
+        realserver = l7srv.http_rule[0].realserver.add()#repeated
+        realserver.address = "188.188.188.188"
+        realserver.port = 133
+        realserver.tunnel_id = 133
+        realserver.state = common_pb2.Realserver.CREATED #enum
+        realserver.weight = 1101
+        realserver.tunnel_id =23 #!!!!!wo vgw_ip
+
+        rule_config = {}
+        default_server_rule_config = {}
+        backend_section_rule_hotconf = {}
+        rule_backend = {}
+        rule_backend_new = {}
+        rs_pool = {}
+        ssl_on = "ssl on"
+        http2_on = "http2 on"
+        ssl_keyless_server = "ssl_keyless_server"
+        cert = "cert"
+        ssl_config_vip = "ssl_config_vip"
+        ssl_certificate_vip = "ssl_certificate_vip"
+        ssl_ca_cert_vip = "ssl_ca_cert_vip"
+        ssl_ca_cert_new_vip = "ssl_ca_cert_new_vip"
+
+        args = {
+            "listen" : l7srv,
+            "slb_info" : "lbxxxx",
+            "rule" : rule,
+            "rule_config_with_servername" : rule_config,
+            "rule_config_without_servername" : default_server_rule_config,
+            "hotconf_upstream_for_rule" : backend_section_rule_hotconf,
+            "loc_for_rule_with_servername" : rule_backend,
+            "hotconf_loc_for_rule_with_servername" : rule_backend_new,
+            "rs_pool" : rs_pool,
+            "ssl_switch" : ssl_on,
+            "http2_switch" : http2_on,
+            "ssl_keyless_server" : ssl_keyless_server,
+            "cert" : cert,
+            "ssl_config_vip" : ssl_config_vip,
+            "ssl_certificate_vip" : ssl_certificate_vip,
+            "ssl_ca_cert_vip" : ssl_ca_cert_vip,
+            "ssl_ca_cert_new_vip" : ssl_ca_cert_new_vip,
+            "lb_tunnel_id": 0,
+            "listener_id": 'ls_xx'
+        }
+        result = build_rule_backend(**args) 
+        dsb  = result['loc_for_rule_without_servername']
+        dsbn = result['hotconf_loc_for_rule_without_servername']
+
+        self.assertTrue(dsb.find("prio_location 100 {") > 0)
+        self.assertTrue(dsbn.find("prio_location 100 {") > 0)
+        self.assertTrue(backend_section_rule_hotconf['50104_rule1'].find("188.188.188.188:133") >= 0)
+        self.assertTrue(backend_section_rule_hotconf['50104_rule1'].find("keepalive 666") >= 0)
+        self.assertTrue(dsb.find("slb_upstream_keepalive on") >= 0)
+        self.assertTrue(dsbn.find("slb_upstream_keepalive on") >= 0)
+        #print bsr
+        #print 'testAppRuleBackend bsr ================'
+        #print dsb 
+        #print 'testAppRuleBackend dsb ================'
+        #print dsbn
+        #print 'testAppRuleBackend dsbn ================'
+        #print rule_config
+        #print 'rule_config ================'
+        #print default_server_rule_config
+        #print 'default_server_rule_config ================'
+        #print backend_section_rule_hotconf
+        #print 'backend_section_rule_hotconf ================'
+        #print rule_backend
+        #print 'rule_backend ================'
+        #print rule_backend_new
+        #print 'rule_backend_new ================'
+        #print rs_pool
+
+    def test_update_sni_list(self):
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 58002
+        l7srv1.protocol = 'http'
+        l7srv1.loadbalancer_id  = 'lb-002'
+        l7srv1.listener_id  = 'li-002'
+        l7srv1.version = 3#will not be updated
+        sni = l7srv1.sni_list.add()
+        sni.domain = 'www.aliyun.com'
+        sni.cert_key_id = 'cert_key_id'
+        sni.state = proxy_pb2.SniMessage.CREATED
+        sni.cert = '''-----BEGIN CERTIFICATE-----
+MIICBTCCAYsCCQCZGQv5T/6bajAKBggqhkjOPQQDAjBsMQswCQYDVQQGEwJUQjEL
+MAkGA1UECAwCVEIxCzAJBgNVBAcMAlRCMQswCQYDVQQKDAJUQjELMAkGA1UECwwC
+VEIxCzAJBgNVBAMMAlRCMRwwGgYJKoZIhvcNAQkBFg1UQHRpYW5iYW8uY29tMB4X
+DTE5MDkxOTA3MjE0N1oXDTIwMDkxODA3MjE0N1owbDELMAkGA1UEBhMCVEIxCzAJ
+BgNVBAgMAlRCMQswCQYDVQQHDAJUQjELMAkGA1UECgwCVEIxCzAJBgNVBAsMAlRC
+MQswCQYDVQQDDAJUQjEcMBoGCSqGSIb3DQEJARYNVEB0aWFuYmFvLmNvbTB2MBAG
+ByqGSM49AgEGBSuBBAAiA2IABA8+AdHAGNofFKR3NXJA2Om+Y7Weie+2dVA7Q8rq
+aLOWVlTTzMQC3fbMSitzUGNA0fMPBHCJyCKaf7dSj6aIiENeWMgNHwq/tuarFcA7
+UbI3P+mijRPJfzqv60YwLxtE+zAKBggqhkjOPQQDAgNoADBlAjEArLLlOQ9K5p1e
+SiN8SaMFLHPXnbEQqXrpIeci/icy40eQkVHPUYBkYGmhXAdxeG9DAjALCQO9vb+x
+wcXqhY6If1qzpE5wJTYijTLSRmqrHZejJhVVLGRMnE66IMhVoNDOwhM=
+-----END CERTIFICATE-----'''
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = 58002
+        l7srv.protocol = 'http'
+        l7srv.loadbalancer_id  = 'lb-002'
+        l7srv.listener_id  = 'li-002'
+        l7srv.version = 3#will not be updated
+        sni = l7srv.sni_list.add()
+        sni.domain = 'www.aliyun.com'
+        sni.cert_key_id = 'cert_key_id_old'
+        sni.state = proxy_pb2.SniMessage.CREATED
+        sni.cert = '''-----BEGIN CERTIFICATE-----
+MIICBTCCAYsCCQCZGQv5T/6bajAKBggqhkjOPQQDAjBsMQswCQYDVQQGEwJUQjEL
+MAkGA1UECAwCVEIxCzAJBgNVBAcMAlRCMQswCQYDVQQKDAJUQjELMAkGA1UECwwC
+VEIxCzAJBgNVBAMMAlRCMRwwGgYJKoZIhvcNAQkBFg1UQHRpYW5iYW8uY29tMB4X
+DTE5MDkxOTA3MjE0N1oXDTIwMDkxODA3MjE0N1owbDELMAkGA1UEBhMCVEIxCzAJ
+BgNVBAgMAlRCMQswCQYDVQQHDAJUQjELMAkGA1UECgwCVEIxCzAJBgNVBAsMAlRC
+MQswCQYDVQQDDAJUQjEcMBoGCSqGSIb3DQEJARYNVEB0aWFuYmFvLmNvbTB2MBAG
+ByqGSM49AgEGBSuBBAAiA2IABA8+AdHAGNofFKR3NXJA2Om+Y7Weie+2dVA7Q8rq
+aLOWVlTTzMQC3fbMSitzUGNA0fMPBHCJyCKaf7dSj6aIiENeWMgNHwq/tuarFcA7
+UbI3P+mijRPJfzqv60YwLxtE+zAKBggqhkjOPQQDAgNoADBlAjEArLLlOQ9K5p1e
+SiN8SaMFLHPXnbEQqXrpIeci/icy40eQkVHPUYBkYGmhXAdxeG9DAjALCQO9vb+x
+wcXqhY6If1qzpE5wJTYijTLSRmqrHZejJhVVLGRMnE66IMhVoNDOwhM=
+-----END CERTIFICATE-----'''
+        ret = update_sni_list(l7srv1.sni_list, l7srv.sni_list)
+        self.assertEqual(ret, True)
+        self.assertEqual(l7srv.sni_list[0].cert_key_id, 'cert_key_id')
+
+    def test_update_listen_app_rule_precheck(self):
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 58002
+        l7srv1.protocol = 'http'
+        l7srv1.loadbalancer_id  = 'lb-002'
+        l7srv1.listener_id  = 'li-002'
+        l7srv1.version = 3#will not be updated
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = 58002
+        l7srv.protocol = 'http'
+        l7srv.loadbalancer_id  = 'lb-002'
+        l7srv.listener_id  = 'li-002'
+        l7srv.version = 3#will not be updated
+
+        ret = update_listen_app_rule_precheck(l7srv, l7srv1)
+        self.assertEqual(ret, 0)
+
+        l7srv.is_app_rule = 1
+        ret = update_listen_app_rule_precheck(l7srv, l7srv1)
+        self.assertEqual(ret, -1)
+        ret = update_listen_app_rule_precheck(l7srv1, l7srv)
+        self.assertEqual(ret, 1)
+
+    def test_update_app_rules(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port+105
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb2005'
+        l7srv.listener_id  = 'li2005'
+        l7srv.is_app_rule = 1
+        rule = l7srv.http_rule.add()#repeated
+        rule.name = 'rule1'
+        rule.state = proxy_pb2.HttpRule.CREATED
+
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = test_port+23
+        l7srv1.protocol = 'https'
+        l7srv1.loadbalancer_id  = 'lb2006'
+        l7srv1.listener_id  = 'li2007'
+        l7srv1.is_app_rule = 1
+        rule2 = l7srv1.http_rule.add()#repeated
+        rule2.name = 'rule2'
+        rule2.state = proxy_pb2.HttpRule.CREATED
+        rule2.is_url_regex = common_pb2.ON
+        rule2.upstream_keepalive.keepalive = 60
+        rule2.upstream_keepalive.keepalive_timeout = 60
+        realserver = l7srv1.http_rule[0].realserver.add()
+        realserver.address = "18.18.18.18"
+        realserver.port = 3
+        realserver.state = common_pb2.Realserver.CREATED
+        realserver.tunnel_id = 9
+        realserver.vgw_ip = '9.1.1.1'
+        ret, x, y = update_rules(l7srv1.http_rule, l7srv.http_rule, '9800', True)
+        self.assertEqual(ret, False)
+
+    def test_update_wildconfiginfolist(self):
+        reg_wilconf_attr(wildconf_types,"customize_header_log","string")
+        reg_wilconf_attr(wildconf_types,"backend_connect_retries","integer")
+        reg_wilconf_attr(wildconf_types,"backend_connect_timeout","integer")
+
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = 58002
+        l7srv.protocol = 'http'
+        l7srv.loadbalancer_id  = 'lb-002'
+        l7srv.listener_id  = 'li-002'
+        l7srv.version = 3#will not be updated
+
+        #first case
+        src1 = l7srv.httpWildConfigInfoList.add()#repeated
+        src1.key = "backend_connect_retries"
+        src1.type = "integer"
+        src1.switch = common_pb2.ON
+        src1.value = "123"
+        src1.state = proxy_pb2.WildConfigInfo.CREATED
+
+        l7srv1 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv1.address = "17.7.7.71"
+        l7srv1.port = 58002
+        l7srv1.protocol = 'http'
+        l7srv1.loadbalancer_id  = 'lb-002'
+        l7srv1.listener_id  = 'li-002'
+        l7srv1.version = 3#will not be updated
+        
+        ret = update_wildconfiginfolist(l7srv.httpWildConfigInfoList,l7srv1.httpWildConfigInfoList)
+        self.assertEqual(ret, True)        
+
+        #second case
+        src1.state = proxy_pb2.WildConfigInfo.DELETED
+        ret = update_wildconfiginfolist(l7srv.httpWildConfigInfoList,l7srv1.httpWildConfigInfoList)
+        self.assertEqual(ret, True)  
+
+        #third case
+        src1.type = "string"
+        ret = update_wildconfiginfolist(l7srv.httpWildConfigInfoList,l7srv1.httpWildConfigInfoList)
+        self.assertEqual(ret, False) 
+
+    def test_check_wildconfiginfolist(self):
+        reg_wilconf_attr(wildconf_types,"customize_header_log","string")
+        reg_wilconf_attr(wildconf_types,"backend_connect_retries","integer")
+        reg_wilconf_attr(wildconf_types,"backend_connect_timeout","integer")
+
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = 58002
+        l7srv.protocol = 'http'
+        l7srv.loadbalancer_id  = 'lb-002'
+        l7srv.listener_id  = 'li-002'
+        l7srv.version = 3#will not be updated
+
+        #first case
+        src1 = l7srv.httpWildConfigInfoList.add()#repeated
+        src1.key = "backend_connect_retries"
+        src1.type = "integer"
+        src1.switch = common_pb2.ON
+        src1.value = "123"
+        src1.state = proxy_pb2.WildConfigInfo.CREATED
+
+        ret = check_wildconfiginfolist(l7srv.httpWildConfigInfoList)
+        self.assertEqual(ret, True)        
+
+        #second case
+        src1.state = proxy_pb2.WildConfigInfo.DELETED
+        ret = check_wildconfiginfolist(l7srv.httpWildConfigInfoList)
+        self.assertEqual(ret, False)  
+
+        #third case
+        src1.type = "string"
+        ret = check_wildconfiginfolist(l7srv.httpWildConfigInfoList)
+        self.assertEqual(ret, False) 
+
+    def test_upstream_timeout_and_retries_callback(self):
+
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port 
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb1'
+        l7srv.listener_id  = 'li333'
+        rule = l7srv.http_rule.add()#repeated
+        rule.name = 'rule1'
+        rule.domain = 'www.x1.com'
+
+        wildconf = rule.httpWildConfigInfoList.add()
+        wildconf.key = "backend_connect_retries"
+        wildconf.type = "integer"
+        wildconf.switch = common_pb2.ON
+        wildconf.value = "123"
+        wildconf.state = proxy_pb2.WildConfigInfo.CREATED
+
+        wildconf1 = rule.httpWildConfigInfoList.add()
+        wildconf1.key = "backend_connect_timeout"
+        wildconf1.type = "integer"
+        wildconf1.switch = common_pb2.ON
+        wildconf1.value = "456"
+        wildconf1.state = proxy_pb2.WildConfigInfo.CREATED
+
+        rule_config = {}
+        rule_config["httpWildConfigInfoList"] = rule.httpWildConfigInfoList
+        w, w1 = upstream_timeout_and_retries_callback(l7srv, rule_config)
+        self.assertTrue(w.find("backend_connect_retries") >= 0)
+        self.assertTrue(w1.find("backend_connect_retries") >= 0)
+        self.assertTrue(w.find("backend_connect_timeout") >= 0)
+        self.assertTrue(w1.find("backend_connect_timeout") >= 0)
+
+        w, w1 = upstream_timeout_and_retries_callback(l7srv, None)
+        self.assertTrue(w == "")
+        self.assertTrue(w1 == "")
+
+    def test_customize_header_log_callback(self):
+
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port 
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb1'
+        l7srv.listener_id  = 'li333'
+        rule = l7srv.http_rule.add()#repeated
+        rule.name = 'rule1'
+        rule.domain = 'www.x1.com'
+
+        wildconf = rule.httpWildConfigInfoList.add()
+        wildconf.key = "customize_header_log"
+        wildconf.type = "string"
+        wildconf.switch = common_pb2.ON
+        wildconf.value = "on"
+        wildconf.state = proxy_pb2.WildConfigInfo.CREATED
+
+        rule_config = {}
+        rule_config["httpWildConfigInfoList"] = rule.httpWildConfigInfoList
+        w, w1 = customize_header_log_callback(l7srv, rule_config)
+        self.assertTrue(w.find("slb_customized_headers") >= 0)
+
+        w, w1 = customize_header_log_callback(l7srv, None)
+        self.assertTrue(w == "")
+        self.assertTrue(w1 == "")
+
+
+    def test_gen_forward_client_ip_port_via_toa(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        res = gen_forward_client_ip_port_via_toa(l7srv.httpWildConfigInfoList)
+        self.assertTrue(res == "")
+
+        wildconf = l7srv.httpWildConfigInfoList.add()
+        wildconf.key = "forward_client_ip_port_via_toa"
+
+        wildconf.switch = common_pb2.OFF
+        res = gen_forward_client_ip_port_via_toa(l7srv.httpWildConfigInfoList)
+        self.assertTrue(res == "forward_client_ip_port_via_toa off;")
+
+        wildconf.switch = common_pb2.ON
+        res = gen_forward_client_ip_port_via_toa(l7srv.httpWildConfigInfoList)
+        self.assertTrue(res == "forward_client_ip_port_via_toa off;")
+
+        wildconf.value = "on"
+        res = gen_forward_client_ip_port_via_toa(l7srv.httpWildConfigInfoList)
+        self.assertTrue(res == "forward_client_ip_port_via_toa on;")
+
+        wildconf.value = "off"
+        res = gen_forward_client_ip_port_via_toa(l7srv.httpWildConfigInfoList)
+        self.assertTrue(res == "forward_client_ip_port_via_toa off;")
+
+
+    def test_client_ip_port_via_toa_callback(self):
+        wild_config,wild_config_new = client_ip_port_via_toa_callback(None, None)
+        self.assertTrue(wild_config == "")
+        self.assertTrue(wild_config_new == "")
+        
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+
+        wild_config,wild_config_new = client_ip_port_via_toa_callback(l7srv, None)
+        self.assertTrue(wild_config == "")
+        self.assertTrue(wild_config_new == "")
+        
+        wildconf = l7srv.httpWildConfigInfoList.add()
+        wildconf.key = "x_forwarded_for"
+        wildconf.switch = common_pb2.OFF
+        wild_config,wild_config_new = client_ip_port_via_toa_callback(l7srv, None)
+        self.assertTrue(wild_config == "")
+        self.assertTrue(wild_config_new == "")
+
+        l7srv.protocol = 'http'
+        wild_config,wild_config_new = client_ip_port_via_toa_callback(l7srv, None)
+        self.assertTrue(wild_config == "")
+        self.assertTrue(wild_config_new == "")
+
+        l7srv.protocol = 'tcps'
+        wildconf = l7srv.httpWildConfigInfoList.add()
+        wildconf.key = "forward_client_ip_port_via_toa"
+        wildconf.switch = common_pb2.OFF
+        wild_config,wild_config_new = client_ip_port_via_toa_callback(l7srv, None)
+        self.assertTrue(wild_config == "\n\t\tforward_client_ip_port_via_toa off;")
+        self.assertTrue(wild_config_new == "")
+
+        wildconf.switch = common_pb2.ON
+        wild_config,wild_config_new = client_ip_port_via_toa_callback(l7srv, None)
+        self.assertTrue(wild_config == "\n\t\tforward_client_ip_port_via_toa off;")
+        self.assertTrue(wild_config_new == "")
+
+        wildconf.value = 'off'
+        wild_config,wild_config_new = client_ip_port_via_toa_callback(l7srv, None)
+        self.assertTrue(wild_config == "\n\t\tforward_client_ip_port_via_toa off;")
+        self.assertTrue(wild_config_new == "")
+
+        wildconf.value = 'on'
+        wild_config,wild_config_new = client_ip_port_via_toa_callback(l7srv, None)
+        self.assertTrue(wild_config == "\n\t\tforward_client_ip_port_via_toa on;")
+        self.assertTrue(wild_config_new == "")
+
+
+    def test_quic_relation_callback(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = 44444
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id = 'aa'
+        l7srv.listener_id = 'aa@44444'
+        l7srv.tunnel_id = 23
+        l7srv.version = 17
+        l7srv.quic_relation.quic_listener_id = 'bb@55555'
+        l7srv.quic_relation.port = 55555
+        l7srv.quic_relation.switch = common_pb2.ON
+
+        default_wild_config = {}
+        wil_callbacks = {}
+        reg_wilconf_callbacks(wil_callbacks, 'quic_relation', quic_relation_callback)
+        wil, wil_new = build_wildconf(l7srv, None, default_wild_config, wil_callbacks)
+        self.assertTrue(wil.find("quic_relation 55555 46,43,39 3600;") >= 0)
+        self.assertTrue(wil_new.find("quic_relation 55555 46,43,39 3600;") >= 0)
+
+    def test_dural_certs(self):
+        pem_rsa = '''-----BEGIN CERTIFICATE-----
+MIIDlTCCAn2gAwIBAgIBADANBgkqhkiG9w0BAQsFADBmMQswCQYDVQQGEwJDTjEL
+MAkGA1UECAwCQkoxCzAJBgNVBAcMAkJKMQswCQYDVQQKDAJUQjELMAkGA1UECwwC
+VEIxCzAJBgNVBAMMAlRCMRYwFAYJKoZIhvcNAQkBFgdUQGIuY29tMB4XDTE5MDcy
+NDA3NDQzOFoXDTIwMDcyMzA3NDQzOFowWTELMAkGA1UEBhMCQ04xCzAJBgNVBAgM
+AkJKMQswCQYDVQQKDAJUQjELMAkGA1UECwwCVEIxCzAJBgNVBAMMAlRCMRYwFAYJ
+KoZIhvcNAQkBFgdUQGIuY29tMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDN
+o+GgLg9ZykKSFlg7WwZslceeQXPOtOIxapgoC2sU+W9N0NCQCauHBAiOZjXnuAFg
+10PKHWduz57UiHwYVYT/hnzi+a0vgxkzhLBXNXccZBBZBBa0qkmgzhC4CNMu4wW5
++Ncloza5oJp9+MuuAeykGXCyuagPUXZcMDRs/3NZ8wIDAQABo4HeMIHbMAkGA1Ud
+EwQCMAAwLAYJYIZIAYb4QgENBB8WHU9wZW5TU0wgR2VuZXJhdGVkIENlcnRpZmlj
+YXRlMB0GA1UdDgQWBBRvSJtYHjqv2z4gkeaFQfYSytohAzCBgAYDVR0jBHkwd6Fq
+pGgwZjELMAkGA1UEBhMCQ04xCzAJBgNVBAgMAkJKMQswCQYDVQQHDAJCSjELMAkG
+A1UECgwCVEIxCzAJBgNVBAsMAlRCMQswCQYDVQQDDAJUQjEWMBQGCSqGSIb3DQEJ
+ARYHVEBiLmNvbYIJAPSD+zUNNGMeMA0GCSqGSIb3DQEBCwUAA4IBAQBcH0dtqYM2
+7tnaWgYQkSkWvAc7WvVUQB8zw4zCyOCKb0M6LLPP24/iLVkJc0h/yiHxxZWvFLkj
+C2iktStAJRHYRffuJtLinpUjcdfuBYRwLwRs2n3bNqlUcolMyQDn19QVhAVJbGXD
+voHarj08G8EvRd/tLBPhpoVDYRikuTrioUCHN/bgIknIHJ6rurkM1fJXkzlg97cg
+uKxxAh9xDxwJX5Ly0EmCukGXBTVlxGMdsqrMzWKL+ZEBH8d75l3TAISkTB6g+7CX
+6WrNjquYebQzZRh6O/wACoYw6tVqcLb41HL2a0GjN/xiDSHwkKI4IBXOosR/6XS1
+8g7HV+b68gg0
+-----END CERTIFICATE-----'''
+        pem_ecc1 = '''-----BEGIN CERTIFICATE-----
+MIIBuzCCAWICCQCBm/zJZJ/+WzAKBggqhkjOPQQDAjBmMQswCQYDVQQGEwJDTjEL
+MAkGA1UECAwCQkoxCzAJBgNVBAcMAkJKMQswCQYDVQQKDAJUQjELMAkGA1UECwwC
+VEIxCzAJBgNVBAMMAlRCMRYwFAYJKoZIhvcNAQkBFgdUQGIuY29tMB4XDTE5MDcy
+NDA5MTkyNFoXDTIwMDcyMzA5MTkyNFowZjELMAkGA1UEBhMCQ04xCzAJBgNVBAgM
+AkJKMQswCQYDVQQHDAJCSjELMAkGA1UECgwCVEIxCzAJBgNVBAsMAlRCMQswCQYD
+VQQDDAJUQjEWMBQGCSqGSIb3DQEJARYHVEBiLmNvbTBZMBMGByqGSM49AgEGCCqG
+SM49AwEHA0IABJ2thl0cWXcbuD5nB48K3cjM3au5ipcVv2RPC3KDWpCMBkAniJS4
+kHFmp9uR1w5fz0dqQZfHwW3geLUrFOByzaEwCgYIKoZIzj0EAwIDRwAwRAIgCWgO
+w+Dsg1Dm3yZuAVRZgsjeYMYiLZu6KWk+YLrBiSMCIHVxk8ZXTC7Uw1SdGiEk4SXo
+qmjwvrTBNXQei4IVUc2c
+-----END CERTIFICATE-----'''
+        pem_ecc2 = '''-----BEGIN CERTIFICATE-----
+MIICBTCCAYsCCQCZGQv5T/6bajAKBggqhkjOPQQDAjBsMQswCQYDVQQGEwJUQjEL
+MAkGA1UECAwCVEIxCzAJBgNVBAcMAlRCMQswCQYDVQQKDAJUQjELMAkGA1UECwwC
+VEIxCzAJBgNVBAMMAlRCMRwwGgYJKoZIhvcNAQkBFg1UQHRpYW5iYW8uY29tMB4X
+DTE5MDkxOTA3MjE0N1oXDTIwMDkxODA3MjE0N1owbDELMAkGA1UEBhMCVEIxCzAJ
+BgNVBAgMAlRCMQswCQYDVQQHDAJUQjELMAkGA1UECgwCVEIxCzAJBgNVBAsMAlRC
+MQswCQYDVQQDDAJUQjEcMBoGCSqGSIb3DQEJARYNVEB0aWFuYmFvLmNvbTB2MBAG
+ByqGSM49AgEGBSuBBAAiA2IABA8+AdHAGNofFKR3NXJA2Om+Y7Weie+2dVA7Q8rq
+aLOWVlTTzMQC3fbMSitzUGNA0fMPBHCJyCKaf7dSj6aIiENeWMgNHwq/tuarFcA7
+UbI3P+mijRPJfzqv60YwLxtE+zAKBggqhkjOPQQDAgNoADBlAjEArLLlOQ9K5p1e
+SiN8SaMFLHPXnbEQqXrpIeci/icy40eQkVHPUYBkYGmhXAdxeG9DAjALCQO9vb+x
+wcXqhY6If1qzpE5wJTYijTLSRmqrHZejJhVVLGRMnE66IMhVoNDOwhM=
+-----END CERTIFICATE-----'''
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port 
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb1'
+        l7srv.listener_id  = 'li333' 
+        l7srv2 = proxy_pb2.LayerSevenServiceMessage()
+        l7srv2.address = "17.7.7.71"
+        l7srv2.port = test_port 
+        l7srv2.protocol = 'https'
+        l7srv2.loadbalancer_id  = 'lb1'
+        l7srv2.listener_id  = 'li333' 
+        sniecc2 = l7srv.sni_list.add()
+        snirsa1 = l7srv.sni_list.add()
+        sniecc3 = l7srv2.sni_list.add()
+        snirsa1.domain = 'aaa'
+        snirsa1.cert_key_id = '000'
+        snirsa1.cert = pem_rsa
+        snirsa1.state = proxy_pb2.SniMessage.CREATED
+        sniecc2.domain = 'aaa'
+        sniecc2.cert_key_id = '000'
+        sniecc2.cert = pem_ecc1
+        sniecc2.state = proxy_pb2.SniMessage.CREATED
+
+        sniecc3.domain = 'aaa'
+        sniecc3.cert_key_id = '000'
+        sniecc3.cert = pem_ecc2
+        sniecc3.state = proxy_pb2.SniMessage.CREATED
+     
+        ret = check_sni(sniecc3, l7srv.sni_list)
+        assert ret[0]==0
+        assert ret[1]==2
+
+<<<<<<< HEAD
+    def test_build_sni_list_agent_conf(self):
+        pem_rsa = '''-----BEGIN CERTIFICATE-----
+        MIIDlTCCAn2gAwIBAgIBADANBgkqhkiG9w0BAQsFADBmMQswCQYDVQQGEwJDTjEL
+        MAkGA1UECAwCQkoxCzAJBgNVBAcMAkJKMQswCQYDVQQKDAJUQjELMAkGA1UECwwC
+        VEIxCzAJBgNVBAMMAlRCMRYwFAYJKoZIhvcNAQkBFgdUQGIuY29tMB4XDTE5MDcy
+        NDA3NDQzOFoXDTIwMDcyMzA3NDQzOFowWTELMAkGA1UEBhMCQ04xCzAJBgNVBAgM
+        AkJKMQswCQYDVQQKDAJUQjELMAkGA1UECwwCVEIxCzAJBgNVBAMMAlRCMRYwFAYJ
+        KoZIhvcNAQkBFgdUQGIuY29tMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDN
+        o+GgLg9ZykKSFlg7WwZslceeQXPOtOIxapgoC2sU+W9N0NCQCauHBAiOZjXnuAFg
+        10PKHWduz57UiHwYVYT/hnzi+a0vgxkzhLBXNXccZBBZBBa0qkmgzhC4CNMu4wW5
+        +Ncloza5oJp9+MuuAeykGXCyuagPUXZcMDRs/3NZ8wIDAQABo4HeMIHbMAkGA1Ud
+        EwQCMAAwLAYJYIZIAYb4QgENBB8WHU9wZW5TU0wgR2VuZXJhdGVkIENlcnRpZmlj
+        YXRlMB0GA1UdDgQWBBRvSJtYHjqv2z4gkeaFQfYSytohAzCBgAYDVR0jBHkwd6Fq
+        pGgwZjELMAkGA1UEBhMCQ04xCzAJBgNVBAgMAkJKMQswCQYDVQQHDAJCSjELMAkG
+        A1UECgwCVEIxCzAJBgNVBAsMAlRCMQswCQYDVQQDDAJUQjEWMBQGCSqGSIb3DQEJ
+        ARYHVEBiLmNvbYIJAPSD+zUNNGMeMA0GCSqGSIb3DQEBCwUAA4IBAQBcH0dtqYM2
+        7tnaWgYQkSkWvAc7WvVUQB8zw4zCyOCKb0M6LLPP24/iLVkJc0h/yiHxxZWvFLkj
+        C2iktStAJRHYRffuJtLinpUjcdfuBYRwLwRs2n3bNqlUcolMyQDn19QVhAVJbGXD
+        voHarj08G8EvRd/tLBPhpoVDYRikuTrioUCHN/bgIknIHJ6rurkM1fJXkzlg97cg
+        uKxxAh9xDxwJX5Ly0EmCukGXBTVlxGMdsqrMzWKL+ZEBH8d75l3TAISkTB6g+7CX
+        6WrNjquYebQzZRh6O/wACoYw6tVqcLb41HL2a0GjN/xiDSHwkKI4IBXOosR/6XS1
+        8g7HV+b68gg0
+        -----END CERTIFICATE-----'''
+        pem_ecc1 = '''-----BEGIN CERTIFICATE-----
+        MIIBuzCCAWICCQCBm/zJZJ/+WzAKBggqhkjOPQQDAjBmMQswCQYDVQQGEwJDTjEL
+        MAkGA1UECAwCQkoxCzAJBgNVBAcMAkJKMQswCQYDVQQKDAJUQjELMAkGA1UECwwC
+        VEIxCzAJBgNVBAMMAlRCMRYwFAYJKoZIhvcNAQkBFgdUQGIuY29tMB4XDTE5MDcy
+        NDA5MTkyNFoXDTIwMDcyMzA5MTkyNFowZjELMAkGA1UEBhMCQ04xCzAJBgNVBAgM
+        AkJKMQswCQYDVQQHDAJCSjELMAkGA1UECgwCVEIxCzAJBgNVBAsMAlRCMQswCQYD
+        VQQDDAJUQjEWMBQGCSqGSIb3DQEJARYHVEBiLmNvbTBZMBMGByqGSM49AgEGCCqG
+        SM49AwEHA0IABJ2thl0cWXcbuD5nB48K3cjM3au5ipcVv2RPC3KDWpCMBkAniJS4
+        kHFmp9uR1w5fz0dqQZfHwW3geLUrFOByzaEwCgYIKoZIzj0EAwIDRwAwRAIgCWgO
+        w+Dsg1Dm3yZuAVRZgsjeYMYiLZu6KWk+YLrBiSMCIHVxk8ZXTC7Uw1SdGiEk4SXo
+        qmjwvrTBNXQei4IVUc2c
+        -----END CERTIFICATE-----'''
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+
+        res = build_sni_list_agent_conf(l7srv)
+        self.assertTrue(res == "")
+
+        l7srv.sni_list_enable = 1
+        res = build_sni_list_agent_conf(l7srv)
+        self.assertTrue(res == "")
+
+        sni = l7srv.sni_list.add()
+        sni.domain = 'aaa'
+        sni.cert_key_id = '000'
+        sni.cert = pem_rsa
+        sni.state = proxy_pb2.SniMessage.CREATED
+        res = build_sni_list_agent_conf(l7srv)
+        self.assertTrue(res == "\tsni_certificate aaa /home/slb/control-proxy/tengine/conf/ssl/0/000.crt;\n")
+
+        sni = l7srv.sni_list.add()
+        sni.domain = 'bbb'
+        sni.cert_key_id = '111'
+        sni.cert = pem_ecc1
+        sni.state = proxy_pb2.SniMessage.CREATED
+        res = build_sni_list_agent_conf(l7srv)
+        self.assertTrue(res == "\tsni_certificate aaa /home/slb/control-proxy/tengine/conf/ssl/0/000.crt;\n\tsni_certificate bbb /home/slb/control-proxy/tengine/conf/ssl/1/111.crt;\n")
+
+        l7srv.sni_list_enable = 0
+        res = build_sni_list_agent_conf(l7srv)
+        self.assertTrue(res == "")
+=======
+    def test_x_forwarded_eip_callback(self):
+    
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = "17.7.7.71"
+        l7srv.port = test_port 
+        l7srv.protocol = 'https'
+        l7srv.loadbalancer_id  = 'lb1'
+        l7srv.listener_id  = 'li333'
+        rule_config = {}
+
+        wildconf1 = l7srv.httpWildConfigInfoList.add()#repeated
+        wildconf1.key = "x_forwarded_eip"
+        wildconf1.type = "string"
+        wildconf1.switch = common_pb2.ON
+        wildconf1.value = "127.0.0.1"
+        wildconf1.state = proxy_pb2.WildConfigInfo.CREATED
+
+        wildconf2 = l7srv.httpWildConfigInfoList.add()#repeated
+        wildconf2.key = "x_forwarded_eip_switch"
+        wildconf2.type = "string"
+        wildconf2.switch = common_pb2.ON
+        wildconf2.value = "on"
+        wildconf2.state = proxy_pb2.WildConfigInfo.CREATED
+
+        w, w1 = x_forwarded_eip_callback(l7srv, rule_config)
+        self.assertTrue(w.find("X-Forwarded-EIP") >= 0)
+
+
+        rule = l7srv.http_rule.add()#repeated
+        rule.name = 'rule1'
+        rule.domain = 'www.x1.com'
+
+        wildconf1 = rule.httpWildConfigInfoList.add()
+        wildconf1.key = "x_forwarded_eip"
+        wildconf1.type = "string"
+        wildconf1.switch = common_pb2.ON
+        wildconf1.value = "127.0.0.1"
+        wildconf1.state = proxy_pb2.WildConfigInfo.CREATED
+
+        wildconf2 = rule.httpWildConfigInfoList.add()#repeated
+        wildconf2.key = "x_forwarded_eip_switch"
+        wildconf2.type = "string"
+        wildconf2.switch = common_pb2.ON
+        wildconf2.value = "on"
+        wildconf2.state = proxy_pb2.WildConfigInfo.CREATED
+        
+        rule_config["httpWildConfigInfoList"] = rule.httpWildConfigInfoList
+        w, w1 = x_forwarded_eip_callback(l7srv, rule_config)
+        self.assertTrue(w.find("X-Forwarded-EIP") >= 0)
+
+        
+>>>>>>> add testcase for x_forwarded_eip

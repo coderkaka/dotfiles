@@ -1,0 +1,5 @@
+base:
+  '*':
+    - clean_rpms
+    - install_rpms
+    - config

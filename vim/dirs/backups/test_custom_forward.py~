@@ -1,0 +1,356 @@
+#!/usr/bin/python
+#****************************************************************#
+# ScriptName: client.py
+# Author: yutao.yutao@alibaba-inc.com
+# Create Date: 2017-02-24 16:06
+# Modify Author: $SHTERM_REAL_USER@alibaba-inc.com
+# Modify Date: 2018-08-27 12:17
+# Function:
+#***************************************************************#
+import sys
+import requests
+import unittest
+sys.path.append("../")
+from lib.proxy.proxy_server import *
+import lib.proxy.response_pb2
+import lib.proxy.proxy_pb2
+import lib.proxy.loadbalancer_pb2
+import lib.proxy.common_pb2
+
+
+class agentTestCase_custom_forward(unittest.TestCase):
+    def setUp(self):
+        self.url = 'http://localhost:12000/'
+
+    def tearDown(self):
+        #self.doDeleteListener()
+        #self.doDeleteLB()
+        self.url = None
+
+    def testClean(self):
+        self.doInit()
+        self.doDeleteListener()
+        self.doDeleteLB()
+
+    def doInit(self):
+        # lb info
+        self.lb = {}
+        self.lb['vip'] = '100.100.100.100'
+        self.lb['id'] = 'lb_cs1'
+        self.lb['limit_qps'] = 1000
+
+        # listener info
+        self.srv = {}
+        self.srv['vip'] = '100.100.100.100'
+        self.srv['proxy_port'] = 50320
+        self.srv['protocal'] = 'http'
+        self.srv['listener_id'] = 'listen_cs1'
+        self.srv['tunnel_id'] = 33
+        self.srv['is_incremental'] = 0  # full
+
+        #realserver
+        self.realserver = {}
+        self.realserver['address'] = '1.1.1.1'
+        self.realserver['port'] = 1111
+        self.realserver['tunnel_id'] = 213
+        self.realserver['weight'] = 100
+        self.realserver['vgw_ip'] = '0.0.0.0'
+        pass
+
+    def doCreateLB(self):
+        lb = loadbalancer_pb2.LoadbalancerMessage()
+        lb.address = self.lb['vip']
+        lb.loadbalancer_id = self.lb['id']
+        lb.version = 6
+        lb.sla_config.qps = self.lb['limit_qps']
+        s_str = lb.SerializeToString()
+
+        res = requests.put(self.url + 'create/lb', data=s_str)
+        rsp = response_pb2.Response()
+        rsp.ParseFromString(res.content)
+        self.assertEqual(rsp.code, response_pb2.Response.OK)
+
+    def doInitL7srv(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = self.srv['vip']
+        l7srv.port = self.srv['proxy_port']
+        l7srv.protocol = self.srv['protocal']
+        l7srv.loadbalancer_id = self.lb['id']
+        l7srv.listener_id = self.srv['listener_id']
+        l7srv.config.wild_config['name'] = 'TaoBao'
+        l7srv.config.sticky_session.sticky_session_type = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+        l7srv.config.sticky_session.timeout = 33
+        l7srv.tunnel_id = self.srv['tunnel_id']
+        l7srv.is_incremental = self.srv['is_incremental']  # increamental
+        return l7srv
+
+    def doInitRealservar(self, l7srv):
+        realserver = l7srv.realserver.add()  # repeated
+        realserver.address = self.realserver['address']
+        realserver.port = self.realserver['port']
+        realserver.tunnel_id = self.realserver['tunnel_id']
+        realserver.state = common_pb2.Realserver.DELETED  # enum
+        realserver.weight = self.realserver['weight']
+        realserver.vgw_ip = self.realserver['vgw_ip']
+
+        return l7srv
+
+    def doCreateListener(self):
+        l7srv = self.doInitL7srv()
+        l7srv.is_app_rule = 1
+        l7srv = self.doInitRealservar(l7srv)
+        l7srv.version = 15
+        s_str = l7srv.SerializeToString()
+
+        res = requests.put(self.url + 'create/listener', data=s_str)
+        rsp = response_pb2.Response()
+        rsp.ParseFromString(res.content)
+        self.assertEqual(rsp.code, response_pb2.Response.OK)
+
+    def doQueryListenAfterUpdate(self):
+        query = common_pb2.QueryConfigMessage()
+        query.config_type = common_pb2.QueryConfigMessage.DEVICE_GROUP_CONFIG
+        query.listener_id = self.srv['listener_id']  # should be port for proxy
+        s_str = query.SerializeToString()
+        res = requests.put(self.url + 'query/listener/detail', data=s_str)
+        rsp = response_pb2.QueryLayerSevenServiceResponse()
+        rsp.ParseFromString(res.content)
+        self.assertEqual(rsp.response.code, response_pb2.Response.OK)
+        self.assertEqual(rsp.data[0].config.sticky_session.timeout, 33)
+        self.assertEqual(rsp.data[0].version, 16)
+
+    def doDeleteLB(self):
+        lb = loadbalancer_pb2.LoadbalancerMessage()
+        lb.address = self.lb['vip']
+        lb.loadbalancer_id = self.lb['id']
+        lb.version = 3
+
+        lb.sla_config.qps = self.lb['limit_qps']
+        s_str = lb.SerializeToString()
+        res = requests.put(self.url + 'delete/lb', data=s_str)
+        rsp = response_pb2.Response()
+        rsp.ParseFromString(res.content)
+        self.assertEqual(rsp.code, response_pb2.Response.OK)
+
+    def doDeleteListener(self):
+        l7srv = proxy_pb2.LayerSevenServiceMessage()
+        l7srv.address = self.srv['vip']
+        l7srv.port = self.srv['proxy_port']
+        l7srv.protocol = self.srv['protocal']
+        l7srv.loadbalancer_id = self.lb['id']
+        l7srv.listener_id = self.srv['listener_id']
+        l7srv.config.wild_config['name'] = 'TaoBao'
+        l7srv.config.sticky_session.sticky_session_type = proxy_pb2.LayerSevenServiceConfig.StickySession.INSERT
+        l7srv.config.sticky_session.timeout = 3
+        l7srv.is_app_rule = 1
+
+        l7srv.tunnel_id = self.srv['tunnel_id']
+        realserver = l7srv.realserver.add()  # repeated
+        realserver.address = self.realserver['address']
+        realserver.port = self.realserver['port']
+        realserver.state = common_pb2.Realserver.DELETED  # enum
+        realserver.tunnel_id = self.realserver['tunnel_id']
+        realserver.vgw_ip = self.realserver['vgw_ip']
+        l7srv.version = 11
+        s_str = l7srv.SerializeToString()
+        res = requests.put(self.url + 'delete/listener', data=s_str)
+        rsp = response_pb2.Response()
+        rsp.ParseFromString(res.content)
+        self.assertEqual(rsp.code, response_pb2.Response.OK)
+
+    def testExampleofCustomTransfer(self):
+        self.doInit()
+        self.doCreateLB()
+        self.doCreateListener()
+
+        # update listener
+        l7srv = self.doInitL7srv()
+        l7srv.is_app_rule = 1
+        l7srv = self.doInitRealservar(l7srv)
+
+        http_rule = l7srv.http_rule.add()
+        http_rule.name = "mytest"
+        http_rule.priority = 100
+        condition = http_rule.conditions.add()
+        condition.type = proxy_pb2.Condition.HEADER
+        condition.header_key = "mytest"
+        condition.value.append("mytest")
+        condition.value_match_type = proxy_pb2.Condition.WILDCARD
+        http_rule.state = proxy_pb2.HttpRule.CREATED
+
+        l7srv.version = 16
+        s_str = l7srv.SerializeToString()
+
+        res = requests.put(self.url + 'update/listener', data=s_str)
+        rsp = response_pb2.Response()
+        rsp.ParseFromString(res.content)
+        self.assertEqual(rsp.code, response_pb2.Response.OK)
+        self.doQueryListenAfterUpdate()
+        pass
+
+    def testCustomTransferConditions(self):
+        self.doInit()
+        self.doCreateLB()
+        self.doCreateListener()
+
+        # update listener
+        l7srv = self.doInitL7srv()
+        l7srv.is_app_rule = 1
+        l7srv = self.doInitRealservar(l7srv)
+
+        http_rule = l7srv.http_rule.add()
+        http_rule.name = "mytest"
+        http_rule.priority = 100
+
+        #host
+        condition = http_rule.conditions.add()
+        condition.type = proxy_pb2.Condition.DOMAIN
+        condition.value.append("www.testa.com")
+        condition.value.append("www.testb.com")
+        condition.value_match_type = proxy_pb2.Condition.WILDCARD
+
+        #uri
+        condition = http_rule.conditions.add()
+        condition.type = proxy_pb2.Condition.URL
+        condition.value.append("/test1")
+        condition.value.append("/abc*")
+        condition.value_match_type = proxy_pb2.Condition.WILDCARD
+
+        #header
+        condition = http_rule.conditions.add()
+        condition.type = proxy_pb2.Condition.HEADER
+        condition.header_key = "mytest"
+        condition.value.append("age")
+        condition.value.append("name")
+        condition.value_match_type = proxy_pb2.Condition.WILDCARD
+
+        #cookie
+        condition = http_rule.conditions.add()
+        condition.type = proxy_pb2.Condition.COOKIE
+        condition.value.append('{"key": "age", "value":"3"}')
+        condition.value.append('{"key": "name", "value":"xiaoming"}')
+        condition.value_match_type = proxy_pb2.Condition.WILDCARD
+        condition = http_rule.conditions.add()
+        condition.type = proxy_pb2.Condition.COOKIE
+        condition.value.append('{"key": "age", "value":"10"}')
+        condition.value.append('{"key": "name", "value":"xiaowang"}')
+        condition.value_match_type = proxy_pb2.Condition.WILDCARD
+
+        #query_string
+        condition = http_rule.conditions.add()
+        condition.type = proxy_pb2.Condition.QUERY_STRING
+        condition.value.append('{"key": "age", "value":"3"}')
+        condition.value.append('{"key": "name", "value":"xiaoming"}')
+        condition.value_match_type = proxy_pb2.Condition.WILDCARD
+        condition = http_rule.conditions.add()
+        condition.type = proxy_pb2.Condition.QUERY_STRING
+        condition.value.append('{"key": "age", "value":"10"}')
+        condition.value.append('{"key": "name", "value":"xiaowang"}')
+        condition.value_match_type = proxy_pb2.Condition.WILDCARD
+
+        #method
+        condition = http_rule.conditions.add()
+        condition.type = proxy_pb2.Condition.METHOD
+        condition.value.append("GET")
+        condition.value.append("POST")
+        condition.value_match_type = proxy_pb2.Condition.VALUE_CONTAIN
+
+        http_rule.state = proxy_pb2.HttpRule.CREATED
+        l7srv.version = 16
+        s_str = l7srv.SerializeToString()
+
+        res = requests.put(self.url + 'update/listener', data=s_str)
+        rsp = response_pb2.Response()
+        rsp.ParseFromString(res.content)
+        self.assertEqual(rsp.code, response_pb2.Response.OK)
+        pass
+
+    def testCustomTransferActions(self):
+        self.doInit()
+        self.doCreateLB()
+        self.doCreateListener()
+
+        # update listener
+        l7srv = self.doInitL7srv()
+        l7srv.is_app_rule = 1
+        l7srv = self.doInitRealservar(l7srv)
+
+        http_rule = l7srv.http_rule.add()
+        http_rule.name = "mytest"
+        http_rule.priority = 100
+
+        #host
+        condition = http_rule.conditions.add()
+        condition.type = proxy_pb2.Condition.DOMAIN
+        condition.value.append("www.testa.com")
+        condition.value.append("www.testb.com")
+        condition.value_match_type = proxy_pb2.Condition.WILDCARD
+
+        action = http_rule.actions.add()
+        action.type = proxy_pb2.Action.REDIRECT
+        action.redirect.protocol = proxy_pb2.Action.HTTPS
+        action.redirect.host = "www.redirect_a.com"
+        action.redirect.port = 8080
+        action.redirect.path = "/test"
+        action.redirect.query_string = "var_a=test"
+        action.redirect.http_code = "302"
+        action.order = 10
+
+        action = http_rule.actions.add()
+        action.type = proxy_pb2.Action.FIXED_RESPONSE
+        action.fixed_response.http_code = "200"
+        action.fixed_response.content_type = 'application/json'
+        action.fixed_response.content = "888888888888888888888888**************************88888888888888888888888"
+        action.fixed_response.case_type = proxy_pb2.Action.REQUEST
+        action.order = 12
+
+        action = http_rule.actions.add()
+        action.type = proxy_pb2.Action.REWRITE
+        action.rewrite.host = "www.rewrite_a.com"
+        action.rewrite.path = "/testa"
+        action.rewrite.query_string = "var_a=aaa"
+        action.order = 100
+
+        action = http_rule.actions.add()
+        action.type = proxy_pb2.Action.INSERT_HEADER
+        action.insertHeader.value_type = proxy_pb2.Action.USER_DEFINED
+        action.insertHeader.header_key = "insert_header_key"
+        action.insertHeader.value = "abcdefggggg"
+        action.insertHeader.cover_type = common_pb2.ON
+        action.insertHeader.case_type = proxy_pb2.Action.REQUEST
+        action.order = 16
+
+        action = http_rule.actions.add()
+        action.type = proxy_pb2.Action.INSERT_HEADER
+        action.insertHeader.value_type = proxy_pb2.Action.REFERENCE_HEADER
+        action.insertHeader.header_key = "my_user_agent"
+        action.insertHeader.value = "User-Agent"
+        action.insertHeader.cover_type = common_pb2.ON
+        action.insertHeader.case_type = proxy_pb2.Action.REQUEST
+        action.order = 30
+
+        action = http_rule.actions.add()
+        action.type = proxy_pb2.Action.INSERT_HEADER
+        action.insertHeader.value_type = proxy_pb2.Action.SYSTEM_DEFINED
+        action.insertHeader.header_key = "my_client_ip"
+        action.insertHeader.value = "remote_addr"
+        action.insertHeader.cover_type = common_pb2.ON
+        action.insertHeader.case_type = proxy_pb2.Action.REQUEST
+        action.order = 20
+
+        action = http_rule.actions.add()
+        action.type = proxy_pb2.Action.REMOVE_HEADER
+        action.removeHeader.header_key = "remove_header_key"
+        action.removeHeader.case_type = proxy_pb2.Action.REQUEST
+        action.order = 6
+
+        http_rule.state = proxy_pb2.HttpRule.CREATED
+        l7srv.version = 16
+        s_str = l7srv.SerializeToString()
+
+        res = requests.put(self.url + 'update/listener', data=s_str)
+        rsp = response_pb2.Response()
+        rsp.ParseFromString(res.content)
+        self.assertEqual(rsp.code, response_pb2.Response.OK)
+
+

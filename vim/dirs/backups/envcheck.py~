@@ -1,0 +1,191 @@
+import os
+import yaml
+import logging
+import commands
+from command import *
+from grains import *
+from misc import *
+from log import *
+
+class EnvCheck:
+    '''check numa ht linux_release kernel_version mem
+        kernel_version: '2.6.32-220.23.2.ali878.el6.x86_64'
+        linux_release: 'Alibaba Group Enterprise Linux Server release 6.2 (DogTag)'
+        mem: >= 61G
+        numa_node: 1
+        ht: on
+        cpu: >= 12
+    '''
+
+    def __init__(self):
+
+        self.kernel_version = ['4.19.48-4.alios7.aarch64', '2.6.32-220.23.2.ali878.el6.x86_64']
+        self.linux_release = 'Alibaba Group Enterprise Linux Server release 7.2 (Paladin)'
+        self.numa_node = 1
+        self.encrypt_mode = get_encrypt_mode()
+        self.ht = 'off'
+
+        self.mem_min_size = 61
+        self.cpu_min_num = 12
+
+    def check_kernel(self):
+        """0: fail; 1 succeed"""
+
+        ret, out = exec_local_cmd("uname -r")
+        kernel_version = out.strip()
+        if kernel_version not in self.kernel_version:
+            logger.info("check kernel version failed")
+            return 0
+
+        return 1
+
+    def check_os(self):
+        """0: fail; 1 succeed"""
+
+        ret, out = exec_local_cmd("sed -n '1p' /etc/issue")
+        linux_release = out.strip()
+        if linux_release != self.linux_release:
+            logger.info("check linux release failed")
+            return 0
+
+        return 1
+
+    def check_numa(self):
+        """0: fail; 1 succeed"""
+
+        ret, out = exec_local_cmd("lscpu|grep -i 'NUMA node(s):'")
+        numa_node = eval(out.split(':')[1].strip())
+        if numa_node != self.numa_node:
+            logger.info("check numa failed")
+            return 0
+
+        return 1
+
+    def check_ht(self):
+        """0: fail; 1 succeed"""
+
+        ret, out = exec_local_cmd("cat /proc/cpuinfo | grep 'siblings' | sort | uniq")
+        slbings = out.split(':')[1].strip()
+        ret, out = exec_local_cmd("cat /proc/cpuinfo | grep 'cpu cores' | sort | uniq")
+        cpu_cores = out.split(':')[1].strip()
+        if slbings != cpu_cores:
+            ht = 'on'
+        else:
+            ht = 'off'
+
+        if ht != self.ht:
+            logger.info("check ht failed")
+            return 0
+
+        return 1
+
+    def check_mem(self):
+        """0: fail; 1 succeed"""
+
+        ret, out = exec_local_cmd("free -g | grep Mem |awk '{print $2}'")
+        total_mem = eval(out)
+        if total_mem < 61:
+            logger.error("check mem failed, mem[%sG] less than %s" \
+                         % (total_mem, self.mem_min_size))
+            return 0
+
+        return 1
+
+    def check_cpu(self):
+        """0: fail; 1 succeed"""
+
+        ret, out = exec_local_cmd("lscpu|grep 'CPU(s):'|grep -v NUMA")
+        cpu_num = eval(out.split(':')[1].strip())
+        if cpu_num < self.cpu_min_num:
+            logger.error("check cpu failed: cpu num[%s] less than %s" % self.cpu_min_num)
+            return 0
+
+        return 1
+
+    def encrypt_check(self):
+        """0: fail; 1 succeed"""
+
+        if self.encrypt_mode != 'DH895xCC':
+            return 1
+
+        cmd = "lsmod | grep -w qat_mem | awk '{print $1}' | wc -l"
+        ret, out = exec_local_cmd(cmd)
+        count1 = int(out.strip())
+
+        cmd = "lsmod | grep -w icp_qa_al | awk '{print $1}' | wc -l"
+        ret, out = exec_local_cmd(cmd)
+        count2 = int(out.strip())
+
+        if count1 != 1 or count2 != 1:
+            logger.error("module qat_mem or icp_qa_al not exist")
+            return 0
+
+        cmd = "ls -l /dev/qat_mem | wc -l"
+        count3 = int(out.strip())
+        if count3 != 1:
+            logger.error("/dev/qat_mem not exist")
+            return 0
+
+        cmd = "service qat_service status | grep -v acceleration "\
+                "| awk -F, '{print $1, $6}' | sed 's/-//g' | grep 'state=up' | wc -l"
+        ret, out = exec_local_cmd(cmd)
+        count4 = int(out.strip())
+        if count4 != 2:
+            logger.error("qat card state abnormal")
+            return 0
+
+        return 1
+
+    def machine_check(self):
+        """0: fail; 1 succeed"""
+
+        if not self.check_mem():
+            return 0
+
+        if not self.check_cpu():
+            return 0
+
+        return 1
+
+    def reboot_check(self):
+        """0: fail; 1 succeed"""
+
+        if not self.check_kernel():
+            return 0
+
+        if not self.check_os():
+            return 0
+
+        if not self.check_numa():
+            return 0
+
+        #if not self.check_ht():
+            return 0
+
+        return 1
+
+    def post_check(self):
+        """0: fail; 1 succeed"""
+
+        if not self.check_kernel():
+            return 0
+
+        if not self.check_os():
+            return 0
+
+        if not self.check_numa():
+            return 0
+
+        #if not self.check_ht():
+            return 0
+
+        if not self.check_mem():
+            return 0
+
+        if not self.check_cpu():
+            return 0
+
+        if not self.encrypt_check():
+            return 0
+
+        return 1

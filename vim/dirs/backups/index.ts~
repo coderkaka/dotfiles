@@ -1,0 +1,29 @@
+import { Provide, Func, Inject } from '@midwayjs/decorator';
+import { FunctionHandler, FaaSContext } from '@ali/midway-faas';
+
+
+interface MCtx extends  FaaSContext {
+  ():any getPage();
+}
+
+@Provide()
+@Func('index.handler')
+export class IndexHandler implements FunctionHandler {
+  @Inject()
+  ctx: MCtx;
+
+  async handler() {
+    const url = this.ctx.query.url || 'http://baidu.com';
+
+    // 创建一个 puppeteer 页面
+    const page = await this.ctx.getPage();
+    // 打开一个网页
+    await page.goto(url);
+    // 获取网页内容
+    const content = await page.content();
+    // 关闭网页
+    page.close();
+
+    return content;
+  }
+}

@@ -1,0 +1,8 @@
+#!/usr/bin/env python
+# coding=utf-8
+abc = {}
+
+def verify():
+    abc['b'] = 100
+    print abc
+

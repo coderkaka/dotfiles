@@ -1,0 +1,169 @@
+#!/home/tops/bin/python
+# -*- coding: utf-8 -*-
+import os
+import re
+import sys
+import yaml
+import json
+from common import *
+
+def get_os_version():
+    cmd = 'uname -r'
+    ret, out = exec_local_cmd(cmd)
+    if out.strip() == '3.10.0-327.ali2008.alios7.x86_64':
+        os_version = '7u'
+    elif out.strip() == '2.6.32-220.23.2.ali878.el6.x86_64':
+        os_version = '6u'
+    elif out.strip() == '4.19.48-4.alios7.aarch64':
+        os_version = '7u'
+    else:
+        os_version = ''
+
+    return os_version
+
+def check_dstat_exist():
+    cmd = 'ps aux | grep -v grep | grep "/usr/bin/python slbdstat.py --all-plugins" | wc -l'
+    ret, out = exec_local_cmd(cmd)
+    process_num = int(out.strip())
+    if process_num == 1:
+        return 1
+
+    return 0
+
+def check_drop_logcache_exist():
+    cmd = 'ps aux | grep -v grep | grep "python slb_drop_logcache.py" | wc -l'
+    ret, out = exec_local_cmd(cmd)
+    process_num = int(out.strip())
+    if process_num == 1:
+        return 1
+
+    return 0
+
+# def check_ntpd_exist():
+#     cmd = 'ps aux | grep -v grep |grep ntpd | wc -l'
+#     ret, out = exec_local_cmd(cmd)
+#     process_num = int(out.strip())
+#     if process_num == 1:
+#         return 1
+#
+#     return 0
+
+def check_cronolog_exist():
+    cmd = 'ps aux | grep -v grep | grep "/opt/taobao/install/cronolog/sbin/cronolog" | wc -l'
+    ret, out = exec_local_cmd(cmd)
+    process_num = int(out.strip())
+    if process_num > 0:
+        return 1
+
+    return 0
+
+def check_ilogtail_exist():
+    cmd = 'ps aux | grep -v grep | grep "/usr/local/ilogtail/ilogtail" | wc -l'
+    ret, out = exec_local_cmd(cmd)
+    process_num = int(out.strip())
+    if process_num > 0:
+        return 1
+
+    return 0
+
+def check_syslog_ng_exist():
+
+    os_version = get_os_version()
+    if os_version == '7u':
+        cmd = 'ps aux | grep -v grep | grep "/usr/sbin/syslog-ng" | wc -l'
+        ret, out = exec_local_cmd(cmd)
+        process_num = int(out.strip())
+        if process_num != 1:
+            return 0
+
+    elif os_version == '6u':
+        cmd = 'ps aux | grep -v grep |grep -e "/sbin/syslog-ng" -e "supervising syslog-ng" | wc -l'
+        ret, out = exec_local_cmd(cmd)
+        process_num = int(out.strip())
+        if process_num != 2:
+            return 0
+
+    return 1
+
+def check_cert_agent_main_exist():
+    cmd = 'ps aux | grep -v grep |grep "/usr/bin/python keyserver_main.py" | wc -l'
+    ret, out = exec_local_cmd(cmd)
+    process_num = int(out.strip())
+    if process_num == 1:
+        return 1
+
+    return 0
+
+def check_nginx_exist():
+
+    cmd = 'ps aux | grep -v grep |grep -e "nginx: master process" | wc -l'
+    ret, out = exec_local_cmd(cmd)
+    process_num = int(out.strip())
+    if process_num <= 0:
+        return 0
+
+    cmd = 'ps aux | grep -v grep |grep -e "nginx: worker process" | wc -l'
+    ret, out = exec_local_cmd(cmd)
+    process_num = int(out.strip())
+    if process_num <= 0:
+        return 0
+
+    return 1
+
+def process_check():
+    '''
+    1. dstat
+    2. drop_logcache
+    3. ntpd
+    #4. cronolog
+    5. ilogtail
+    6. syslog-ng
+    7. keyserver_main.py
+    8. nginx
+    '''
+
+    data = []
+    ret = check_dstat_exist()
+    if ret != 1:
+        data.append('dstat')
+
+    ret = check_drop_logcache_exist()
+    if ret != 1:
+        data.append('drop_logcache')
+
+    # ret = check_ntpd_exist()
+    # if ret != 1:
+    #     data.append('ntpd')
+
+    ret = check_cronolog_exist()
+    if ret != 1:
+        data.append('cronolog')
+
+    ret = check_ilogtail_exist()
+    if ret != 1:
+        data.append('ilogtail')
+
+    ret = check_syslog_ng_exist()
+    if ret != 1:
+        data.append('syslog-ng')
+
+    ret = check_cert_agent_main_exist()
+    if ret != 1:
+        data.append('keyserver_main.py')
+
+    ret = check_nginx_exist()
+    if ret != 1:
+        data.append('nginx')
+
+    return data
+
+if __name__ == '__main__':
+
+    data = process_check()
+    if data:
+        print 'check processes exist failed:'
+        print data
+        exit(1)
+
+    print 'check processes exist succeed!'
+    exit(0)

@@ -1,0 +1,80 @@
+#!/usr/bin/env python
+# -*- encoding:utf-8 -*-
+import os, sys, commands, json
+
+
+# 通过配置文件判断网卡个数
+
+
+def exec_local_cmd(cmd):
+    ret = commands.getstatusoutput(cmd)
+    return ret[0], ret[1]
+
+
+def get_network_type():
+    network_type = 'unsupport network type'
+
+    cmd = 'lspci |grep Ether |grep 40GbE |wc -l'
+    ret, out = exec_local_cmd(cmd)
+    count = int(out.strip())
+    if count == 4:
+        network_type = 'FortyGigabit'
+        return network_type, count
+    elif count == 2:
+        network_type = 'FortyGigabit-w4h'
+        return network_type, count
+
+    cmd = 'lspci |grep Ether |grep "Device 1584" |wc -l'
+    ret, out = exec_local_cmd(cmd)
+    count = int(out.strip())
+    if count == 2:
+        network_type = 'FortyGigabit-w4h'
+        return network_type, count
+
+    cmd = 'lspci |grep Ether |grep "82599\|ConnectX-4|ConnectX-5" |wc -l'
+    ret, out = exec_local_cmd(cmd)
+    count = int(out.strip())
+    if count > 0:
+        if count >= 2:
+            count = 2
+        network_type = 'TenGigabit'
+        return network_type, count
+
+    return network_type, count
+
+
+network_type, nic_num = get_network_type()
+
+if nic_num == 0:
+    data = []
+    route_all = {'iface': 'all', 'gateway': 'lsw', 'destination': 'default', 'cnt': 0, 'msg': 'get nic num fail'}
+    data.append(route_all)
+    result = {"collection_flag": 0, "error_info": "None", "MSG": data}
+    print json.dumps(result, sort_keys=True, indent=2)
+    sys.exit(0)
+
+cmd = "ip route list table main"
+info = commands.getoutput(cmd)
+
+data = []
+route_cnt = 0
+flag_default = 0
+flag_start = 0
+delimiter_str = ''
+
+cmd = "ip route show 0.0.0.0/0 | grep via | grep -v eth0 | grep -v eth1 | grep -v eth2 | grep -v eth3 | wc -l"
+info = commands.getoutput(cmd)
+route_cnt = int(info)
+
+d_value = int(nic_num) - route_cnt
+d_value_rate = d_value * 100 / int(nic_num)
+if d_value == 0:
+    route_all = {'iface': 'all', 'gateway': 'lsw', 'destination': 'default', 'cnt': route_cnt, 'msg': 'ok',
+                 'd_value': 0, 'd_value_rate': 0, 'nic_num': int(nic_num)}
+else:
+    route_all = {'iface': 'all', 'gateway': 'lsw', 'destination': 'default', 'cnt': route_cnt,
+                 'msg': 'nic count is %s, more than default route count %d' % (nic_num, route_cnt), 'd_value': d_value,
+                 'd_value_rate': d_value_rate, 'nic_num': int(nic_num)}
+data.append(route_all)
+result = {"collection_flag": 0, "error_info": "None", "MSG": data}
+print json.dumps(result, sort_keys=True, indent=2)

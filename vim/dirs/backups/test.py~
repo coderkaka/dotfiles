@@ -1,0 +1,9 @@
+#!/usr/bin/env python
+# coding=utf-8
+def rule(app_rule=None):
+    print app_rule
+
+if __name__ == '__main__':
+    app_rule = 10
+    rule(app_rule = 4 if app_rule > 5 else None)
+    print app_rule

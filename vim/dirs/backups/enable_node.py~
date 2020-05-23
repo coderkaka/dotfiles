@@ -1,0 +1,114 @@
+#!/home/tops/bin/python2.7
+
+import os
+import commands
+import sys
+import json
+import time
+from common.command import *
+from common.master_api import *
+
+class enableNode:
+    def __init__(self, type, pillar_path):
+        self.masterapi = masterApi(type, pillar_path)
+        pass
+
+    def get_node_ip(self):
+        yaml_info = yaml.load(file("/home/slb/control-proxy/conf/agent.yaml"))
+        ipaddr = yaml_info['host']
+
+        return ipaddr
+
+    def iptables_clear(self):
+        cmd = "sudo iptables -F"
+        ret, out = exec_local_cmd(cmd)
+
+        cmd = "sudo service iptables save"
+        ret, out = exec_local_cmd(cmd)
+
+        cmd = "sudo chkconfig --level 2345 iptables off"
+        ret, out = exec_local_cmd(cmd)
+
+        #ipaddr = self.get_node_ip()
+        #cmd = "nc -z -w 3 %s 81" % ipaddr
+        #ret, out = exec_local_cmd(cmd)
+        #if ret:
+        #    logger.error("port 81 is close")
+        #    return 1
+
+        return 0
+
+    def add_plug_count(self):
+        '''succeed: 0; fail: 1'''
+
+        support = 0
+        try:
+            if self.masterapi.plug_count_function_enabled() == True:
+                support = 1
+        except Exception, e:
+            logger.error("get plug function status failed: %s" % str(e))
+            return 1
+
+        if support == 1:
+            logger.info("plug function enabled")
+            if self.masterapi.update_plug_enabled(1) != 1:
+                logger.error("update plug_enabled failed")
+                return 1
+
+            if self.masterapi.plug_node() != 1:
+                logger.error("plug node failed")
+                return 1
+            else:
+                logger.info("add plug count succeed!")
+                return 0
+
+        logger.info("plug function not supported")
+        return 0
+
+    def enable(self):
+
+        #drop in ApsaraStack
+        #if self.iptables_clear():
+        #    logger.error("enable_node.py: open port 81 failed")
+        #    return 1
+
+        #0: fail; 1: succeed
+        if not self.masterapi.check_and_online_device():
+            logger.error("enable_node.py: online device failed")
+            return 1
+
+        if not self.masterapi.check_device_status():
+            logger.error("enable_node.py: check device status failed")
+            return 1
+
+        # wait traffic to restore
+        logger.info("wait...120s")
+        time.sleep(120)
+
+        if self.add_plug_count() != 0:
+            logger.error("add plug count failed")
+            return 1
+
+        return 0
+
+if __name__ == '__main__':
+    if len(sys.argv) != 2:
+        logger.error("enable_node.py: params error, need one param: pillar path")
+        exit(1)
+
+    pillar_path = sys.argv[1].strip()
+    if not os.path.exists(pillar_path):
+        logger.error("enable_node.py: %s not exist" % pillar_path)
+        exit(2)
+
+    logger.info("enable node ...")
+    enab = enableNode('proxy', pillar_path)
+    ret = enab.enable()
+    if ret:
+        msg = json.dumps(dict(msg="call %s, ret %d" % (sys.argv[0], ret), \
+                    ts=time.time(), logpath="/var/log/proxy_deploy.log"))
+        logger.error("enable_node.py: " + str(msg))
+        exit(3)
+
+    logger.info("enabel node ok!")
+    exit(0)

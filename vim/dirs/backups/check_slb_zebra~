@@ -1,0 +1,159 @@
+#!/bin/bash
+
+#####################################################################
+#
+#   Function : check zebra & opsf process 
+#   Author   : zhihe.szh@alibaba-inc.com
+#
+#####################################################################
+
+# redefine PATH enviroment
+export PATH=$PATH:/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
+
+ECHO="echo -e"
+error_message=""
+script_status=0
+MSG=""
+ROUTE_PROTOCOL_10G="/usr/local/etc/route_type_10g.conf"
+
+print_json() {
+    $ECHO "{"
+    $ECHO "\"collection_flag\":$script_status,"
+    $ECHO "\"error_info\":\"$error_message\","
+    $ECHO "\"MSG\":["
+    $ECHO "\t$MSG"
+    $ECHO "\t]"
+    $ECHO "}"
+}
+
+check_zebra(){
+
+    check_rst='"description":"zebra"'
+    if [ -f /etc/init.d/zebra ]; then
+        if /etc/init.d/zebra status 2>/dev/null | grep -q running ; then
+            check_rst=$check_rst',"status":1'
+        else
+            check_rst=$check_rst',"status":0'
+        fi
+    else
+        if /etc/init.d/slb-zebra status 2>/dev/null | grep -q running ; then
+            check_rst=$check_rst',"status":1'
+        else
+            check_rst=$check_rst',"status":0'
+        fi
+    fi
+    if uname -r | grep -q alios7; then
+        nc -i 1 -w 1 127.0.0.1 2601  &>/tmp/get_slb_zebra_ospfd 
+        if grep refused /tmp/get_slb_zebra_ospfd; then
+            check_rst=$check_rst',"port_status":0'
+        else
+            check_rst=$check_rst',"port_status":1'
+        fi
+    else
+        if  nc -z -w 1 127.0.0.1 2601 | grep -q succeeded ; then
+            check_rst=$check_rst',"port_status":1'   
+        else
+            check_rst=$check_rst',"port_status":0'
+        fi
+    fi
+    MSG="${MSG}{${check_rst}},"
+       
+}
+
+check_ospf(){
+
+    check_rst='"description":"ospfd"'
+    if [ -f /etc/init.d/ospfd ]; then
+        if /etc/init.d/ospfd status 2>/dev/null | grep -q running ; then
+            check_rst=$check_rst',"status":1'
+        else
+            check_rst=$check_rst',"status":0'
+        fi
+    else
+        if /etc/init.d/slb-ospfd status 2>/dev/null | grep -q running ; then
+            check_rst=$check_rst',"status":1'
+        else
+            check_rst=$check_rst',"status":0'
+        fi
+    fi
+    if uname -r | grep -q alios7; then
+        nc -i 1 -w 1 127.0.0.1 2604  &>/tmp/get_slb_zebra_ospfd
+        if grep refused /tmp/get_slb_zebra_ospfd; then
+            check_rst=$check_rst',"port_status":0'
+        else
+            check_rst=$check_rst',"port_status":1'
+        fi
+    else
+        if  nc -z -w 1 127.0.0.1 2604 | grep -q succeeded ; then
+            check_rst=$check_rst',"port_status":1'   
+        else
+            check_rst=$check_rst',"port_status":0'
+        fi
+   fi
+    MSG="${MSG}{${check_rst}}"
+
+}
+
+
+check_bgp(){
+
+    check_rst='"description":"bgpd"'
+    if [ -f /etc/init.d/bgpd ]; then
+        if /etc/init.d/bgpd status 2>/dev/null | grep -q running ; then
+            check_rst=$check_rst',"status":1'
+        else
+            check_rst=$check_rst',"status":0'
+        fi
+    else
+        if /etc/init.d/slb-bgpd status 2>/dev/null | grep -q running ; then
+            check_rst=$check_rst',"status":1'
+        else
+            check_rst=$check_rst',"status":0'
+        fi
+    fi
+    if uname -r | grep -q alios7; then
+        nc -i 1 -w 1 127.0.0.1 2605  &>/tmp/get_slb_zebra_bgpd
+        if grep refused /tmp/get_slb_zebra_bgpd; then
+            check_rst=$check_rst',"port_status":0'
+        else
+            check_rst=$check_rst',"port_status":1'
+        fi
+    else
+        if  nc -z -w 1 127.0.0.1 2605 | grep -q succeeded ; then
+            check_rst=$check_rst',"port_status":1'   
+        else
+            check_rst=$check_rst',"port_status":0'
+        fi
+   fi
+    MSG="${MSG}{${check_rst}}"
+
+}
+
+check_zebra
+
+ROUTER_PROG="bgpd"
+pci_10g=`lspci |grep Ethernet |grep "82599\|ConnectX-4"`
+if [ -n "$pci_10g" ]; then
+    ROUTER_PROG="ospfd"
+
+    if [[ -f "$ROUTE_PROTOCOL_10G" ]]; then
+        protocol_10g=`cat $ROUTE_PROTOCOL_10G | cut -d= -f2|sed 's/\"//g'`
+        if [[ $protocol_10g == "bgp" ]] ;  then
+            ROUTER_PROG="bgpd"
+        fi
+    fi
+fi
+
+pci_40g=`lspci |grep Ethernet |grep 40GbE`
+if [ -n "$pci_40g" ]; then
+    ROUTER_PROG="bgpd"
+fi
+
+if [ "$ROUTER_PROG" == "ospfd" ]
+then
+    check_ospf
+else
+    check_bgp
+fi
+
+print_json

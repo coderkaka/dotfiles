@@ -1,0 +1,58 @@
+#!/home/tops/bin/python2.7
+import yaml
+import json
+import os
+import sys
+from common.command import *
+from common.node_envcheck import *
+
+conf_path = './conf.local/application-conf.json'
+in_yaml = './conf.keyserver/services/slb-keyserver/user/in.yaml'
+def get_site_name():
+    host = os.popen('echo $HOSTNAME')
+    hostname = host.read().strip()
+    sitename = hostname.split('.')[1].strip()
+    return sitename
+
+def read_conf_appliation_conf():
+    data = json.loads(open(conf_path, 'r').read())
+    return data['configurationRequired']
+
+def render_conf_yaml(type):
+    data = read_conf_appliation_conf()
+    data['masterVIP'] = data['slb_pdf_vip_master_site_a_rs_ip_list'].split(',')[0]
+    if type == 'newcluster':
+        data['opProfile'] = 'newcluster'
+    elif type == 'addnode':
+        data['opProfile'] = 'addnode'
+    data['region_no'] = data['region_list'].split(",")[0].strip()
+    sitename = get_site_name()
+    data['site_name'] = sitename
+
+    kernel_type = get_kernel_type()
+    if kernel_type == KERNEL_6U:
+        new_cluster_tmp = './conf.keyserver/services/slb-keyserver/user/newsu6u.yaml.tmpl'
+        addnode_tmp = './conf.keyserver/services/slb-keyserver/user/addnode6u.yaml.tmpl'
+
+    if kernel_type == KERNEL_7U:
+        new_cluster_tmp = './conf.keyserver/services/slb-keyserver/user/newsu7u.yaml.tmpl'
+        addnode_tmp = './conf.keyserver/services/slb-keyserver/user/addnode7u.yaml.tmpl'
+
+    if type == 'newcluster':
+        newcluster_yaml = yaml.load(open(new_cluster_tmp, 'r').read() % data)
+    elif type == "addnode":
+        newcluster_yaml = yaml.load(open(addnode_tmp, 'r').read() % data)
+    newcluster_yaml['nodes']=[]
+    for server in data['host_list'].split(","):
+        iterm = "%s    %s    %s" % (server.strip(), data['site_name'], 'keyserver')
+        iterm = str(iterm)
+        newcluster_yaml['nodes'].append(iterm)
+    yaml.dump(newcluster_yaml, open(in_yaml,'w'), default_flow_style=False,explicit_start=True,explicit_end=True)
+
+if __name__ == '__main__':
+    if len(sys.argv) != 2:
+        exit(1)
+    type = sys.argv[1].strip()
+    ret = render_conf_yaml(type)
+    exit(ret)
+

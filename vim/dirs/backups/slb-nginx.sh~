@@ -1,0 +1,36 @@
+#!/bin/sh
+
+CWD=`pwd`
+NGINX=slb-nginx
+#NGINX=t-coresystem-tengine-jushita
+#NGINXDIR=${NGINX}-2.1.1
+NGINXDIR=${NGINX}-19.04.0
+NGINXTAR=${NGINXDIR}.tar.gz
+BUILDDIR=$(cd ${HOME}; pwd)
+
+echo "rsync nginx source code..."
+rsync -a --exclude=rpm ../* ${NGINXDIR}
+
+rm -rf ${NGINXDIR}/libs/luajit
+mv ${NGINXDIR}/libs/luajit-2.0-cdn ${NGINXDIR}/libs/luajit
+
+echo "create nginx tar package ${NGINXTAR}..."
+tar zfc ${NGINXTAR} ${NGINXDIR}
+
+echo "create rpmbuild directory and copy files..."
+mkdir -p ~/slb-nginx/rpmbuild/{BUILD,RPMS,SRPMS,SPECS,SOURCES}
+cp ${NGINX}.spec ~/slb-nginx/rpmbuild/SPECS
+cp ${NGINXTAR} ~/slb-nginx/rpmbuild/SOURCES
+cp ${NGINX}.conf ~/slb-nginx/rpmbuild/SOURCES
+cp ${NGINX}.sysconfig ~/slb-nginx/rpmbuild/SOURCES
+cp slb-nginx-ctl ~/slb-nginx/rpmbuild/SOURCES
+
+rm -fr ${NGINXDIR}
+rm -f  ${NGINXTAR}
+
+echo "execute rpmbuild command..."
+cd ~/slb-nginx/rpmbuild/SPECS
+#rpmbuild --define "_topdir ${BUILDDIR}/rpmbuild" -v -ba ${NGINX}.spec
+rpmbuild --define "_topdir ${BUILDDIR}/slb-nginx/rpmbuild" -v -ba ${NGINX}.spec
+find ../ -name "*.rpm" -exec cp '{}' ${CWD}/ \;
+rm -rf ~/slb-nginx/rpmbuild

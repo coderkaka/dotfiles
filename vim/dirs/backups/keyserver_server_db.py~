@@ -1,0 +1,600 @@
+#!/usr/bin/python
+#****************************************************************#
+# ScriptName: keyserver_server.py
+# Author: fenghui.zfh@alibaba-inc.com
+# Create Date: 2017-11-20 14:57
+# Modify Author: $SHTERM_REAL_USER@alibaba-inc.com
+# Modify Date: 2017-12-13 18:08
+# Function: 
+#***************************************************************#
+
+import os
+import sys
+import time 
+import syslog
+import shutil
+import httplib
+import MySQLdb
+import datetime
+import commands
+import traceback
+import threading
+import subprocess
+
+from struct import *
+from hashlib import md5
+from threading import Thread
+from subprocess import Popen, PIPE, STDOUT
+#tops-pythonbase27-1.0.3-4.alios6.x86_64.rpm
+sys.path.append("/home/tops/lib/python2.7/site-packages/")
+from Crypto.Cipher import AES
+from Crypto.Hash import SHA256
+from Crypto.PublicKey import RSA
+from lib.keyserver import constants
+from lib.keyserver.pkey_cache import *
+from lib.keyserver.log import *
+from lib.keyserver.message_type import msgtype
+import requests
+
+
+#spawn a thead process read database 
+rlock = threading.RLock()
+def lock():
+    rlock.acquire()
+
+def unlock():
+    rlock.release()
+
+
+def exec_local_cmd(cmd):
+    p = subprocess.Popen(
+        cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out, err = p.communicate()  # wait
+    return p.returncode, out
+
+        
+
+        
+
+
+class KeyserverDB(object):
+    def __init__(self, gconfig):
+        self._aeskey = 'default'
+        self._aeskey_db = ''
+        self.dbinfo = {}
+        self.cache = PkeyCache()
+        self.conf = gconfig
+        self._err_pkey_rowcount = 0
+        self._access_db_time = 0
+        self._access_db_asctime = ''
+        self._last_access_db_asctime = ''
+        self._pkey_db_rowcount = 0
+        
+    def get_db_info(self):
+        #global config
+        #print self.conf
+        if 'xuanyuan_host' in self.conf and 'xuanyuan_port' in self.conf and 'xuanyuan_user' in self.conf \
+        and 'xuanyuan_passwd' in self.conf and 'xuanyuan_db' in self.conf:
+            return dict(xuanyuan_host=self.conf['xuanyuan_host'], xuanyuan_port=self.conf['xuanyuan_port'], \
+            xuanyuan_user=self.conf['xuanyuan_user'], xuanyuan_passwd=self.conf['xuanyuan_passwd'], xuanyuan_db=self.conf['xuanyuan_db'])
+        else:
+            return None
+        
+#    @perf    
+    def exec_sql(self, sql):
+        try:
+            db=MySQLdb.connect(host=self.dbinfo['xuanyuan_host'], user=self.dbinfo['xuanyuan_user'], \
+            passwd=str(self.dbinfo['xuanyuan_passwd']), db=self.dbinfo['xuanyuan_db'], port=int(self.dbinfo['xuanyuan_port']), \
+            connect_timeout=10, read_timeout=10, write_timeout=10)
+            db.autocommit(True)
+            cursor = db.cursor()
+
+            log_info("%d||exec_sql(): %s" % (msgtype['C0'], sql))
+            cursor.execute(sql)
+            rowcount = cursor.rowcount
+            results = cursor.fetchall()
+            cursor.close()
+            db.close()
+            return rowcount, results
+        except Exception, e:
+            log_error('%d||exec_sql() failed, error info: %s' % (msgtype['C0'], str(e)), exc_info=True)
+            return 0, None
+        
+    def get_aeskey(self):
+        try:
+            sql = "select str_value from param where name='CERT_PRIVATE_KEY'"
+            rowcount, rows = self.exec_sql(sql)
+            #todo
+            if rowcount != 1 or rows is None:
+                log_error('%d||load aeskey db data failed' % msgtype['C0'])
+                # rows type is tuple
+                if os.path.exists(constants.SECRETKEYPATH):
+                    with open(constants.SECRETKEYPATH) as aeskey_file:
+                        lls = aeskey_file.readlines()
+                        if len(lls) > constants.SECRETKEYCOUNT:
+                            self._aeskey_db = lls[constants.SECRETKEYCOUNT-1].rstrip('\n')
+                            log_info('%d||get aeskey from aeskeyfile' % msgtype['C0'])
+                        else:
+                            return None
+            else:
+                self._aeskey_db = rows[0][0]    
+
+            # key format and for test
+            #self._aeskey_db = "54,-34,77,-86,13,-39,-42,44,-70,42,-99,7,-89,88,-17,-83"
+            
+            log_info('%d||get aeskey %s' % (msgtype['C0'], self._aeskey_db))
+
+            aeskey_db_s = self._aeskey_db.split(',')
+            L=[]
+            for i in aeskey_db_s:
+                L.append(pack('b', int(i)))
+
+            aeskey = bytearray(L)
+            return str(aeskey)
+        except Exception, e:
+            log_error('%d||load aeskey response data failed, %s' % (msgtype['C0'], str(e)), exc_info=True)
+            return None
+
+    def get_dbtime(self):
+        try:
+            sql = "select now()"
+            rowcount, rows = self.exec_sql(sql)
+
+            if rowcount != 1 or rows is None:
+                log_error('%d||get dbtime failed' % msgtype['C0'])
+                return None
+            # type(rows[0][0]) is datetime.datetime 
+            localtime = time.strptime(str(rows[0][0]), '%Y-%m-%d %H:%M:%S')
+            timestamp = time.mktime(localtime)
+
+            return timestamp
+        except Exception, e:
+            log_error('%d||exec_sql select now() failed, %s' % (msgtype['C0'], str(e)), exc_info=True)
+            return None
+
+    def get_aeskey_db(self):
+        if self._aeskey_db:
+            return self._aeskey_db
+
+        self.get_aeskey()
+        return self._aeskey_db
+
+    #@lock  mutex with reload_cache()
+    def get_pkey_from_cache(self, modulus_digest):
+        lock()
+        user_id, private_key = self.cache.get_pkey_by_modulus(modulus_digest)
+        unlock()
+        return user_id, private_key
+
+    def fetch_pkey_from_db(self, fetch_all):
+        self.dbinfo = self.get_db_info()
+        if self.dbinfo is None:
+            return 0, None
+
+        self._aeskey = self.get_aeskey()
+        if self._aeskey is None:
+            return 0, None
+
+        dbtime = self.get_dbtime()
+        if dbtime is None:
+            return 0, None
+
+        #tm_year=1970, tm_mon=1, tm_mday=1, tm_hour=9, tm_min=0, tm_sec=0, tm_wday=3, tm_yday=1, tm_isdst=0 
+        if fetch_all:
+            dbtime = 3600
+
+        # set sql condition is modify_time - 1 hour
+        ltime = time.localtime(dbtime - 3600)
+        timestr = time.strftime('%Y-%m-%d %H:%M:%S', ltime)
+
+        old_sql = "select ps.private_key, ps.global_id, ps.user_id, ps.id, ps.gmt_modify from \
+        (select distinct vip.cert_key_id from vip where vip.cert_key_id is not NULL and vip.gmt_modify > '%s' union \
+        select distinct http_rule.cert_key_id from http_rule where http_rule.cert_key_id is not NULL and \
+        http_rule.gmt_modify > '%s') tmp, private_key as ps where ps.global_id = tmp.cert_key_id" % (timestr, timestr)
+
+        new_sql = '''
+        SELECT ps.private_key, ps.global_id, ps.user_id, ps.id, ps.gmt_modify FROM
+        (
+            SELECT DISTINCT vip.cert_key_id FROM vip
+                WHERE vip.cert_key_id IS NOT NULL AND vip.gmt_modify > '%s'
+            UNION
+            SELECT DISTINCT http_rule.cert_key_id FROM http_rule
+                WHERE http_rule.cert_key_id IS NOT NULL AND http_rule.gmt_modify > '%s'
+            UNION
+            SELECT DISTINCT vip_sni_list.cert_key_id FROM vip_sni_list
+                WHERE vip_sni_list.cert_key_id IS NOT NULL AND vip_sni_list.gmt_modify > '%s'
+        ) tmp, private_key AS ps
+        WHERE ps.global_id = tmp.cert_key_id
+        ''' % (timestr, timestr, timestr)
+
+        check_sql = "SELECT * FROM information_schema.TABLES WHERE TABLE_NAME = '%s'" % "vip_sni_list"
+        rowcount, rows = self.exec_sql(check_sql)
+
+        if rowcount:
+            sql = new_sql
+        else:
+            sql = old_sql
+
+        """
+        #sql = "select private_key_test, global_id, user_id, id, gmt_modify from private_key_test where gmt_modify >='%s'" % timestr
+        #sql = "select private_key, global_id, user_id, id, gmt_modify from private_key where gmt_modify >='%s'" % timestr
+        #sql = "select ps.private_key, ps.global_id, ps.user_id, ps.id, ps.gmt_modify from private_key as ps, vip \
+              where ps.global_id = vip.cert_key_id union \
+              select ps.private_key, ps.global_id, ps.user_id, ps.id, ps.gmt_modify from private_key as ps, http_rule \
+              where ps.global_id = http_rule.cert_key_id"
+        """
+        rowcount, rows = self.exec_sql(sql)
+        return rowcount, rows
+
+    def db_pkey_to_file(self):
+        try:
+            fail_count = 0
+            mem_count = 0
+            index = 0
+
+            cache = PkeyCache()
+ 
+            begain_time = time.time()
+
+            rowcount, rows = self.fetch_pkey_from_db(True)
+            
+            first_time = time.time()
+            log_info("%d||start db private key %d records to save files, starttime: %f" % (msgtype['C0'], rowcount, first_time))
+            for row in rows:
+                pkey_db_raw = row[0]
+                cert_global_id = row[1]
+                user_id = str(row[2])
+                id = str(row[3])
+                strtime = str(row[4])
+                
+                pkey_db_md5 = md5(row[0]).hexdigest()            
+
+                if cache.check_pkey_exist(user_id, pkey_db_md5):
+                    mem_count = mem_count + 1
+                    continue       
+
+                if cache.check_err_pkey_exist(pkey_db_md5, id, user_id):
+                    fail_count = fail_count + 1
+                    continue   
+
+                success = False    
+                index = index + 1
+
+                pkey = self.decode_db_pkey(id, user_id, pkey_db_md5, pkey_db_raw)
+                # fake pkey_db_md5 as digest
+                digest = pkey_db_md5
+                success = cache.add_new_pkey(digest, pkey_db_md5, pkey, user_id)
+                self.save_pkey(user_id, pkey, pkey_db_md5, digest, False)
+
+                if not success:
+                    cache.add_err_pkey(pkey_db_md5, id, user_id)
+                    fail_count = fail_count + 1
+
+                    error_file = 'error_' + pkey_db_md5 + '_' + id + '_' + user_id 
+                    self.save_pkey(user_id, pkey, pkey_db_md5, error_file, True)
+           
+            end_time = time.time()
+            log_info("%d||sql fetch db pkey cost: %s(s), save key cost: %s(s), keys: %d, key_same_in_memory: %d, \
+            error_key_rowcounts: %d" % 
+            (msgtype['C0'], str(first_time-begain_time), str(end_time-first_time), index, mem_count, fail_count))    
+
+            return True
+        except Exception, e:
+            log_error('%d||db_pkey_to_file() failed, error info: %s' % (msgtype['C0'], str(e)), exc_info=True)
+            return False
+
+    #@perf
+    def db_pkey_to_cache(self, cache, fetch_all=False):
+        try:
+            fail_count = 0
+            mem_count = 0
+            index = 0
+ 
+            begain_time = time.time()
+
+            rowcount, rows = self.fetch_pkey_from_db(fetch_all)
+            self._last_access_db_asctime = self._access_db_asctime
+            
+            if fetch_all: 
+                self._pkey_db_rowcount = int(rowcount)
+
+            first_time = time.time()
+            log_info("%d||start process db private key %d records, starttime: %f" % (msgtype['C0'], rowcount, first_time))
+            for row in rows:
+                pkey_db_raw = row[0]
+                cert_global_id = row[1]
+                user_id = str(row[2])
+                id = str(row[3])
+                strtime = str(row[4])
+                
+                localtime = time.strptime(strtime, '%Y-%m-%d %H:%M:%S')
+                gmt_modify_time = time.mktime(localtime)
+                if gmt_modify_time > self._access_db_time:
+                    self._access_db_time = gmt_modify_time
+                    self._access_db_asctime = strtime
+                
+                pkey_db_md5 = md5(row[0]).hexdigest()            
+
+                if cache.check_pkey_exist(user_id, pkey_db_md5):
+                    mem_count = mem_count + 1
+                    continue       
+
+                if cache.check_err_pkey_exist(pkey_db_md5, id, user_id):
+                    fail_count = fail_count + 1
+                    continue   
+
+                success = False    
+                index = index + 1
+
+                pkey = self.decode_db_pkey(id, user_id, pkey_db_md5, pkey_db_raw)
+                success, digest = self.push_pkey_tengine_nodigest(user_id, id, pkey, index)
+                if success and digest is not None:
+                    success = cache.add_new_pkey(digest, pkey_db_md5, pkey, user_id)
+                    #self.save_pkey(user_id, pkey, pkey_db_md5, digest, False)
+
+                if not success:
+                    cache.add_err_pkey(pkey_db_md5, id, user_id)
+                    fail_count = fail_count + 1
+
+                    error_file = 'error_' + pkey_db_md5 + '_' + id + '_' + user_id 
+                    self.save_pkey(user_id, pkey, pkey_db_md5, error_file, True)
+
+                log_info("%d||new key: rowid: %s, user_id: %s global_id: %s privatekey digest %s modify_time: %s success: %s" % 
+                (msgtype['C0'], id, user_id, cert_global_id, digest, strtime, success)) 
+
+           
+            self._err_pkey_rowcount = cache.get_err_pkey_num()
+            end_time = time.time()
+            log_info("%d||db cost: %s(s), private key cost: %s(s), push_keys: %d, key_same_in_memory: %d, \
+            error_key_rowcounts: %d; gmt_modify_time: %s -> %s" % 
+            (msgtype['C0'], str(first_time-begain_time), str(end_time-first_time), index, mem_count, 
+            fail_count, self._last_access_db_asctime, self._access_db_asctime))    
+
+            return True
+        except Exception, e:
+            log_error('%d||db_pkey_to_cache() failed, error info: %s' % (msgtype['C0'], str(e)), exc_info=True)
+            return False
+            
+    def fresh_cache(self):
+        return self.db_pkey_to_cache(self.cache)
+    
+    
+    def reload_cache(self):
+        cache = PkeyCache()
+        result = self.db_pkey_to_cache(cache, fetch_all=True)
+        if result:
+            lock()
+            self.cache = cache
+            unlock()
+        return result
+        
+  
+    def push_pkey_tengine(self, user_id, id, digest, pkey, index, retry=5):
+        """
+        push private key to tengine, 200 or 300(repeat key)
+        """
+        if digest is None:
+            return False
+
+        for x in range(retry):
+            try:
+                url = 'http://127.0.0.1/privatekey/' + digest
+
+                #log_info('curl -d ' + url)
+                rsp = requests.post(url=url, data=pkey)
+                #log_info("retrun status: " + str(rsp.status_code))
+                result = dict()
+                result['code'] = rsp.status_code
+                if result['code'] == 200 or result['code'] == 300:
+                    return True
+
+                log_error("%d||<push pkey failed> index %d, rowid: %s, user_id %s privatekey digest %s! error code: %d, %s, %s" % 
+                             (msgtype['C0'], index, id, user_id, digest, result['code'], pkey, rsp.text))
+
+                time.sleep(1)
+            except Exception, e:
+                log_error("%d||<push pkey exception> user_id %s privatekey digest %s curl failed! error: %s" % 
+                                 (msgtype['C0'], user_id, digest, str(e)))
+                continue
+            else:
+                return False
+        return False
+
+    def push_pkey_tengine_nodigest(self, user_id, id, pkey, index, retry=5):
+        """
+        push private key to tengine, 200 or 300(repeat key)
+        """
+
+        for x in range(retry):
+            try:
+                url = 'http://127.0.0.1/privatekey'
+
+                #log_info('curl -d ' + url)
+                rsp = requests.post(url=url, data=pkey)
+                #log_info("retrun status: " + str(rsp.status_code))
+                result = dict()
+                result['code'] = rsp.status_code
+                if result['code'] == 200 or result['code'] == 300:
+                    return True, str(rsp.text)
+
+                log_error("%d||<push pkey failed> index %d, rowid: %s, user_id %s privatekey! error code: %d, %s, %s" % 
+                             (msgtype['C0'], index, id, user_id, result['code'], pkey, rsp.text))
+
+                time.sleep(1)
+            except Exception, e:
+                log_error("%d||<push pkey exception> user_id %s privatekey curl failed! error: %s" % 
+                                 (msgtype['C0'], user_id, str(e)))
+                continue
+            else:
+                return False, None
+        return False, None
+             
+    def save_pkey(self, user_id, text, text_md5, name, use_errdir):
+        write_flag = True
+        try:
+            if not os.path.exists(constants.PKEY_FILE_DIR):
+                os.makedirs(constants.PKEY_FILE_DIR, 0644)
+            if not os.path.exists(constants.PKEY_TEMP_DIR):
+                os.makedirs(constants.PKEY_TEMP_DIR, 0644)
+
+            filename_private_key = constants.PKEY_TEMP_DIR + name
+            if use_errdir:
+                filename_private_key = constants.PKEY_FILE_DIR + name
+                
+            if os.path.exists(filename_private_key):
+                with open(filename_private_key, 'r') as key_file:
+                    private_key = key_file.read()
+                    private_key_md5 = md5(private_key).hexdigest()
+                
+                    if text_md5 == private_key_md5:
+                        write_flag = False
+                
+            if write_flag:
+                with open(filename_private_key, 'w') as key_file:
+                    key_file.write(text)
+
+            return True
+        except Exception, e:
+            log_error("%d||<writeFile> global_id %s privatekey %s written failed! error info: %s" % 
+            (msgtype['C0'], user_id, name, str(e)))
+            return False  
+    
+    def dump_pkeys2file(self):
+        """ 
+        Save all private keys to file.
+        """
+        pkey_dump = self.cache.dump_pkey_cache()
+        if pkey_dump:
+            for digest in pkey_dump:
+                self.save_pkey(0, pkey_dump[digest], 0, digest, False)
+
+        return len(pkey_dump)        
+        
+    def remove_pkeysfile(self):
+        if not os.path.exists(constants.PKEY_TEMP_DIR):
+            return
+
+        for name in os.listdir(constants.PKEY_TEMP_DIR):
+            file = constants.PKEY_TEMP_DIR + name
+            if os.path.isfile(file):
+                os.remove(file)
+              
+    def remove_pkeyserror(self):
+        """ 
+        delete error key files.
+        """
+        if not os.path.exists(constants.PKEY_FILE_DIR):
+            return
+
+        for name in os.listdir(constants.PKEY_FILE_DIR):
+            file = constants.PKEY_FILE_DIR + name
+            if os.path.isfile(file):
+                os.remove(file)
+
+    def check_key_decode(self):
+        if self._pkey_db_rowcount > 0:  
+            file_num = len(os.listdir(constants.PKEY_TEMP_DIR))
+            if self._err_pkey_rowcount > file_num:
+                return False
+        return True
+ 
+    #pkey == privatekey
+    def pkey_java2python_format(self, pkey_db_raw):
+        #print("pkey_db_raw: %s"%(pkey_db_raw))
+        pkey_db_text =pkey_db_raw.split(',')
+        #print pkey_db_text
+
+        L=[]
+        for i in pkey_db_text:
+            L.append(pack('b', int(i)))
+
+        pkey = bytearray(L)
+        #print("pkey: %s"%(pkey))
+
+        return str(pkey)
+
+
+
+#refer to https://www.dlitz.net/software/pycrypto/api/current/        
+    def decode_pkey(self, aeskey, ciphertext):
+        if not aeskey or not ciphertext:
+            return ''
+        try:
+            cryptor = AES.new(aeskey, AES.MODE_ECB, b'0000000000000000')
+            plaintext  = cryptor.decrypt(ciphertext)
+            pad_len = ord(plaintext[-1])
+            if pad_len > 16 or pad_len > len(plaintext):
+                return plaintext.rstrip('\0')
+            return plaintext.rstrip('\0')[:-pad_len]
+        except Exception, e:
+            log_error('%d||decode_pkey() failed, %s' % (msgtype['C0'], str(e)), exc_info=True)
+            return ''
+    #reserve 
+    def pkey_modulus_digest(self, db_id, user_id, pkey):
+        if not db_id or not user_id or not pkey:
+            return None
+        try:
+            rsakey = RSA.importKey(pkey)
+            #0x999999L  use [2:-1] remove 0x and L
+            h = SHA256.new(hex(rsakey.n).upper()[2:-1])
+            modulus_digest = h.hexdigest()
+            
+        except Exception,e:
+            #log_error('%d||pkey_modulus_digest() failed, pkey db_id %s user_id %s, error info: %s' % 
+            #(msgtype['C0'], db_id, user_id, str(e)), exc_info=True)
+            log_error('%d||pkey_modulus_digest() failed, pkey db_id %s user_id %s, error info: %s' % 
+            (msgtype['C2'], db_id, user_id, str(e)))
+            modulus_digest = None
+
+        return modulus_digest
+        
+    def try_convert_format(self, inkey, outkey):
+        command =  "openssl rsa -in %s -out %s 2>&1" % (inkey, outkey)
+        log_info('%d||EXEC: %s' % (msgtype['C0'], command))
+        process = Popen(command, shell=True, stdin=PIPE, stdout=PIPE, stderr=STDOUT, close_fds=True)
+        log_info('%d||%s' % (msgtype['C0'],process.stdout.read()))
+        ret = True
+        if process.wait() != 0:
+            log_error("%d||convert_pkey_format failed. infile %s" % (msgtype['C0'], inkey))
+            ret = False
+        return ret
+
+    # reserve    
+    def decode_pkey_get_digest(self, id, user_id, pkey_db_md5, pkey_db_raw):
+        pkey_db_text = self.pkey_java2python_format(pkey_db_raw)
+        pkey = self.decode_pkey(self._aeskey, pkey_db_text)
+        modulus_digest = self.pkey_modulus_digest(id, user_id, pkey)
+        if not modulus_digest:
+            error_file = 'error_' + pkey_db_md5 + '_' + id + '_' + user_id 
+            self.save_pkey(user_id, pkey, pkey_db_md5, error_file, True)
+            infile = constants.PKEY_FILE_DIR + error_file
+            outfile = constants.PKEY_TEMP_DIR + pkey_db_md5 + '_' + id
+
+            if self.try_convert_format(infile, outfile):
+                with open(outfile, 'r') as o_file:
+                    pkey = o_file.read()
+
+                    #delete infile,outfile
+                    os.remove(infile)
+                    os.remove(outfile)
+
+                    modulus_digest = self.pkey_modulus_digest(id, user_id, pkey)
+                    #if modulus_digest:
+                    #    save_pkey(user_id, pkey, pkey_db_md5, modulus_digest) 
+        return modulus_digest, pkey     
+
+    def decode_db_pkey(self, id, user_id, pkey_db_md5, pkey_db_raw):
+        pkey_db_text = self.pkey_java2python_format(pkey_db_raw)
+        pkey = self.decode_pkey(self._aeskey, pkey_db_text)
+        return pkey     
+
+
+
+if __name__ == '__main__':
+    sys.path.append('lib')
+    print 'begin'
+
+    while True:
+        time.sleep(30)
+
+

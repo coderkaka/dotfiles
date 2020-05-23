@@ -1,0 +1,22 @@
+#!/usr/bin/env python
+# coding=utf-8
+import json
+a = ('False ' * 5).split(' ')[:-1]
+UPGRADE_STEPS = [
+    "upgrade_precheck",
+    "disable_node",
+    "kill_process",
+    "deploy_node",
+    "reboot_node",
+    "start_process",
+    "enable_node",
+]
+b = dict(zip(UPGRADE_STEPS, a))
+open("test","w+").write(json.dumps(b))
+
+tmp_steps = json.loads(open("test","r").read())
+for step in UPGRADE_STEPS:
+    tmp_steps[step] = True
+open("result","w+").write(json.dumps(tmp_steps))
+cc = json.loads(open("result","r").read())
+print cc

@@ -1,0 +1,13 @@
+host: {{ dummy0_ip }}
+local_if: lo
+master_host:
+{%- for mip in list_master %}
+    - {{ mip }}
+{%- endfor %}
+monitor_host:
+{%- for mip in list_master %}
+    - {{ mip }}
+{%- endfor %}
+monitor_port: 11422
+port: 12000
+using_hc: true

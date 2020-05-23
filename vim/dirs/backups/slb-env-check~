@@ -1,0 +1,156 @@
+#!/home/tops/bin/python2.7
+#coding: utf-8
+
+import re
+import os
+import sys
+import yaml
+import time
+import shlex
+import subprocess
+import commands
+
+sys.path.append('/usr/alisys/dragoon/libexec/ssop/c3')
+
+import lldp_info
+
+
+def popen(cmd):
+    return subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+def get_ospf_info(dev, ipaddr):
+    """ Function to catch a OSPF packet.
+    Then match t1/t2 gateway ip and area id.
+    Args:
+        dev: A string of net device name. Probably is 'T1' or 'T2'.
+    Return:
+    """
+    cmd = 'tcpdump -n -i {dev} proto ospf and not host {ipaddr} -v -c 1'.format(dev=dev, ipaddr=ipaddr)
+    process = popen(cmd)
+    # if 10 seconds passed but process still block, then kill it.
+    time_out = 60
+    ok = 0
+    while not ok:
+        if time_out == 0:
+            process.kill()
+            raise Exception('get ospf_info timeout.')
+        process.poll()
+        if process.returncode is None:
+            time_out -= 1
+            time.sleep(1)
+        else:
+            ok = 1
+    if ok:
+        output = process.stdout.read()
+    else:
+        #TODO
+        raise Exception
+    pattern_gw_ip = re.compile(r'(\S+) >')
+    pattern_area_id = re.compile(r'Area (\d+\.\d+\.\d+\.\d+)')
+    pattern_timer = re.compile(r'Hello Timer (\d+)s, Dead Timer (\d+)s,')
+    return dict(gw_ip=pattern_gw_ip.search(output).group(1),
+                area_id=pattern_area_id.search(output).group(1),
+                hello_timer=int(pattern_timer.search(output).group(1)),
+                dead_timer=int(pattern_timer.search(output).group(2)),
+                nssa='NSSA' in output,
+    )
+
+
+def get_lsw_info():
+    """ Function to get LSW infomatioin
+    Return:
+    """
+    os.system("/usr/alisys/dragoon/libexec/armory/lldp/lldpdctl.sh start")
+    timeout = 180
+    start = int(time.time())
+    while True:
+        try:
+            li = lldp_info.lldp_info()
+            t1_info = li['T1']
+            t2_info = li['T2']
+            t1_lsw_hostname = t1_info['chassis.name'].split('(')[0]
+            t2_lsw_hostname = t2_info['chassis.name'].split('(')[0]
+            if 'port.ifname' in t1_info:
+                t1_port = t1_info['port.ifname']
+            else:
+                t1_port = t1_info['port.local']
+            if 'port.ifname' in t2_info:
+                t2_port = t2_info['port.ifname']
+            else:
+                t2_port = t2_info['port.local']
+            break
+        except:
+            if int(time.time()-start) > timeout:
+                os.system("/usr/alisys/dragoon/libexec/armory/lldp/lldpdctl.sh stop")
+                raise Exception('get lldp_info timeout.')
+            time.sleep(1)
+    os.system("/usr/alisys/dragoon/libexec/armory/lldp/lldpdctl.sh stop")
+    return dict(t1_lsw_hostname=t1_lsw_hostname,
+                t1_port=t1_port,
+                t2_lsw_hostname=t2_lsw_hostname,
+                t2_port=t2_port)
+
+def compare(item, v1, v2):
+    if str(v1) != str(v2):
+        print "%s: %s != %s " % (item, v1, v2)
+        return 1
+    return 0
+
+def check(salt_pillar_path):
+    ret = 0
+
+    salt_pillar = yaml.load(file(salt_pillar_path))
+    conf_byhost = salt_pillar['byhost'][os.uname()[1]]
+    # check for lvs and proxy only
+    if conf_byhost['role_name'] not in ['lvs', 'proxy']:
+        sys.exit()
+
+    #netframe lvs maybe don't have  T1,T2 
+    if conf_byhost['role_name'] in ['lvs']:
+        status,output = commands.getstatusoutput('/sbin/ip link show |grep T1')
+        if status != 0:
+            status,output = commands.getstatusoutput('rmmod ixgbe;sleep 1 ; modprobe ixgbe')
+
+    # up T1/T2
+    os.system("/sbin/ifconfig T1 up")
+    os.system("/sbin/ifconfig T2 up")
+
+    # check lsw link
+    lsw_info = get_lsw_info()
+    ret = ret + compare("t1_lsw_hostname", lsw_info['t1_lsw_hostname'], conf_byhost['t1_lsw_hostname'])
+    ret = ret + compare("t1_port", lsw_info['t1_port'], conf_byhost['t1_port'])
+    ret = ret + compare("t2_lsw_hostname", lsw_info['t2_lsw_hostname'], conf_byhost['t2_lsw_hostname'])
+    ret = ret + compare("t2_port", lsw_info['t2_port'], conf_byhost['t2_port'])
+
+    # check ospf
+    t1_ospf = get_ospf_info('T1', conf_byhost['t1_ip'])
+    t2_ospf = get_ospf_info('T2', conf_byhost['t2_ip'])
+    ret = ret + compare("t1_t2_aread_id", t1_ospf['area_id'], t2_ospf['area_id'])
+    ret = ret + compare("area_id", t2_ospf['area_id'], '0.0.0.%s' % conf_byhost['area_id'])
+    ret = ret + compare("t1_nssa", t1_ospf['nssa'], conf_byhost.get('area_type') == "nssa")
+    ret = ret + compare("t1_gateway", t1_ospf['gw_ip'], conf_byhost['t1_gateway'])
+    ret = ret + compare("t1_hello_timer", t1_ospf['hello_timer'], conf_byhost.get('hello_interval', 3))
+    ret = ret + compare("t1_dead_timer", t1_ospf['dead_timer'], conf_byhost.get('dead_interval', 10))
+    ret = ret + compare("t2_nssa", t2_ospf['nssa'], conf_byhost.get('area_type') == "nssa")
+    ret = ret + compare("t2_gateway", t2_ospf['gw_ip'], conf_byhost['t2_gateway'])
+    ret = ret + compare("t2_hello_timer", t2_ospf['hello_timer'], conf_byhost.get('hello_interval', 3))
+    ret = ret + compare("t2_dead_timer", t2_ospf['dead_timer'], conf_byhost.get('dead_interval', 10))
+    # down T1,T2 for netframe lvs
+    if conf_byhost['role_name'] in ['lvs']:
+        os.system("/sbin/ifconfig T1 down")
+        os.system("/sbin/ifconfig T2 down")
+    sys.exit(ret)
+
+
+def test():
+    print get_ospf_info("T1", "10.101.153.130")
+    print get_ospf_info("T2", "10.101.157.130")
+    print get_lsw_info()
+    sys.exit()
+
+if __name__ == '__main__':
+    if len(sys.argv) != 2:
+        exit(0)
+    else:
+        salt_pillar_path = sys.argv[1].strip() + '/node.sls'
+    check(salt_pillar_path)

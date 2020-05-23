@@ -1,0 +1,10 @@
+#!/bin/bash
+java="/opt/taobao/java/bin/java"
+genkey="/home/slb/cert-central-agent/lib/GenerateKey.class"
+
+[[ ! -x "$java" ]] && echo "ali-jdk required: 'sudo yum -y install ali-jdk -b current', quit..." && exit 1
+[[ ! -f "$genkey" ]] && echo "'$genkey' not found, quit..." && exit 1
+
+argexec=`basename $genkey .class`
+classpath=`dirname "$genkey"`
+$java -classpath "$classpath" $argexec $@

@@ -1,0 +1,61 @@
+%define kernel_version 4.9.79-009.ali3000.alios7.x86_64
+
+Name: slb-vsock-ali3000
+Version:1.2.3
+Release: %(echo $RELEASE)%{?dist}
+#Release: %(echo 2)%{?dist}
+Summary: slb-vsock
+Group: Aliyun/SLB
+Vendor: Aliyun inc
+License: Share
+URL: http://slb.houyi.aliyun-inc.org/
+Source: %{name}-%{version}.tar.gz
+Provides: %{name}-%{version}-%{release}
+
+#BuildRequires: kernel-devel = 4.9.79-009.ali3000.alios7.x86_64
+#Requires: kernel-x86_64 = %{kernel_version}
+
+%description
+
+%build
+cd $OLDPWD/../vsock
+CFLAGS="${RPM_OPT_FLAGS}" make VER=%{version}-%(echo $RELEASE) VSOCK_GIT_COMMIT=`git log --decorate --oneline -n1|awk '{print $1}'` VSOCK_RELEASE=%(echo $RELEASE)%{?dist} MOD_NAME=slb_vsock VSOCK_KBUILD_PATH=/usr/src/kernels/%{kernel_version}
+cd -
+
+%install
+MOD_NAME=slb_vsock
+#KERNEL_RELEASE=`uname -r`
+KERNEL_RELEASE=%{kernel_version}
+rm -rf ${RPM_BUILD_ROOT}
+mkdir -p $RPM_BUILD_ROOT/lib/modules/$KERNEL_RELEASE/updates
+cp $OLDPWD/../vsock/$MOD_NAME.ko $RPM_BUILD_ROOT/lib/modules/$KERNEL_RELEASE/updates/
+mkdir -p $RPM_BUILD_ROOT/etc/sysconfig/modules
+cp $OLDPWD/../vsock/$MOD_NAME.modules $RPM_BUILD_ROOT/etc/sysconfig/modules/
+chmod +x $RPM_BUILD_ROOT/etc/sysconfig/modules/$MOD_NAME.modules
+
+%files
+%defattr(-,root,root)
+/lib/modules
+/etc/sysconfig/modules/
+
+%post
+MOD_NAME=slb_vsock
+if [ -e "/boot/System.map-%{kernel_version}.x86_64" ]; then
+	/sbin/depmod -aeF "/boot/System.map-%{kernel_version}.x86_64" "%{kernel_version}.x86_64" > /dev/null || :
+fi
+echo "Install $MOD_NAME module finished."
+
+%preun
+MOD_NAME=slb_vsock
+echo "Ready to unstall $MOD_NAME module."
+
+%postun
+MOD_NAME=slb_vsock
+if [ -e "/boot/System.map-%{kernel_version}.x86_64" ]; then
+	/sbin/depmod -aeF "/boot/System.map-%{kernel_version}.x86_64" "%{kernel_version}.x86_64" > /dev/null || :
+fi
+echo "Uninstall $MOD_NAME module finished."
+
+%clean
+rm -rf $RPM_BUILD_DIR/%{name}
+rm -rf $RPM_BUILD_ROOT

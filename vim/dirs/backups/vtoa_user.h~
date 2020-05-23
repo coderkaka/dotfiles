@@ -1,0 +1,54 @@
+#ifndef VTOA_H_INCLUDE
+#define VTOA_H_INCLUDE
+
+#include <linux/types.h>
+
+struct vtoa_vs {
+    __u32   vid;    /* VPC ID */
+    __be32  vaddr;  /* vip */
+    __be16  vport;  /* vport */
+};
+
+struct vtoa_vxlan {
+    __u32   vid;            /* VPC ID */
+    __be32  vxlan_daddr;    /* vxlan dest address */
+};
+
+<<<<<<< HEAD
+=======
+struct vtoa_vxlan_toa {
+    struct vtoa_vxlan vx;
+    __be16 reserved;
+    __be16 toa_port;
+    __be32 toa_ip;
+};
+
+struct vtoa_toa{
+    __be16 reserved;
+    __be16 toa_port;
+    __be32 toa_ip;
+};
+
+>>>>>>> 62109d22... add toa support
+#define VTOA_BASE_CTL       (64+1024+64+64+64)      /* base */
+#define VTOA_SO_SET_VXLAN   (VTOA_BASE_CTL+1)
+<<<<<<< HEAD
+#define VTOA_SO_GET_VXLAN   (VTOA_BASE_CTL+2)
+=======
+#define VTOA_SO_SET_TOA   (VTOA_BASE_CTL+2)
+#define VTOA_SO_GET_VXLAN_TOA VTOA_BASE_CTL
+#define VTOA_SO_GET_VXLAN   (VTOA_BASE_CTL+3)
+#define VTOA_SO_GET_TOA   (VTOA_BASE_CTL+4)
+>>>>>>> 62109d22... add toa support
+
+#define VTOA_BASE_CTL_VS    (64+1024+64+64+64+64)
+#define VTOA_SO_GET_VS      (VTOA_BASE_CTL_VS+1)
+
+/* only used for tengine */
+#define vpcopt_equal(vxa, vxb) \
+        ((vxa == vxb) || \
+        (vxa != NULL && vxb != NULL && \
+         ((vxa)->vid == (vxb)->vid && \
+          (vxa)->vxlan_daddr == (vxb)->vxlan_daddr)))
+
+#endif

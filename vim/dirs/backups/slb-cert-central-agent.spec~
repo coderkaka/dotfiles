@@ -1,0 +1,119 @@
+Name: slb-cert-central-agent
+Packager:fenghui.zfh
+Version:18.04.1
+Release: %(echo $RELEASE)%{?dist}
+
+Vendor: Alibaba Inc.
+AutoReqProv:no
+Summary: SLB Keyserver Agent
+URL: http://docs.alibaba-inc.com/display/corptech/SLB
+Group: ali/slb
+License: Commercial
+
+%if %{?CALLER:1}%{!?CALLER:0}
+Packager:fenghui.zfh
+%endif
+
+Requires: openssl,tops-pythonbase27 >= 1.0.3-4
+#Requires: crypto is tops-pythonbase27 for 6u
+
+AutoProv:none
+%define __os_install_post %{nil}
+
+%description
+CodeUrl:git@gitlab.alibaba-inc.com:slb/slb-agent.git v1712
+CodeRev:fb930bf
+AoneLog:
+AoneUrl:
+SLB Control System, Keyserver Agent
+
+%define _prefix /home/slb/cert-central-agent
+
+%build
+cd $OLDPWD/../keyserver-agent/
+
+%install
+mkdir -p .%{_prefix}
+mkdir -p .%{_prefix}/conf
+mkdir -p .%{_prefix}/errorkey
+mkdir -p .%{_prefix}/bin
+mkdir -p .%{_prefix}/src
+mkdir -p .%{_prefix}/src/lib
+mkdir -p .%{_prefix}/src/lib/keyserver
+mkdir -p .%{_prefix}/src/conf
+#mkdir -p .%{_prefix}/unittest
+mkdir -p ./etc/slb
+mkdir -p ./etc/rc.d/init.d
+mkdir -p ./etc/proxy
+mkdir -p ./etc/proxy/conf
+mkdir -p ./home/slb/logs/tengine
+mkdir -p ./home/slb/logs/cert-central-agent
+mkdir -p ./home/slb/logs/cert-central-agent
+mkdir -p ./dev/shm/pkey
+
+cp -fr $OLDPWD/../keyserver-agent/slb-cert-central-agent.sh ./etc/rc.d/init.d/slb-cert-central-agent
+
+cp -fr $OLDPWD/../keyserver-agent/server.crt  .%{_prefix}/conf
+cp -fr $OLDPWD/../keyserver-agent/server.key  .%{_prefix}/conf
+cp -fr $OLDPWD/../keyserver-agent/ca.crt  .%{_prefix}/conf
+cp -fr $OLDPWD/../keyserver-agent/keyserver.status  .%{_prefix}
+
+cp -fr $OLDPWD/../keyserver-agent/src/conf/proxy.conf.template  .%{_prefix}/conf
+cp -fr $OLDPWD/../keyserver-agent/src/conf/proxy.conf.template  ./etc/proxy/conf/proxy.conf
+
+cp -fr $OLDPWD/../keyserver-agent/slb-cert-central-agent.sh  .%{_prefix}/bin
+cp -fr $OLDPWD/../keyserver-agent/reconf_keyserver.sh  .%{_prefix}/bin
+
+
+cp -f $OLDPWD/../keyserver-agent/src/keyserver_main.py .%{_prefix}/src
+cp -f $OLDPWD/../keyserver-agent/src/lib/*.py .%{_prefix}/src/lib
+cp -f $OLDPWD/../keyserver-agent/src/lib/keyserver/*.py .%{_prefix}/src/lib/keyserver
+
+cp -f $OLDPWD/../keyserver-agent/src/conf/keyserver.yaml .%{_prefix}/conf
+#cp -rf $OLDPWD/../keyserver-agent/unittest/* .%{_prefix}/unittest/
+
+
+#cp -fr $OLDPWD/../agent/src/lib/yaml .%{_prefix}/lib
+
+#find .%{_prefix} -name '.svn' -type d -print0|xargs -0 rm -rf
+
+%files
+%defattr(644,admin,admin,755)
+%attr(755,admin,admin) %{_prefix}/bin/*.sh
+%attr(755,admin,admin) %{_prefix}/src/*.py
+%attr(755,admin,admin) %{_prefix}/src/lib/*.py
+%attr(755,admin,admin) %{_prefix}/src/lib/keyserver/*.py
+%{_prefix}
+/etc/proxy
+
+/etc/rc.d/init.d
+/etc/rc.d/init.d/slb-cert-central-agent
+
+/home/slb/logs/tengine
+/home/slb/logs/cert-central-agent
+/dev/shm/pkey
+#%config %attr(644,admin,admin) /etc/proxy/conf/proxy.conf
+/etc/proxy/conf/proxy.conf
+%config(noreplace) %attr(644,admin,admin) /home/slb/cert-central-agent/conf/keyserver.yaml
+
+%post
+
+chmod +x /etc/rc.d/init.d/slb-cert-central-agent
+chkconfig --add slb-cert-central-agent
+chkconfig --level 35 slb-cert-central-agent on
+
+%preun
+if [ "$1" = 1 ] ; then
+    # install
+    :
+elif [ "$1" = 2 ] ; then
+    # update
+    if [ -f /etc/rc.d/init.d/slb-control-proxy ] ; then
+         chkconfig --del slb-cert-central-agent
+    fi
+fi
+
+
+%changelog
+* Tue Jan 30 2018 SLB_team 17.12.0
+- Change: slb keyserver agent use python support. qiuque@fenghui.zfh

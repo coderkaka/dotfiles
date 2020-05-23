@@ -1,0 +1,102 @@
+user  root;
+worker_processes  32;
+
+#error_log  logs/error.log  error;
+error_log  "pipe:/opt/taobao/install/cronolog/sbin/cronolog /home/slb/logs/tengine/%Y-%m-%d-%H-error_log" error;
+pid         /etc/proxy/nginx.pid;
+
+events {
+    worker_connections  20480;
+}
+
+http {
+    default_type  application/octet-stream;
+
+    #access_log  logs/access.log  main;
+    access_log   "pipe:/opt/taobao/install/cronolog/sbin/cronolog /home/slb/logs/tengine/%Y-%m-%d-%H-access_log";
+    sendfile        on;
+
+    keepalive_timeout  65;
+    client_max_body_size 1000m;
+    check_shm_size 50M;
+
+    client_body_buffer_size 32m;
+
+    server {
+        listen 127.0.0.1:80 default_server backlog=4095;
+        location = /nginx_status {
+            stub_status     on;
+        }
+
+        location = /keyserver_status {
+            ssl_keyless_server_status;
+        }
+
+        location = /keyserver_pkey {
+            ssl_keyless_server_dump;
+        }
+
+        location = /keyserver_pkey_num {
+            ssl_keyless_server_dump_key_num;
+        }
+
+        location ^~ /privatekey {
+            dyups_pkey_interface;
+        }
+
+    }
+
+    server {
+        listen      443 ;
+        ssl                  on;
+        ssl_certificate     /home/slb/cert-central-agent/conf/server.crt;
+        ssl_certificate_key  /home/slb/cert-central-agent/conf/server.key;
+
+        ssl_session_timeout  5m;
+
+        #ssl_protocols  SSLv2 SSLv3 TLSv1;
+        ssl_protocols  TLSv1 TLSv1.1 TLSV1.2;
+        ssl_ciphers  HIGH:!kEDH:!aNULL:!MD5;
+        ssl_prefer_server_ciphers   on;
+        #disable TRACE
+        if ( $request_method = TRACE ) {
+                return 403;
+        }
+
+        location /keyserver/addkey {
+                proxy_pass http://127.0.0.1:12000;
+        }
+    }
+}
+tcp {
+    # 1G/2048 ~= 52w key
+    dyups_pkey_shm_zone_size 1G;
+    qat_std_async_ssl_enable on;
+
+    server {
+        log_format keyserver "$time_iso8601||$pid||$client_addr||$session_addr||$sni||$client_ip||$err_code||$operation||$digest||$pkey_size||$keyless_proxy_ipport||$keyless_slbid||$keyless_slb_vipport||$keyless_proxy_cid||$keyless_proxy_pid||$keyless_request_time||$keyless_payload_length||$bytes_write||$keyless_connection||$keyless_connection_requests||$keyless_pkey_status||";
+        access_log "pipe:/opt/taobao/install/cronolog/sbin/cronolog /home/slb/logs/tengine/%Y-%m-%d-%H-keyserver-access_log" keyserver;
+
+        listen 6666;
+        ssl on;
+
+        ssl_certificate /home/slb/cert-central-agent/conf/server.crt;
+        ssl_certificate_key /home/slb/cert-central-agent/conf/server.key;
+        ssl_client_certificate /home/slb/cert-central-agent/conf/ca.crt;
+
+        ssl_protocols TLSv1.2;
+        ssl_ciphers  EECDH+AES256:RSA+AES256:!MD5:!aNULL:!eNULL;
+        ssl_prefer_server_ciphers on;
+        ssl_verify_client on;
+        ssl_session_cache shared:SSL:1024m;
+
+        keyless;
+        keyless_pkey_path /dev/shm/pkey;
+        keyless_pkey_ecc_path /dev/shm/pkey;
+        keyless_read_timeout 10s;
+        keyless_send_timeout 10s;
+        keyless_keepalive_timeout 60s;
+        keyless_keepalive_requests 500;
+        keyless_health_check /home/slb/cert-central-agent/keyserver.status;
+    }
+}
